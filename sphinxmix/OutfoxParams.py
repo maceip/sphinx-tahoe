@@ -1,0 +1,195 @@
+"""Outfox parameters and cryptographic primitives.
+
+Implements the building blocks from Rial, Piotrowska, Halpin (2025):
+"Outfox: a Postquantum Packet Format for Layered Mixnets"
+(arXiv:2412.19937v2)
+
+Primitives:
+  KEM   - Key Encapsulation Mechanism (X25519, extensible to ML-KEM)
+  KDF   - HKDF-SHA256 key derivation
+  AEAD  - ChaCha20-Poly1305 authenticated encryption
+  SE    - LIONESS wide-block PRP (length-preserving, IND$-CCA)
+"""
+
+from os import urandom
+from hashlib import sha256
+import hmac as hmac_mod
+
+from nacl.bindings import (
+    crypto_scalarmult_base,
+    crypto_scalarmult,
+    crypto_aead_chacha20poly1305_ietf_encrypt,
+    crypto_aead_chacha20poly1305_ietf_decrypt,
+)
+
+from petlib.cipher import Cipher
+
+
+class KEM_X25519:
+    """X25519-based Key Encapsulation Mechanism.
+
+    Not post-quantum secure, but compatible with existing infrastructure.
+    Drop-in replaceable with ML-KEM-768 or X-Wing for post-quantum security.
+    """
+    CIPHERTEXT_SIZE = 32
+    PUBLIC_KEY_SIZE = 32
+    SECRET_KEY_SIZE = 32
+    SHARED_KEY_SIZE = 32
+
+    @staticmethod
+    def keygen():
+        sk = urandom(32)
+        pk = crypto_scalarmult_base(sk)
+        return pk, sk
+
+    @staticmethod
+    def encapsulate(pk):
+        eph_sk = urandom(32)
+        c = crypto_scalarmult_base(eph_sk)
+        shk = crypto_scalarmult(eph_sk, pk)
+        return shk, c
+
+    @staticmethod
+    def decapsulate(c, sk):
+        shk = crypto_scalarmult(sk, c)
+        if shk == b'\x00' * 32:
+            return None
+        return shk
+
+
+AEAD_TAG_SIZE = 16
+AEAD_NONCE = b'\x00' * 12
+
+
+def hkdf(ikm, length, salt=None, info=b""):
+    """HKDF-SHA256 (RFC 5869)."""
+    if salt is None:
+        salt = b'\x00' * 32
+    prk = hmac_mod.new(salt, ikm, sha256).digest()
+    t = b""
+    okm = b""
+    for i in range(1, (length + 31) // 32 + 1):
+        t = hmac_mod.new(prk, t + info + bytes([i]), sha256).digest()
+        okm += t
+    return okm[:length]
+
+
+def aead_encrypt(key, plaintext):
+    """ChaCha20-Poly1305 AEAD. Returns (ciphertext, tag)."""
+    ct_with_tag = crypto_aead_chacha20poly1305_ietf_encrypt(
+        plaintext, None, AEAD_NONCE, key)
+    return ct_with_tag[:-AEAD_TAG_SIZE], ct_with_tag[-AEAD_TAG_SIZE:]
+
+
+def aead_decrypt(key, ciphertext, tag):
+    """ChaCha20-Poly1305 AEAD. Returns plaintext or raises."""
+    try:
+        return crypto_aead_chacha20poly1305_ietf_decrypt(
+            ciphertext + tag, None, AEAD_NONCE, key)
+    except Exception:
+        raise ValueError("AEAD decryption failed")
+
+
+class OutfoxParams:
+    """Outfox packet format parameters.
+
+    Replaces SphinxParams with per-hop KEM, AEAD headers, and formal KDF.
+    """
+
+    def __init__(self, kem=None, k=16, payload_size=1024, routing_size=16, max_hops=5):
+        self.kem = kem or KEM_X25519()
+        self.k = k
+        self.payload_size = payload_size
+        self.routing_size = routing_size
+        self.max_hops = max_hops
+
+        sizes = self.header_sizes(max_hops)
+        self.surb_size = sizes[0] + k
+
+        self.aes = Cipher("AES-128-CTR")
+        self.zero_iv = b'\x00' * 16
+
+    def derive_keys(self, shk, c, pk):
+        """Derive header key (32 bytes) and payload key (k bytes) from shared secret."""
+        ctx = c + pk
+        material = hkdf(shk, 32 + self.k, info=ctx)
+        s_h = material[:32]
+        s_p = material[32:32 + self.k]
+        return s_h, s_p
+
+    def header_sizes(self, num_hops):
+        """Compute header byte size at each layer for a given path length."""
+        ct = self.kem.CIPHERTEXT_SIZE
+        r = self.routing_size
+        t = AEAD_TAG_SIZE
+        sizes = [0] * num_hops
+        sizes[num_hops - 1] = ct + r + t
+        for i in range(num_hops - 2, -1, -1):
+            sizes[i] = ct + (r + sizes[i + 1]) + t
+        return sizes
+
+    def aes_ctr(self, k, m, iv=None):
+        if iv is None:
+            iv = self.zero_iv
+        return bytes(self.aes.enc(k, iv).update(m))
+
+    def lioness_enc(self, key, message):
+        assert len(key) == self.k
+        assert len(message) >= self.k * 2
+        k1 = sha256(message[self.k:] + key + b'1').digest()[:self.k]
+        c = self.aes_ctr(key, message[:self.k], iv=k1)
+        r1 = c + message[self.k:]
+        c = self.aes_ctr(key, r1[self.k:], iv=r1[:self.k])
+        r2 = r1[:self.k] + c
+        k3 = sha256(r2[self.k:] + key + b'3').digest()[:self.k]
+        c = self.aes_ctr(key, r2[:self.k], iv=k3)
+        r3 = c + r2[self.k:]
+        c = self.aes_ctr(key, r3[self.k:], r3[:self.k])
+        return r3[:self.k] + c
+
+    def lioness_dec(self, key, message):
+        assert len(key) == self.k
+        assert len(message) >= self.k * 2
+        r4_short, r4_long = message[:self.k], message[self.k:]
+        r3_long = self.aes_ctr(key, r4_long, iv=r4_short)
+        r3_short = r4_short
+        k2 = sha256(r3_long + key + b'3').digest()[:self.k]
+        r2_short = self.aes_ctr(key, r3_short, iv=k2)
+        r2_long = r3_long
+        r1_long = self.aes_ctr(key, r2_long, iv=r2_short)
+        r1_short = r2_short
+        k0 = sha256(r1_long + key + b'1').digest()[:self.k]
+        c = self.aes_ctr(key, r1_short, iv=k0)
+        return c + r1_long
+
+    def se_enc(self, key, plaintext):
+        """SE.Enc: length-preserving symmetric encryption (LIONESS PRP)."""
+        return self.lioness_enc(key, plaintext)
+
+    def se_dec(self, key, ciphertext):
+        """SE.Dec: length-preserving symmetric decryption."""
+        return self.lioness_dec(key, ciphertext)
+
+
+def test_outfox_params():
+    p = OutfoxParams()
+
+    pk, sk = p.kem.keygen()
+    shk, c = p.kem.encapsulate(pk)
+    shk2 = p.kem.decapsulate(c, sk)
+    assert shk == shk2
+
+    s_h, s_p = p.derive_keys(shk, c, pk)
+    assert len(s_h) == 32
+    assert len(s_p) == p.k
+
+    pt = b"hello world!!!!!" * 4
+    ct, tag = aead_encrypt(s_h, pt)
+    assert aead_decrypt(s_h, ct, tag) == pt
+
+    msg = urandom(128)
+    enc = p.se_enc(s_p, msg)
+    assert p.se_dec(s_p, enc) == msg
+
+    sizes = p.header_sizes(4)
+    assert sizes[3] < sizes[2] < sizes[1] < sizes[0]
