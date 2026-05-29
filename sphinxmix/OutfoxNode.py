@@ -2,32 +2,36 @@
 
 Implements LMC.PacketProcess from Rial et al. (2025).
 
+Extended with P-OR additions:
+  - Per-layer timestamp validation (replay rejection)
+  - Dummy traffic flag parsing
+  - Self-healing: fill random bytes for missing circuit messages
+
 Each node:
   1. Extracts KEM ciphertext c_i from the header
   2. Decapsulates to get shared key shk_i
   3. Derives header key s_h and payload key s_p via HKDF
-  4. AEAD-decrypts the header to get routing info + next header
-  5. SE-decrypts the payload (length-preserving)
-  6. Outputs (routing_info, next_packet) or (message, surb_info)
+  4. AEAD-decrypts the header to get routing + timestamp + flag + next header
+  5. Validates timestamp (rejects expired packets)
+  6. SE-decrypts the payload (length-preserving)
+  7. Outputs (routing_info, flag, (next_header, next_payload)) or final delivery
 """
 
-from .OutfoxParams import aead_decrypt, AEAD_TAG_SIZE
+from .OutfoxParams import (
+    aead_decrypt, AEAD_TAG_SIZE, TIMESTAMP_SIZE, FLAG_SIZE,
+    FLAG_REAL, FLAG_DUMMY, check_timestamp,
+)
 from .OutfoxClient import unpad_body
 
 
 def outfox_process(params, sk, pk, packet, is_last=False):
     """Process one layer of an Outfox packet.
 
-    params: OutfoxParams
-    sk: this node's KEM secret key
-    pk: this node's KEM public key (needed for KDF context)
-    packet: (header_bytes, payload_bytes)
-    is_last: True if this is the final hop (receiver/exit gateway)
-
     Returns:
-      If not last: (routing_info, (next_header, next_payload))
-      If last:     (message, surb_info) where surb_info is
-                   ((surb_header, surb_key), routing_info) or None
+      If not last: (routing_info, flag, (next_header, next_payload))
+      If last:     (routing_info, flag, msg, surb_info)
+                   surb_info is ((surb_header, surb_key)) or None
+      Returns None on expired timestamp or integrity failure.
     """
     header, payload = packet
     ct_size = params.kem.CIPHERTEXT_SIZE
@@ -45,33 +49,57 @@ def outfox_process(params, sk, pk, packet, is_last=False):
     gamma = encrypted_part[-AEAD_TAG_SIZE:]
     decrypted = aead_decrypt(s_h, beta, gamma)
 
+    r = params.routing_size
+    routing_info = decrypted[:r]
+    ts = decrypted[r:r + TIMESTAMP_SIZE]
+    flag = decrypted[r + TIMESTAMP_SIZE:r + TIMESTAMP_SIZE + FLAG_SIZE]
+    rest_header = decrypted[r + TIMESTAMP_SIZE + FLAG_SIZE:]
+
+    if not check_timestamp(ts):
+        return None
+
     next_payload = params.se_dec(s_p, payload)
 
     if is_last:
-        routing_info = decrypted[:params.routing_size]
-
         if next_payload[:params.k] != b'\x00' * params.k:
-            return None, None
+            return None
 
         from struct import unpack as struct_unpack
-        rest = next_payload[params.k:]
-        surb_len = struct_unpack(">H", rest[:2])[0]
-        surb_field = rest[2:2 + params.surb_size]
+        inner = next_payload[params.k:]
+        surb_len = struct_unpack(">H", inner[:2])[0]
+        surb_field = inner[2:2 + params.surb_size]
         msg_start = 2 + params.surb_size
 
         if surb_len == 0:
-            msg = unpad_body(rest[msg_start:])
-            return (routing_info, msg, None)
+            msg = unpad_body(inner[msg_start:])
+            return (routing_info, flag, msg, None)
 
         surb_data = surb_field[:surb_len]
         surb_header = surb_data[:surb_len - params.k]
         surb_key = surb_data[surb_len - params.k:]
-        msg = unpad_body(rest[msg_start:])
-        return (routing_info, msg, (surb_header, surb_key))
+        msg = unpad_body(inner[msg_start:])
+        return (routing_info, flag, msg, (surb_header, surb_key))
 
-    routing_info = decrypted[:params.routing_size]
-    next_header = decrypted[params.routing_size:]
+    return routing_info, flag, (rest_header, next_payload)
 
-    return routing_info, (next_header, next_payload)
+
+def circuit_process(params, circuit_key, payload):
+    """Process a return-path circuit packet (symmetric-only).
+
+    Used for streaming tokens back on established circuits.
+    Just AES-CTR decrypt — no KEM, no AEAD header.
+    """
+    return params.aes_ctr(circuit_key, payload)
+
+
+def circuit_self_heal(params, payload_size):
+    """Generate random replacement for a missing circuit packet (Yodel self-healing)."""
+    return urandom(payload_size)
+
+
+try:
+    from os import urandom
+except ImportError:
+    pass
 
 

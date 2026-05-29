@@ -4,13 +4,22 @@ Implements the building blocks from Rial, Piotrowska, Halpin (2025):
 "Outfox: a Postquantum Packet Format for Layered Mixnets"
 (arXiv:2412.19937v2)
 
+Extended with P-OR protocol additions:
+  - ML-DSA-65 (Dilithium) signatures for payload integrity
+  - Per-layer timestamps for replay rejection
+  - Dummy traffic flag (protocol-level, not policy)
+  - Return-path circuit setup material
+
 Primitives:
   KEM   - Key Encapsulation Mechanism (X25519, extensible to ML-KEM)
   KDF   - HKDF-SHA256 key derivation
   AEAD  - ChaCha20-Poly1305 authenticated encryption
   SE    - LIONESS wide-block PRP (length-preserving, IND$-CCA)
+  SIG   - ML-DSA-65 post-quantum signatures
 """
 
+import struct
+import time as _time
 from os import urandom
 from hashlib import sha256
 import hmac as hmac_mod
@@ -23,6 +32,11 @@ from nacl.bindings import (
 )
 
 from petlib.cipher import Cipher
+from pqcrypto.sign.ml_dsa_65 import (
+    generate_keypair as dilithium_generate_keypair,
+    sign as dilithium_sign,
+    verify as dilithium_verify,
+)
 
 
 class KEM_X25519:
@@ -59,6 +73,12 @@ class KEM_X25519:
 
 AEAD_TAG_SIZE = 16
 AEAD_NONCE = b'\x00' * 12
+TIMESTAMP_SIZE = 8
+FLAG_SIZE = 1
+CIRCUIT_TTL_SECONDS = 120
+
+FLAG_REAL = b'\x00'
+FLAG_DUMMY = b'\x01'
 
 
 def hkdf(ikm, length, salt=None, info=b""):
@@ -90,10 +110,42 @@ def aead_decrypt(key, ciphertext, tag):
         raise ValueError("AEAD decryption failed")
 
 
+def make_timestamp():
+    """8-byte big-endian millisecond timestamp."""
+    return struct.pack(">Q", int(_time.time() * 1000))
+
+
+def check_timestamp(ts_bytes, max_age_sec=CIRCUIT_TTL_SECONDS):
+    """Reject timestamps older than max_age_sec."""
+    ts_ms = struct.unpack(">Q", ts_bytes)[0]
+    now_ms = int(_time.time() * 1000)
+    age_sec = (now_ms - ts_ms) / 1000.0
+    return 0 <= age_sec <= max_age_sec
+
+
+def sign_payload(sk, payload):
+    """ML-DSA-65 signature over payload bytes."""
+    return dilithium_sign(sk, payload)
+
+
+def verify_payload(pk, payload, signature):
+    """Verify ML-DSA-65 signature. Returns True/False."""
+    try:
+        return dilithium_verify(pk, payload, signature) is not False
+    except Exception:
+        return False
+
+
+def generate_signing_keypair():
+    """Generate ML-DSA-65 (Dilithium3) signing keypair."""
+    return dilithium_generate_keypair()
+
+
 class OutfoxParams:
     """Outfox packet format parameters.
 
     Replaces SphinxParams with per-hop KEM, AEAD headers, and formal KDF.
+    Extended with per-layer timestamps, dummy flag, and return-path circuits.
     """
 
     def __init__(self, kem=None, k=16, payload_size=1024, routing_size=16, max_hops=5):
@@ -102,6 +154,7 @@ class OutfoxParams:
         self.payload_size = payload_size
         self.routing_size = routing_size
         self.max_hops = max_hops
+        self.per_hop_meta_size = TIMESTAMP_SIZE + FLAG_SIZE
 
         sizes = self.header_sizes(max_hops)
         self.surb_size = sizes[0] + k
@@ -118,14 +171,18 @@ class OutfoxParams:
         return s_h, s_p
 
     def header_sizes(self, num_hops):
-        """Compute header byte size at each layer for a given path length."""
+        """Compute header byte size at each layer.
+
+        Each layer's AEAD plaintext now includes: routing + timestamp + flag + inner_header.
+        """
         ct = self.kem.CIPHERTEXT_SIZE
         r = self.routing_size
         t = AEAD_TAG_SIZE
+        m = TIMESTAMP_SIZE + FLAG_SIZE
         sizes = [0] * num_hops
-        sizes[num_hops - 1] = ct + r + t
+        sizes[num_hops - 1] = ct + r + m + t
         for i in range(num_hops - 2, -1, -1):
-            sizes[i] = ct + (r + sizes[i + 1]) + t
+            sizes[i] = ct + (r + m + sizes[i + 1]) + t
         return sizes
 
     def aes_ctr(self, k, m, iv=None):
