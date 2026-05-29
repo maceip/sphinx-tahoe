@@ -292,6 +292,113 @@ def receive_surb(params, keytuple, delta):
     
     return msg
 
+def create_nymserverless_forward_message(params, nodelist, keys, dest, msg,
+                                         reply_nodelist, reply_keys,
+                                         assoc=None, reply_assoc=None):
+    """Creates a repliable forward message with reply info embedded in the payload.
+
+    Implements the nymserver elimination from Scherer et al. (2023, Section 4.2).
+    The reply header and symmetric key are included directly in the forward
+    payload instead of being sent to a nymserver separately. This prevents
+    the tagging attack where an adversary tags the nymserver-bound onion
+    to link senders to receivers.
+
+    Returns (header, delta, reply_keytuple) where reply_keytuple is needed
+    by the sender to later decrypt reply messages.
+    """
+    p = params
+    nu = len(nodelist)
+    assert len(dest) < 128 and len(dest) > 0
+
+    final = Route_pack((Dest_flag, ))
+    header, secrets = create_header(params, nodelist, keys, final, assoc)
+
+    reply_nu = len(reply_nodelist)
+    xid = urandom(p.k)
+    reply_final = Route_pack((Surb_flag, dest, xid))
+    reply_header, reply_secrets = create_header(
+        params, reply_nodelist, reply_keys, reply_final, reply_assoc)
+
+    ktilde = urandom(p.k)
+
+    reply_alpha, reply_beta, reply_gamma = reply_header
+    reply_alpha_bytes = p.group.printable(reply_alpha)
+    inner = encode((dest, reply_alpha_bytes, reply_beta, reply_gamma, ktilde, msg))
+
+    assert p.k + 1 + len(inner) < p.m
+
+    payload = pad_body(p.m - p.k, inner)
+    mac = p.mu(p.hpi(secrets[nu-1]), payload)
+    body = mac + payload
+
+    delta = p.pi(p.hpi(secrets[nu-1]), body)
+    for i in range(nu-2, -1, -1):
+        delta = p.pi(p.hpi(secrets[i]), delta)
+
+    reply_keytuple = [ktilde]
+    reply_keytuple.extend(map(p.hpi, reply_secrets))
+    return header, delta, reply_keytuple
+
+
+def receive_forward_at_exit(params, mac_key, delta):
+    """Exit relay decrypts the forward payload and extracts reply information.
+
+    In the service model (Scherer et al., 2023), the exit relay is responsible
+    for translating between the mix network and the receiver. For nymserverless
+    repliable messages, the reply header and key are embedded in the payload.
+
+    Returns (dest, msg, reply_info) where reply_info is
+    ((reply_alpha, reply_beta, reply_gamma), ktilde) for repliable messages
+    or None for non-repliable messages.
+    """
+    if delta[:params.k] != params.mu(mac_key, delta[params.k:]):
+        raise SphinxException("Modified Body")
+
+    delta = unpad_body(delta[params.k:])
+    decoded = decode(delta)
+
+    if len(decoded) == 6:
+        dest, reply_alpha_bytes, reply_beta, reply_gamma, ktilde, msg = decoded
+        reply_alpha = params.group.from_bytes(bytes(reply_alpha_bytes))
+        reply_header = (reply_alpha, bytes(reply_beta), bytes(reply_gamma))
+        return dest, msg, (reply_header, bytes(ktilde))
+
+    return decoded[0], decoded[1], None
+
+
+def form_reply_at_exit(params, reply_header, ktilde, reply_msg):
+    """Exit relay constructs a reply onion from the embedded reply information.
+
+    Replaces the nymserver's role (Scherer et al., 2023, Section 4.2).
+    The exit relay uses the reply header and key extracted from the forward
+    payload to package the receiver's reply message.
+    """
+    message = pad_body(params.m - params.k, reply_msg)
+    mac = params.mu(ktilde, message)
+    body = params.pi(ktilde, mac + message)
+    return (reply_header, body)
+
+
+def receive_reply(params, keytuple, delta):
+    """Sender decrypts a reply onion to recover the reply message.
+
+    Functionally identical to receive_surb but named for the nymserverless flow.
+    """
+    p = params
+    ktilde = keytuple.pop(0)
+    nu = len(keytuple)
+    for i in range(nu-1, -1, -1):
+        delta = p.pi(keytuple[i], delta)
+    delta = p.pii(ktilde, delta)
+
+    if delta[:p.k] == p.mu(ktilde, delta[p.k:]):
+        msg = unpad_body(delta[p.k:])
+    else:
+        raise SphinxException("Modified Reply Body")
+
+    return msg
+
+
 def pack_message(params, m):
     """ A method to pack mix messages. """
     return encode(((params.max_len, params.m), m))

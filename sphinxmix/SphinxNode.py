@@ -25,12 +25,17 @@ from builtins import bytes
 from . import SphinxException
 
 # Core Process function -- devoid of any chrome
+# Security: operates in the SERVICE MODEL only (Scherer et al., 2023).
+# The exit relay translates between the mix network and the receiver.
+# In the service model, payload tagging only leaks sender↔exit-relay (acceptable
+# when exit relays are chosen randomly). Using Sphinx in the integrated-system
+# model (receiver = last relay) allows tagging to link sender↔receiver.
 def sphinx_process(params, secret, header, delta, assoc=b''):
     """ The heart of a Sphinx server, that processes incoming messages.
     It takes a set of parameters, the secret of the server,
     and an incoming message header and body. Optinally some Associated
     data may also be passed in to check their integrity.
-        
+
     """
     p = params
     group = p.group
@@ -45,6 +50,13 @@ def sphinx_process(params, secret, header, delta, assoc=b''):
 
     # Compute the shared secret
     s = group.expon(alpha, [ secret ])
+
+    # GDH validation (Scherer et al., 2023, Section 4.3.2):
+    # Reject degenerate shared secrets from small-subgroup or invalid inputs.
+    if hasattr(group, 'validate_shared_secret'):
+        if not group.validate_shared_secret(s):
+            raise SphinxException("Invalid shared secret (GDH validation failed).")
+
     aes_s = p.get_aes_key(s)
     
     assert len(beta) == p.max_len - 32

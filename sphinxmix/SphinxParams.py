@@ -37,7 +37,11 @@ from builtins import bytes
 zero_iv = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 
 class Group_ECC:
-    "Group operations in ECC"
+    """Group operations in ECC.
+
+    Security relies on the GDH assumption (Scherer et al., 2023): CDH is hard
+    even given a DDH oracle. This is believed to hold for standard EC groups.
+    """
 
     def __init__(self, gid=713):
         self.G = EcGroup(gid)
@@ -46,14 +50,14 @@ class Group_ECC:
     def gensecret(self):
         return self.G.order().random()
 
-    def expon(self, base, exp):        
+    def expon(self, base, exp):
         x = exp[0]
         for f in exp[1:]:
             x = x.mod_mul(f, self.G.order())
         b = base
         return (x * b)
 
-    def expon_base(self, exp):        
+    def expon_base(self, exp):
         x = exp[0]
         for f in exp[1:]:
             x = x.mod_mul(f, self.G.order())
@@ -63,9 +67,32 @@ class Group_ECC:
         return (Bn.from_binary(data) % self.G.order())
 
     def in_group(self, alpha):
-        # All strings of length 32 are in the group, says DJB
-        b = alpha
-        return self.G.check_point(b)
+        if not self.G.check_point(alpha):
+            return False
+        if alpha.is_infinite():
+            return False
+        return True
+
+    def validate_shared_secret(self, s):
+        """Reject degenerate DH outputs (identity element). Required for GDH security."""
+        if not self.G.check_point(s):
+            return False
+        if s.is_infinite():
+            return False
+        return True
+
+    def ddh_verify(self, A, B, C, secret):
+        """DDH oracle: given A, B, C and secret x s.t. A = g^x, verify C = B^x.
+
+        Under the GDH assumption, this oracle is available to the CDH attacker
+        in the security reduction for Sphinx's RO-KEM (Theorem 2, Scherer et al.).
+        """
+        return C == self.expon(B, [secret])
+
+    def from_bytes(self, data):
+        """Reconstruct an EcPt from its binary representation."""
+        from petlib.ec import EcPt
+        return EcPt.from_binary(data, self.G)
 
     def printable(self, alpha):
         return alpha.export(POINT_CONVERSION_UNCOMPRESSED)
@@ -98,21 +125,20 @@ class SphinxParams:
         c = self.aes.enc(k, iv).update(m)
         return bytes(c)
 
-    # The LIONESS PRP
-    def aes_cbc_enc(self, k, m, iv = zero_iv):        
+    def aes_cbc_enc(self, k, m, iv = zero_iv):
         cipher = self.cbc.enc(k, iv)
-        cipher.set_padding(False)
         c = cipher.update(m)
-        #c = c + cipher.finalize()
         return bytes(c)
 
-    # The LIONESS PRP
-    def aes_cbc_dec(self, k, m, iv = zero_iv):        
+    def aes_cbc_dec(self, k, m, iv = zero_iv):
+        last_ct = m[-16:]
+        pad_plain = bytes(a ^ b for a, b in zip(b'\x10' * 16, last_ct))
+        ecb = Cipher("AES-128-ECB")
+        e = ecb.enc(k, b'')
+        pad_ct = (e.update(pad_plain) + e.finalize())[:16]
         cipher = self.cbc.dec(k, iv)
-        cipher.set_padding(False)
-        c = cipher.update(m)
-        #c = c + cipher.finalize()
-        return bytes(c)
+        c = cipher.update(m + pad_ct) + cipher.finalize()
+        return bytes(c[:len(m)])
 
     def lioness_enc(self, key, message):
         assert len(key) == self.k
@@ -192,21 +218,19 @@ class SphinxParams:
 
     def small_perm(self, key, data):
         assert len(data) == self.k
-        # aes = Cipher("AES-128-CBC")
-        enc = self.cbc.enc(key, None)
-        enc.set_padding(False)
-        c = enc.update(data)
-        #c += enc.finalize()
-        return c
+        ecb = Cipher("AES-128-ECB")
+        enc = ecb.enc(key, b'')
+        c = enc.update(data) + enc.finalize()
+        return c[:self.k]
 
     def small_perm_inv(self, key, data):
         assert len(data) == self.k
-        # aes = Cipher("AES-128-CBC")
-        dec = self.cbc.dec(key, None)
-        dec.set_padding(False)
-        c = dec.update(data)
-        #c += dec.finalize()
-        return c
+        ecb = Cipher("AES-128-ECB")
+        pad_enc = ecb.enc(key, b'')
+        pad_ct = (pad_enc.update(b'\x10' * 16) + pad_enc.finalize())[:16]
+        dec = ecb.dec(key, b'')
+        p = dec.update(data + pad_ct) + dec.finalize()
+        return p[:self.k]
 
     # The various hashes
     def hash(self, data):
@@ -291,6 +315,33 @@ def test_group():
 
     assert G.expon(G.expon(gen, [ sec1 ]), [ sec2 ]) == G.expon(G.expon(gen, [ sec2 ]), [ sec1 ])
     assert G.in_group(G.expon(gen, [ sec1 ]))
+
+def test_gdh_ecc():
+    G = Group_ECC()
+    x = G.gensecret()
+    y = G.expon(G.g, [x])
+
+    r = G.gensecret()
+    alpha = G.expon(G.g, [r])
+    s = G.expon(alpha, [x])
+
+    assert G.in_group(alpha)
+    assert G.in_group(s)
+    assert G.validate_shared_secret(s)
+    assert G.ddh_verify(y, alpha, s, x)
+
+    # Identity element must be rejected
+    identity = G.G.infinite()
+    assert not G.in_group(identity)
+    assert not G.validate_shared_secret(identity)
+
+    # DDH oracle rejects wrong secret
+    wrong_x = G.gensecret()
+    assert not G.ddh_verify(y, alpha, s, wrong_x)
+
+    # DDH oracle rejects wrong shared secret
+    wrong_s = G.expon(G.g, [G.gensecret()])
+    assert not G.ddh_verify(y, alpha, wrong_s, x)
 
 def test_params():
     # Test Init
