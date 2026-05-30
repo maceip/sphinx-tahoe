@@ -473,9 +473,6 @@ class MixnetSim:
             if matched and current_cid == client_inbound_cid:
                 return entry, start_cid
 
-        if len(exit_node.circuits.entries) == 1:
-            inbound_cid, entry = next(iter(exit_node.circuits.entries.items()))
-            return entry, entry.get("outbound_cid") or inbound_cid
         return None, None
 
     def route_circuit_reply(self, fwd_path, client_inbound_cid, exit_key, nonce, token_data):

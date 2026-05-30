@@ -1,6 +1,6 @@
-"""End-to-end mixnet simulator tests.
+"""In-process MixnetSim crypto/routing tests.
 
-Tests the full P-OR data path: packet creation → forward routing →
+Tests the in-process P-OR simulator path: packet creation → forward routing →
 exit processing → reply → sender decryption. No network — direct calls.
 """
 
@@ -12,8 +12,8 @@ from sphinxmix.OutfoxParams import (
 from sphinxmix.OutfoxClient import surb_use, surb_check, surb_recover
 
 
-def test_forward_through_network():
-    """Full forward packet through 5 nodes."""
+def test_forward_through_simulated_nodes():
+    """Forward packet through 5 simulated nodes."""
     sim = MixnetSim(num_nodes=8)
     client = sim.create_client(b"alice")
 
@@ -27,7 +27,7 @@ def test_forward_through_network():
     assert flag == FLAG_REAL
     assert surb_info is None
 
-    print("[PASS] Forward: 5-hop delivery through simulated network.")
+    print("[PASS] Forward: 5-hop delivery through MixnetSim.")
 
 
 def test_repliable_round_trip():
@@ -59,7 +59,7 @@ def test_repliable_round_trip():
     received = client.receive_reply(reply_header, reply_payload)
     assert received == b"here is your reply"
 
-    print("[PASS] Repliable: full round-trip forward + reply through network.")
+    print("[PASS] Repliable: full round-trip forward + reply through MixnetSim.")
 
 
 def test_signed_message():
@@ -400,13 +400,10 @@ def test_circuit_reply_end_to_end():
     result = sim.route_forward(fwd_path, header, payload)
     assert result is not None
 
-    exit_entry, exit_outbound = sim._find_exit_entry(fwd_path, client_inbound)
-    exit_key = exit_entry["key"]
-
     tokens = [b"Hello", b" world", b"!", b" How", b" are", b" you?"]
     for i, token in enumerate(tokens):
         packet = sim.route_circuit_reply(
-            fwd_path, exit_outbound, exit_key, i + 1, token)
+            fwd_path, client_inbound, None, i + 1, token)
         assert packet is not None, f"Circuit reply failed for token {i}"
 
         decrypted = client.decrypt_circuit(packet)
@@ -429,11 +426,8 @@ def test_circuit_reply_multi_hop():
     result = sim.route_forward(fwd_path, header, payload)
     assert result is not None
 
-    exit_entry, exit_outbound = sim._find_exit_entry(fwd_path, client_inbound)
-    exit_key = exit_entry["key"]
-
     packet = sim.route_circuit_reply(
-        fwd_path, exit_outbound, exit_key, 1, b"deep token")
+        fwd_path, client_inbound, None, 1, b"deep token")
     assert packet is not None
     assert client.decrypt_circuit(packet) == b"deep token"
 
@@ -452,23 +446,23 @@ def test_circuit_nonce_rejection():
         fwd_path, rply_relays, b"nonce test")
 
     sim.route_forward(fwd_path, header, payload)
-    exit_entry, exit_outbound = sim._find_exit_entry(fwd_path, client_inbound)
-    exit_key = exit_entry["key"]
+    # route_circuit_reply handles exit lookup internally
+    
 
-    p1 = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, 5, b"five")
+    p1 = sim.route_circuit_reply(fwd_path, client_inbound, None, 5, b"five")
     assert p1 is not None
     assert client.decrypt_circuit(p1) == b"five"
 
     # Nonce regression — rejected at relay level
-    p2 = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, 3, b"three")
+    p2 = sim.route_circuit_reply(fwd_path, client_inbound, None, 3, b"three")
     assert p2 is None
 
     # Nonce replay — also rejected at relay level
-    p3 = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, 5, b"replay")
+    p3 = sim.route_circuit_reply(fwd_path, client_inbound, None, 5, b"replay")
     assert p3 is None
 
     # Higher nonce — accepted (gap from 5 to 10 is fine)
-    p4 = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, 10, b"ten")
+    p4 = sim.route_circuit_reply(fwd_path, client_inbound, None, 10, b"ten")
     assert p4 is not None
     assert client.decrypt_circuit(p4) == b"ten"
 
@@ -487,15 +481,15 @@ def test_circuit_corruption_detection():
         fwd_path, rply_relays, b"corruption test")
 
     sim.route_forward(fwd_path, header, payload)
-    exit_entry, exit_outbound = sim._find_exit_entry(fwd_path, client_inbound)
-    exit_key = exit_entry["key"]
+    # route_circuit_reply handles exit lookup internally
+    
 
-    packet = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, 1, b"ok")
+    packet = sim.route_circuit_reply(fwd_path, client_inbound, None, 1, b"ok")
     corrupted = bytearray(packet)
     corrupted[30] ^= 0xFF
     assert client.decrypt_circuit(bytes(corrupted)) is None
 
-    good = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, 2, b"good")
+    good = sim.route_circuit_reply(fwd_path, client_inbound, None, 2, b"good")
     assert client.decrypt_circuit(good) == b"good"
 
     print("[PASS] Circuit corruption: tampered packet rejected, good packet accepted.")
@@ -511,11 +505,11 @@ def test_circuit_stats():
         fwd_path, [], b"stats")
 
     sim.route_forward(fwd_path, header, payload)
-    exit_entry, exit_outbound = sim._find_exit_entry(fwd_path, client_inbound)
+    # route_circuit_reply handles exit lookup internally
 
     for i in range(5):
         sim.route_circuit_reply(
-            fwd_path, client_inbound, exit_entry["key"], i + 1, b"tok")
+            fwd_path, client_inbound, None, i + 1, b"tok")
 
     stats = sim.stats()
     assert stats["circuit"] > 0
@@ -533,12 +527,12 @@ def test_circuit_reestablish_trigger():
         fwd_path, [], b"reestablish test")
 
     sim.route_forward(fwd_path, header, payload)
-    exit_entry, exit_outbound = sim._find_exit_entry(fwd_path, client_inbound)
-    exit_key = exit_entry["key"]
+    # route_circuit_reply handles exit lookup internally
+    
 
     # Send 3 consecutive corrupted packets
     for i in range(3):
-        packet = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, i + 1, b"tok")
+        packet = sim.route_circuit_reply(fwd_path, client_inbound, None, i + 1, b"tok")
         corrupted = bytearray(packet)
         corrupted[30] ^= 0xFF
         if i < 2:
@@ -551,17 +545,17 @@ def test_circuit_reestablish_trigger():
                 assert e.link_cid == client_inbound
 
     # Circuit is removed — subsequent packets return None (no entry)
-    good = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, 10, b"late")
+    good = sim.route_circuit_reply(fwd_path, client_inbound, None, 10, b"late")
     assert client.decrypt_circuit(good) is None
 
     # But client can re-establish with a new circuit
     header2, payload2, client_inbound2 = client.create_repliable_with_circuit(
         fwd_path, [], b"reestablished")
     sim.route_forward(fwd_path, header2, payload2)
-    exit_entry2, exit_outbound2 = sim._find_exit_entry(fwd_path, client_inbound2)
+    # route_circuit_reply handles exit lookup internally
 
     packet2 = sim.route_circuit_reply(
-        fwd_path, client_inbound2, exit_entry2["key"], 1, b"back online")
+        fwd_path, client_inbound2, None, 1, b"back online")
     assert client.decrypt_circuit(packet2) == b"back online"
 
     print("[PASS] Circuit reestablish: 3 corruptions triggers exception, re-establish works.")
@@ -625,10 +619,10 @@ def test_per_hop_link_cid_unlinkability():
             assert not shared, \
                 f"Non-adjacent hops {i} and {j} share CID(s): {shared!r}"
 
-    # End-to-end: stream a token through and verify it works
-    exit_entry, exit_outbound = sim._find_exit_entry(fwd_path, client_inbound)
+    # Simulator round-trip: stream a token through and verify it works.
+    # route_circuit_reply handles exit lookup internally
     packet = sim.route_circuit_reply(
-        fwd_path, client_inbound, exit_entry["key"], 1, b"unlinkable token")
+        fwd_path, client_inbound, None, 1, b"unlinkable token")
     assert client.decrypt_circuit(packet) == b"unlinkable token"
 
     print("[PASS] Per-hop link CIDs: binding invariants hold, non-adjacent hops unlinkable.")
