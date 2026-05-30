@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -25,7 +24,7 @@ from sphinxmix.OutfoxNode import (
     circuit_packet_process,
     outfox_process,
 )
-from sphinxmix.OutfoxParams import OutfoxParams, derive_circuit_key
+from sphinxmix.OutfoxParams import OutfoxParams
 
 from .envelope import HYBRID_RETURN_PATH_V2, PromptRequestEnvelope
 from .quic_transport import (
@@ -37,22 +36,19 @@ from .quic_transport import (
     make_server_config,
     write_localhost_self_signed_cert,
 )
-from .udp_demo import (
-    CIRCUIT_ID_SIZE,
-    DEFAULT_PAYLOAD_SIZE,
-    KEY_SIZE,
-    ROUTE_INFO_SIZE,
-    DemoResult,
+from .config import DEFAULT_PAYLOAD_SIZE, DEFAULT_ROUTING_SIZE
+from .node_runtime import (
     _b64d,
     _b64e,
+    build_native_forward_plan,
+)
+from .provider import ProviderError, expert_reply_chunks
+from .udp_demo import (
+    DemoResult,
     _collect_node_logs,
-    _install_circuit,
     _node_ids,
-    _pack_route_info,
     _plan_demo_route,
     _reserve_ports,
-    _response_chunks,
-    _unpack_route_info,
 )
 
 
@@ -76,7 +72,7 @@ async def _run_demo_async(node_count: int, timeout: float) -> DemoResult:
             tmp_path / "localhost.crt",
             tmp_path / "localhost.key",
         )
-        params = OutfoxParams(payload_size=DEFAULT_PAYLOAD_SIZE, routing_size=ROUTE_INFO_SIZE, max_hops=5)
+        params = OutfoxParams(payload_size=DEFAULT_PAYLOAD_SIZE, routing_size=DEFAULT_ROUTING_SIZE, max_hops=5)
         node_ids = _node_ids(node_count)
         ports = _reserve_ports(len(node_ids) + 1)
         client_addr = ("127.0.0.1", ports[-1])
@@ -100,7 +96,7 @@ async def _run_demo_async(node_count: int, timeout: float) -> DemoResult:
             },
             "params": {
                 "payload_size": DEFAULT_PAYLOAD_SIZE,
-                "routing_size": ROUTE_INFO_SIZE,
+                "routing_size": DEFAULT_ROUTING_SIZE,
                 "max_hops": 5,
             },
             "client": {"host": client_addr[0], "port": client_addr[1]},
@@ -228,8 +224,25 @@ async def _handle_node_frame(config, params, node_id, sk, pk, circuits, stop, da
 async def _handle_forward(config, params, node_id, sk, pk, circuits, frame):
     header = _b64d(frame["header"])
     payload = _b64d(frame["payload"])
+    circuit_installed = {}
+
+    def _on_circuit(inbound_cid, circuit_key, next_hop, outbound_cid, ttl):
+        cid_hex = inbound_cid.hex()
+        nh = next_hop.rstrip(b"\x00").decode("ascii", errors="replace")
+        circuits[cid_hex] = {
+            "key": circuit_key.hex(),
+            "outbound_cid": outbound_cid.hex(),
+            "next_id": nh,
+            "high_watermark": -1,
+            "last_active": time.time(),
+        }
+        circuit_installed["inbound_cid"] = cid_hex
+        circuit_installed["return_next"] = nh
+
     try:
-        hop_result = outfox_process(params, sk, pk, (header, payload), is_last=False)
+        hop_result = outfox_process(
+            params, sk, pk, (header, payload), is_last=False, on_circuit=_on_circuit
+        )
     except ValueError as exc:
         print(f"node={node_id} event=forward_rejected reason={exc}", flush=True)
         return
@@ -239,30 +252,33 @@ async def _handle_forward(config, params, node_id, sk, pk, circuits, frame):
         return
 
     routing_info, _flag, next_packet = hop_result
-    instr = _unpack_route_info(routing_info)
-    _install_circuit(node_id, circuits, instr)
+    next_id = routing_info.rstrip(b"\x00").decode("ascii", errors="replace")
 
     next_header, next_payload = next_packet
-    if next_header:
+    cid_log = circuit_installed.get("inbound_cid", "")[:8]
+    return_next = circuit_installed.get("return_next", "")
+    if next_id and next_header:
         print(
             "node={node} event=forward_hop transport={transport} next={next_id} link_cid={cid} "
             "return_next={return_next} prompt_visible=no".format(
                 node=node_id,
                 transport=TRANSPORT_NAME,
-                next_id=instr["next_forward"],
-                cid=instr["inbound_cid"][:8],
-                return_next=instr["return_next"],
+                next_id=next_id,
+                cid=cid_log,
+                return_next=return_next,
             ),
             flush=True,
         )
-        await _send_quic_frame(config, instr["next_forward"], {
+        await _send_quic_frame(config, next_id, {
             "kind": "forward",
             "header": _b64e(next_header),
             "payload": _b64e(next_payload),
         })
         return
 
-    final_result = outfox_process(params, sk, pk, (header, payload), is_last=True)
+    final_result = outfox_process(
+        params, sk, pk, (header, payload), is_last=True, on_circuit=_on_circuit
+    )
     if final_result is None:
         print(f"node={node_id} event=exit_rejected", flush=True)
         return
@@ -272,9 +288,10 @@ async def _handle_forward(config, params, node_id, sk, pk, circuits, frame):
     prompt = envelope.prompt_text()
     expertise = envelope.intent_descriptor.get("requested_expertise") or "auto"
     degraded = bool(envelope.intent_descriptor.get("degraded_anonymity"))
-    exit_entry = circuits.get(instr["inbound_cid"])
+    exit_cid = circuit_installed.get("inbound_cid", "")
+    exit_entry = circuits.get(exit_cid)
     if exit_entry is None:
-        print(f"node={node_id} event=exit_missing_circuit link_cid={instr['inbound_cid'][:8]}", flush=True)
+        print(f"node={node_id} event=exit_missing_circuit link_cid={exit_cid[:8]}", flush=True)
         return
     exit_key = bytes.fromhex(exit_entry["key"])
     exit_outbound = bytes.fromhex(exit_entry["outbound_cid"])
@@ -285,21 +302,28 @@ async def _handle_forward(config, params, node_id, sk, pk, circuits, frame):
             node=node_id,
             transport=TRANSPORT_NAME,
             expertise=expertise,
-            return_next=instr["return_next"],
-            cid=instr["inbound_cid"][:8],
+            return_next=exit_entry["next_id"],
+            cid=exit_cid[:8],
             degraded=str(degraded).lower(),
         ),
         flush=True,
     )
-    chunks = _response_chunks(node_id, prompt, expertise)
+    try:
+        chunks = expert_reply_chunks(envelope, node_id)
+    except ProviderError as exc:
+        print(
+            f"node={node_id} event=provider_error retryable={str(exc.retryable).lower()} reason={exc!s}",
+            flush=True,
+        )
+        chunks = [f"[provider_error] peer={node_id} status={exc.status} message={exc}"]
     for seq, chunk in enumerate(chunks):
         plain = json.dumps({"seq": seq, "data": chunk, "done": False}).encode("utf-8")
-        await _stream_return_chunk(config, params, instr["return_next"], exit_outbound, seq, plain, exit_key)
+        await _stream_return_chunk(config, params, exit_entry["next_id"], exit_outbound, seq, plain, exit_key)
         await asyncio.sleep(0.05)
 
     done_seq = len(chunks)
     done = json.dumps({"seq": done_seq, "data": "", "done": True}).encode("utf-8")
-    await _stream_return_chunk(config, params, instr["return_next"], exit_outbound, done_seq, done, exit_key)
+    await _stream_return_chunk(config, params, exit_entry["next_id"], exit_outbound, done_seq, done, exit_key)
 
 
 async def _handle_circuit(config, params, node_id, circuits, frame):
@@ -373,32 +397,7 @@ async def _send_prompt_and_receive_stream(
     await client_server.start()
 
     try:
-        n = len(forward_path)
-        client_inbound = os.urandom(CIRCUIT_ID_SIZE)
-        inbound_cids = [os.urandom(CIRCUIT_ID_SIZE) for _ in range(n)]
-        outbound_cids = [None] * n
-        seeds = [os.urandom(KEY_SIZE) for _ in range(n)]
-
-        outbound_cids[0] = client_inbound
-        for i in range(1, n):
-            outbound_cids[i] = inbound_cids[i - 1]
-
-        keys = [derive_circuit_key(seeds[i], inbound_cids[i]) for i in range(n)]
-
-        route_infos = []
-        for index, fwd_node_id in enumerate(forward_path):
-            next_forward = forward_path[index + 1] if index + 1 < len(forward_path) else ""
-            if fwd_node_id == selected_peer_id:
-                return_next = list(reversed(forward_path[:-1]))[0] if len(forward_path) > 1 else "client"
-            else:
-                return_relays = list(reversed(forward_path[:-1]))
-                pos = return_relays.index(fwd_node_id)
-                return_next = "client" if pos + 1 == len(return_relays) else return_relays[pos + 1]
-            route_infos.append(_pack_route_info(
-                next_forward, return_next,
-                inbound_cids[index], seeds[index], outbound_cids[index]))
-
-        client_peel_keys = list(reversed(keys))
+        route_infos, circuit_setup, client_peel_keys = build_native_forward_plan(forward_path)
         from sphinxmix.ta_claims import streaming_return_descriptor
 
         app = PromptRequestEnvelope.visible_prompt(
@@ -426,7 +425,13 @@ async def _send_prompt_and_receive_stream(
             extra_intent={"degraded_anonymity": degraded_anonymity},
         )
         keys = [bytes.fromhex(config["nodes"][node_id]["kem_pk"]) for node_id in forward_path]
-        header, payload = packet_create(params, route_infos, keys, app.to_json().encode("utf-8"))
+        header, payload = packet_create(
+            params,
+            route_infos,
+            keys,
+            app.to_json().encode("utf-8"),
+            circuit_setup=circuit_setup,
+        )
 
         await _send_quic_frame(config, forward_path[0], {
             "kind": "forward",
@@ -481,6 +486,7 @@ async def _send_quic_frame(config: dict, target_id: str, frame: dict) -> None:
         endpoint,
         configuration=make_client_config(
             verify_tls=False,
+            dev_allow_insecure_tls=True,
             alpn=POR_H3_ALPN,
             max_datagram_frame_size=transport["max_frame_size"],
         ),
