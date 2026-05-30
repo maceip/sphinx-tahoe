@@ -470,9 +470,9 @@ timing analysis, not identifier matching.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-14. IMPLEMENTATION STATUS
+14. IMPLEMENTATION STATUS (PACKET/SIM VS PROCESS HARNESS)
 
-Implemented (Phases 1-5):
+Implemented in core packet/simulator paths:
 
   OutfoxParams.py    derive_circuit_key()                ✓
   OutfoxParams.py    CIRCUIT_MAGIC, CIRCUIT_TYPE         ✓
@@ -486,9 +486,9 @@ Implemented (Phases 1-5):
   mixnet.py          MixNode type-byte dispatch          ✓
   mixnet.py          Client circuit decrypt + re-establish✓
   mixnet.py          MixnetSim circuit stream routing    ✓
-  e2e_proxy.py       Circuit streaming mode              ✓
+  sim_mixnet_anthropic_proxy.py  Circuit streaming mode in MixnetSim  ✓
 
-Remaining (Phase 2.5 — per-hop link CIDs):
+Implemented in packet/simulator code, not yet migrated into process demos:
 
   OutfoxParams.py    derive_circuit_key info → "circuit"
   OutfoxClient.py    _build_header: inbound + outbound link CIDs
@@ -500,6 +500,12 @@ Remaining (Phase 2.5 — per-hop link CIDs):
   Tests:             link binding invariants, header rewrite per hop,
                      non-adjacent collusion regression test
 
+Remaining process-wire work:
+
+  por/udp_demo.py    Replace demo POR1 global circuit_id with per-hop link CIDs
+  por/quic_demo.py   Same migration for the QUIC/H3 process harness
+  Transport daemon   Persistent peer connections and binary frame carrier
+
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -507,7 +513,8 @@ Remaining (Phase 2.5 — per-hop link CIDs):
 
 Phase 1: Primitives                                          ✓ DONE
 Phase 2: Circuit setup in forward path                       ✓ DONE
-Phase 2.5: Per-hop link circuit identifiers                  ← NEXT
+Phase 2.5: Per-hop link circuit identifiers in packet/sim    ✓ DONE
+Phase 2.6: Per-hop link IDs in UDP/QUIC process harnesses    ← NEXT
 Phase 3: Client integration                                  ✓ DONE
 Phase 4: Simulator wiring                                    ✓ DONE
-Phase 5: Streaming                                           ✓ DONE
+Phase 5: Streaming behavior in sim/harness                   ✓ DONE

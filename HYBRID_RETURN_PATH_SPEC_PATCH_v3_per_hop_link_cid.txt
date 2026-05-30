@@ -334,7 +334,7 @@ Phase 2.5: Per-hop link circuit identifiers
       • link binding invariants enforced at setup
       • header rewrite at each relay (ingress cid != egress cid)
       • non-adjacent sim nodes never observe same link_cid on wire
-      • end-to-end streaming still passes after rewrite
+      • streaming round-trip still passes after rewrite
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -255,7 +255,7 @@ def test_service_model_proof():
 
 
 def test_nymserverless_proof():
-    """Prove the nymserverless repliable flow works end-to-end in Outfox."""
+    """Prove the nymserverless repliable flow round-trips in Outfox."""
     params = OutfoxParams(payload_size=1024)
 
     pkiPriv = {}
@@ -426,7 +426,7 @@ def test_nymserver_vulnerability_demonstration():
 
 
 def test_forward_and_surb_round_trip():
-    """Verify forward message and SURB APIs work end-to-end."""
+    """Verify forward message and SURB APIs round-trip."""
     params = OutfoxParams(payload_size=1024)
 
     pkiPriv = {}

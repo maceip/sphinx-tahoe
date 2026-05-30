@@ -448,7 +448,7 @@ def test_circuit_packet_fixed_size():
 
 
 def test_circuit_packet_derived_keys():
-    """Relay-additive end-to-end with derive_circuit_key."""
+    """Relay-additive round-trip with derive_circuit_key."""
     params = OutfoxParams(payload_size=512)
     circuit_id = urandom(16)
     seeds = [urandom(16) for _ in range(3)]
