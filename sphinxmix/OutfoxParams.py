@@ -31,7 +31,7 @@ from nacl.bindings import (
     crypto_aead_chacha20poly1305_ietf_decrypt,
 )
 
-from petlib.cipher import Cipher
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from pqcrypto.sign.ml_dsa_65 import (
     generate_keypair as dilithium_generate_keypair,
     sign as dilithium_sign,
@@ -183,7 +183,6 @@ class OutfoxParams:
         sizes = self.header_sizes(max_hops)
         self.surb_size = sizes[0] + k
 
-        self.aes = Cipher("AES-128-CTR")
         self.zero_iv = b'\x00' * 16
 
     def derive_keys(self, shk, c, pk):
@@ -214,7 +213,8 @@ class OutfoxParams:
     def aes_ctr(self, k, m, iv=None):
         if iv is None:
             iv = self.zero_iv
-        return bytes(self.aes.enc(k, iv).update(m))
+        encryptor = Cipher(algorithms.AES(k), modes.CTR(iv)).encryptor()
+        return encryptor.update(m) + encryptor.finalize()
 
     def lioness_enc(self, key, message):
         assert len(key) == self.k
