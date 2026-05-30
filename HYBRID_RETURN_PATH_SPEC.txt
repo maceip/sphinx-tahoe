@@ -36,7 +36,7 @@ fields remain; circuit keys are stored separately.
     500+ fixed-size packets at line rate is timing-correlatable by
     a global passive adversary. Cover traffic (FLAG_DUMMY at constant
     rate) mitigates this but is not mandated. This is a research
-    prototype.
+    prototype. See docs/hybrid_return_ta_requirements.md (TA-1/TA-2/TA-3).
 
   - Per-packet forward secrecy on the return path. Circuit keys live
     in relay RAM for the circuit TTL. Compromise of relay RAM exposes
@@ -172,7 +172,7 @@ Key derivation at each relay:
   circuit_key = HKDF-SHA256(
     ikm  = key_seed,
     salt = inbound_link_cid,
-    info = "circuit_v2",
+    info = "circuit",
     len  = 16
   )
 
@@ -490,7 +490,7 @@ Implemented (Phases 1-5):
 
 Remaining (Phase 2.5 — per-hop link CIDs):
 
-  OutfoxParams.py    derive_circuit_key info → "circuit_v2"
+  OutfoxParams.py    derive_circuit_key info → "circuit"
   OutfoxClient.py    _build_header: inbound + outbound link CIDs
   OutfoxClient.py    packet_create_repliable: generate bound CIDs
   OutfoxNode.py      outfox_process: extract inbound + outbound CIDs

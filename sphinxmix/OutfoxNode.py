@@ -41,7 +41,7 @@ def outfox_process(params, sk, pk, packet, is_last=False, on_circuit=None):
                    surb_info is ((surb_header, surb_key)) or None
       Returns None on expired timestamp or integrity failure.
 
-    on_circuit: optional callback(circuit_id, circuit_key, next_hop, ttl)
+    on_circuit: optional callback(inbound_cid, circuit_key, next_hop, outbound_cid, ttl)
       called when circuit setup fields are present in the routing metadata.
     """
     header, payload = packet
@@ -67,15 +67,16 @@ def outfox_process(params, sk, pk, packet, is_last=False, on_circuit=None):
     rest = decrypted[r + TIMESTAMP_SIZE + FLAG_SIZE:]
 
     if flag[0] & 0x02 and on_circuit is not None:
-        circuit_id = rest[:16]
+        inbound_cid = rest[:16]
         key_seed = rest[16:32]
         next_hop = rest[32:32 + r]
-        ttl = _struct.unpack(">H", rest[32 + r:34 + r])[0]
-        rest_header = rest[34 + r:]
-        circuit_key = derive_circuit_key(key_seed, circuit_id)
-        on_circuit(circuit_id, circuit_key, next_hop, ttl)
+        outbound_cid = rest[32 + r:48 + r]
+        ttl = _struct.unpack(">H", rest[48 + r:50 + r])[0]
+        rest_header = rest[50 + r:]
+        circuit_key = derive_circuit_key(key_seed, inbound_cid)
+        on_circuit(inbound_cid, circuit_key, next_hop, outbound_cid, ttl)
     elif flag[0] & 0x02:
-        rest_header = rest[34 + r:]
+        rest_header = rest[50 + r:]
     else:
         rest_header = rest
 
@@ -121,21 +122,19 @@ def circuit_self_heal(params, payload_size):
     return urandom(payload_size)
 
 
-def circuit_packet_create(params, circuit_id, nonce, token_data, circuit_keys):
-    """Create a circuit return packet with multi-layer AES-CTR encryption.
+def circuit_packet_create(params, link_cid, nonce, token_data, circuit_keys):
+    """Create a circuit return packet with AES-CTR encryption.
 
-    circuit_id:    16-byte circuit identifier
+    link_cid:      16-byte link CID for the first receiving hop
     nonce:         uint64 packet counter
     token_data:    plaintext token bytes
-    circuit_keys:  list of keys, innermost first (exit key at index 0,
-                   then relay keys in reverse reply-path order)
+    circuit_keys:  list of keys to apply (exit creates with [exit_key])
 
     Returns the complete packet (bytes), padded to params.payload_size.
     """
     nonce_bytes = _struct.pack(">Q", nonce)
 
-    # encrypted region: inner_len(2) + magic(4) + token_data + padding
-    encrypted_size = params.payload_size - 1 - 16 - 8  # minus type + cid + nonce
+    encrypted_size = params.payload_size - 1 - 16 - 8
     inner = _struct.pack(">H", len(token_data)) + CIRCUIT_MAGIC + token_data
     pad_len = encrypted_size - len(inner)
     if pad_len < 0:
@@ -147,39 +146,42 @@ def circuit_packet_create(params, circuit_id, nonce, token_data, circuit_keys):
         iv = nonce_bytes + b'\x00' * 8
         ciphertext = params.aes_ctr(key, ciphertext, iv=iv)
 
-    return CIRCUIT_TYPE + circuit_id + nonce_bytes + ciphertext
+    return CIRCUIT_TYPE + link_cid + nonce_bytes + ciphertext
 
 
-def circuit_packet_process(params, circuit_key, packet):
-    """Process one layer of a circuit return packet at a relay.
+def circuit_packet_process(params, circuit_key, packet, outbound_link_cid=None):
+    """Apply one relay circuit transform to a return packet.
 
-    Verifies nonce monotonicity is the caller's responsibility (CircuitTable).
-    Returns (circuit_id, nonce, decrypted_packet) where decrypted_packet has
-    this relay's layer stripped but retains the wire format for forwarding.
+    Nonce monotonicity is the caller's responsibility (CircuitTable).
+    AES-CTR is self-inverse; adds the relay's encryption layer.
+    When outbound_link_cid is provided, rewrites bytes 1-16 (header rewrite
+    per spec §8 — prevents non-adjacent relay correlation).
+    Returns (inbound_cid, nonce, forwarded_packet).
     Returns None if packet is too short.
     """
     if len(packet) < 25:
         return None
 
     assert packet[0:1] == CIRCUIT_TYPE
-    circuit_id = packet[1:17]
+    inbound_cid = packet[1:17]
     nonce_bytes = packet[17:25]
     ciphertext = packet[25:]
 
     iv = nonce_bytes + b'\x00' * 8
-    decrypted = params.aes_ctr(circuit_key, ciphertext, iv=iv)
+    transformed = params.aes_ctr(circuit_key, ciphertext, iv=iv)
 
     nonce = _struct.unpack(">Q", nonce_bytes)[0]
-    forwarded = CIRCUIT_TYPE + circuit_id + nonce_bytes + decrypted
-    return circuit_id, nonce, forwarded
+    egress_cid = outbound_link_cid if outbound_link_cid is not None else inbound_cid
+    forwarded = CIRCUIT_TYPE + egress_cid + nonce_bytes + transformed
+    return inbound_cid, nonce, forwarded
 
 
 def circuit_packet_decrypt(params, keys, packet):
     """Client-side decryption of a circuit packet.
 
     keys: single key (bytes) or list of keys to peel. When a list,
-          all layers are peeled in order. The exit key (innermost)
-          should be last in the list.
+          all layers are peeled in order. For canonical relay-additive
+          return, use [client-side relay keys..., exit_key].
     Returns token_data bytes on success, None on corruption.
     """
     if len(packet) < 25:
@@ -216,7 +218,7 @@ class CircuitStream:
     """Exit-side adapter that converts a token stream into circuit packets.
 
     Usage:
-        stream = CircuitStream(params, circuit_id, circuit_keys)
+        stream = CircuitStream(params, outbound_link_cid, circuit_keys)
         for chunk in sse_chunks:
             packet = stream.send(chunk)
             forward_to_relay(packet)
@@ -224,9 +226,9 @@ class CircuitStream:
         packet = stream.keepalive()
     """
 
-    def __init__(self, params, circuit_id, circuit_keys):
+    def __init__(self, params, outbound_link_cid, circuit_keys):
         self.params = params
-        self.circuit_id = circuit_id
+        self.outbound_link_cid = outbound_link_cid
         self.circuit_keys = circuit_keys
         self.nonce = 0
         self.max_token_size = params.payload_size - 1 - 16 - 8 - 6
@@ -237,14 +239,14 @@ class CircuitStream:
             raise ValueError(f"Token too large: {len(token_data)} > {self.max_token_size}")
         self.nonce += 1
         return circuit_packet_create(
-            self.params, self.circuit_id, self.nonce,
+            self.params, self.outbound_link_cid, self.nonce,
             token_data, self.circuit_keys)
 
     def keepalive(self):
         """Send an empty keepalive packet (indistinguishable from a token packet)."""
         self.nonce += 1
         return circuit_packet_create(
-            self.params, self.circuit_id, self.nonce,
+            self.params, self.outbound_link_cid, self.nonce,
             b'', self.circuit_keys)
 
     def send_chunked(self, data):
@@ -295,6 +297,25 @@ class PacedCircuitStream:
     def close(self):
         """Stop keepalive padding; queued tokens may still be emitted."""
         self._closed = True
+
+    def finished(self):
+        """True when closed, queue drained, and no further packets will emit."""
+        return self._closed and not self._queue
+
+    def drain_all(self, start_ms=0, tick_ms=None):
+        """Emit until ``finished()``; for tests and blocking proxy drain."""
+        tick_ms = tick_ms or max(1, self.interval_ms // 4)
+        packets = []
+        now = int(start_ms)
+        limit = now + (self.pending_count + 2) * self.interval_ms + self.interval_ms
+        while now <= limit:
+            batch = self.emit_due(now)
+            if batch:
+                packets.extend(batch)
+            elif self.finished() and self._last_emit_ms is not None:
+                break
+            now += tick_ms
+        return packets
 
     def emit_due(self, now_ms):
         """Return packets ready at ``now_ms`` (0 or 1 packet)."""

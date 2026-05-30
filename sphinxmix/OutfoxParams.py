@@ -109,12 +109,12 @@ def hkdf(ikm, length, salt=None, info=b""):
     return okm[:length]
 
 
-def derive_circuit_key(key_seed, circuit_id):
-    """Derive a per-hop circuit key from a seed and circuit ID.
+def derive_circuit_key(key_seed, inbound_link_cid):
+    """Derive a per-hop circuit key from seed and this hop's inbound link CID.
 
-    Uses HKDF-SHA256 with domain separation per spec §4.
+    Uses HKDF-SHA256 with domain separation per spec v3 §5.
     """
-    return hkdf(key_seed, 16, salt=circuit_id, info=b"circuit_v1")
+    return hkdf(key_seed, 16, salt=inbound_link_cid, info=b"circuit")
 
 
 def aead_encrypt(key, plaintext):
@@ -204,7 +204,7 @@ class OutfoxParams:
         r = self.routing_size
         t = AEAD_TAG_SIZE
         m = TIMESTAMP_SIZE + FLAG_SIZE
-        circ = (16 + 16 + r + 2) if circuit_setup else 0
+        circ = (16 + 16 + r + 16 + 2) if circuit_setup else 0
         sizes = [0] * num_hops
         sizes[num_hops - 1] = ct + r + m + circ + t
         for i in range(num_hops - 2, -1, -1):

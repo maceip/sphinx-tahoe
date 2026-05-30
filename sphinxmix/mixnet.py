@@ -1,7 +1,8 @@
 """P-OR mixnet simulator.
 
-Wires together Outfox packets, return-path symmetric circuits,
-cover traffic flags, and replay checks into a testable local model.
+Local model for Outfox forward packets + symmetric circuit return streaming.
+Forward path uses layered Outfox; **streaming return is an encrypted relay
+chain (TA-3), not mixnet-grade anonymity** — see sphinxmix.ta_claims.
 
 Components:
   MixNode       — processes forward packets (Outfox) and circuit packets (AES)
@@ -37,9 +38,9 @@ from .OutfoxNode import (
 
 class CircuitCorrupted(Exception):
     """Raised when consecutive circuit packet corruption exceeds threshold."""
-    def __init__(self, circuit_id):
-        self.circuit_id = circuit_id
-        super().__init__(f"Circuit {circuit_id!r} corrupted, re-establish required")
+    def __init__(self, link_cid):
+        self.link_cid = link_cid
+        super().__init__(f"Circuit {link_cid!r} corrupted, re-establish required")
 
 
 class PKI:
@@ -98,8 +99,8 @@ class PKI:
 class CircuitTable:
     """Per-node table of active return-path circuit keys.
 
-    Keys are indexed by circuit_id (16 bytes).
-    Entries store: symmetric key, next_hop, nonce high_watermark, timestamps.
+    Keys are indexed by inbound_link_cid (16 bytes).
+    Entries store: symmetric key, next_hop, outbound_cid, nonce high_watermark.
     Bounded to max_entries with LRU eviction.
     """
 
@@ -108,31 +109,33 @@ class CircuitTable:
         self.max_entries = max_entries
         self.entries = {}
 
-    def store(self, circuit_id, symmetric_key, next_hop=None, ttl=None):
-        if len(self.entries) >= self.max_entries and circuit_id not in self.entries:
+    def store(self, inbound_cid, symmetric_key, next_hop=None,
+              outbound_cid=None, ttl=None):
+        if len(self.entries) >= self.max_entries and inbound_cid not in self.entries:
             oldest_cid = min(self.entries, key=lambda c: self.entries[c]["last_active"])
             del self.entries[oldest_cid]
-        self.entries[circuit_id] = {
+        self.entries[inbound_cid] = {
             "key": symmetric_key,
             "next_hop": next_hop,
+            "outbound_cid": outbound_cid,
             "high_watermark": 0,
             "last_active": time.time(),
             "ttl": ttl if ttl is not None else self.ttl,
         }
 
-    def lookup(self, circuit_id):
-        entry = self.entries.get(circuit_id)
+    def lookup(self, inbound_cid):
+        entry = self.entries.get(inbound_cid)
         if entry is None:
             return None
         entry_ttl = entry.get("ttl", self.ttl)
         if time.time() - entry["last_active"] > entry_ttl:
-            del self.entries[circuit_id]
+            del self.entries[inbound_cid]
             return None
         entry["last_active"] = time.time()
         return entry
 
-    def check_nonce(self, circuit_id, nonce):
-        entry = self.entries.get(circuit_id)
+    def check_nonce(self, inbound_cid, nonce):
+        entry = self.entries.get(inbound_cid)
         if entry is None:
             return False
         if nonce <= entry["high_watermark"]:
@@ -199,8 +202,9 @@ class MixNode:
         If circuit setup fields are present in the routing metadata,
         installs circuit state automatically.
         """
-        def _install_circuit(circuit_id, circuit_key, next_hop, ttl):
-            self.circuits.store(circuit_id, circuit_key, next_hop=next_hop, ttl=ttl)
+        def _install_circuit(inbound_cid, circuit_key, next_hop, outbound_cid, ttl):
+            self.circuits.store(inbound_cid, circuit_key, next_hop=next_hop,
+                                outbound_cid=outbound_cid, ttl=ttl)
 
         result = outfox_process(
             self.params, self.kem_sk, self.kem_pk,
@@ -215,20 +219,26 @@ class MixNode:
         return result
 
     def process_circuit_packet(self, packet):
-        """Process a circuit return packet. Returns (next_hop, forwarded_packet) or None."""
+        """Process a circuit return packet. Returns (next_hop, forwarded_packet) or None.
+
+        Rewrites the link_cid in the forwarded packet to this hop's outbound_cid,
+        preventing non-adjacent relay correlation.
+        """
         if len(packet) < 25:
             return None
-        circuit_id = packet[1:17]
-        entry = self.circuits.lookup(circuit_id)
+        inbound_cid = packet[1:17]
+        entry = self.circuits.lookup(inbound_cid)
         if entry is None:
             return None
 
         import struct as _s
         nonce = _s.unpack(">Q", packet[17:25])[0]
-        if not self.circuits.check_nonce(circuit_id, nonce):
+        if not self.circuits.check_nonce(inbound_cid, nonce):
             return None
 
-        result = circuit_packet_process(self.params, entry["key"], packet)
+        result = circuit_packet_process(
+            self.params, entry["key"], packet,
+            outbound_link_cid=entry.get("outbound_cid"))
         if result is None:
             return None
 
@@ -236,8 +246,10 @@ class MixNode:
         self.stats["circuit"] += 1
         return entry["next_hop"], forwarded
 
-    def register_circuit(self, circuit_id, symmetric_key, next_hop=None):
-        self.circuits.store(circuit_id, symmetric_key, next_hop=next_hop)
+    def register_circuit(self, inbound_cid, symmetric_key, next_hop=None,
+                         outbound_cid=None):
+        self.circuits.store(inbound_cid, symmetric_key, next_hop=next_hop,
+                            outbound_cid=outbound_cid)
 
 
 class Client:
@@ -310,7 +322,7 @@ class Client:
     def create_repliable_with_circuit(self, fwd_path, rply_path, message):
         """Create a repliable forward packet that also installs return circuits.
 
-        Returns (header, payload, circuit_id). The forward path relays will
+        Returns (header, payload, client_inbound_cid). The forward path relays will
         install circuit state when processing the packet.
         """
         fwd_route = list(fwd_path)
@@ -323,13 +335,17 @@ class Client:
             install_circuit=True)
 
         self.pending_surbs[idsurb] = sksurb
-        cid = circuit_info["circuit_id"]
-        self.pending_circuits[cid] = {
+        client_inbound = circuit_info["client_inbound"]
+        from .ta_claims import streaming_return_descriptor
+
+        self.pending_circuits[client_inbound] = {
             "keys": circuit_info["keys"],
+            "exit_outbound": circuit_info["exit_outbound"],
             "nonce_watermark": 0,
             "corruption_count": 0,
+            "return_claim": streaming_return_descriptor(paced=False),
         }
-        return header, payload, cid
+        return header, payload, client_inbound
 
     MAX_CONSECUTIVE_CORRUPTION = 3
 
@@ -344,8 +360,8 @@ class Client:
         """
         if len(packet) < 25 or packet[0:1] != b'\x01':
             return None
-        circuit_id = packet[1:17]
-        entry = self.pending_circuits.get(circuit_id)
+        link_cid = packet[1:17]
+        entry = self.pending_circuits.get(link_cid)
         if entry is None:
             return None
 
@@ -360,8 +376,8 @@ class Client:
         if result is None:
             entry["corruption_count"] += 1
             if entry["corruption_count"] >= self.MAX_CONSECUTIVE_CORRUPTION:
-                del self.pending_circuits[circuit_id]
-                raise CircuitCorrupted(circuit_id)
+                del self.pending_circuits[link_cid]
+                raise CircuitCorrupted(link_cid)
             return None
         entry["corruption_count"] = 0
         return result
@@ -436,17 +452,47 @@ class MixnetSim:
             routing, flag, (h, p) = result
         return h, p
 
-    def route_circuit_reply(self, fwd_path, circuit_id, exit_key, nonce, token_data):
+    def _find_exit_entry(self, fwd_path, client_inbound_cid):
+        """Map a client-facing link CID to the exit's local circuit entry."""
+        exit_node = self.nodes[fwd_path[-1]]
+        exact = exit_node.circuits.lookup(client_inbound_cid)
+        if exact is not None:
+            return exact, exact.get("outbound_cid") or client_inbound_cid
+
+        relay_path = list(reversed(fwd_path[:-1]))
+        for inbound_cid, entry in list(exit_node.circuits.entries.items()):
+            current_cid = entry.get("outbound_cid") or inbound_cid
+            start_cid = current_cid
+            matched = True
+            for nid in relay_path:
+                relay_entry = self.nodes[nid].circuits.lookup(current_cid)
+                if relay_entry is None:
+                    matched = False
+                    break
+                current_cid = relay_entry.get("outbound_cid") or current_cid
+            if matched and current_cid == client_inbound_cid:
+                return entry, start_cid
+
+        if len(exit_node.circuits.entries) == 1:
+            inbound_cid, entry = next(iter(exit_node.circuits.entries.items()))
+            return entry, entry.get("outbound_cid") or inbound_cid
+        return None, None
+
+    def route_circuit_reply(self, fwd_path, client_inbound_cid, exit_key, nonce, token_data):
         """Create a circuit packet at the exit and route it back through
         the forward path in reverse.
 
-        The exit encrypts with exit_key only. Each intermediate relay
-        adds its layer via AES-CTR. Returns the final packet for the client.
+        client_inbound_cid is the link CID the final client expects. The exit
+        uses its own outbound CID for the first relay and relays rewrite it hop
+        by hop until the client-facing CID appears.
         """
+        exit_entry, start_cid = self._find_exit_entry(fwd_path, client_inbound_cid)
+        if exit_entry is None:
+            return None
+        exit_key = exit_key or exit_entry["key"]
         packet = circuit_packet_create(
-            self.params, circuit_id, nonce, token_data, [exit_key])
+            self.params, start_cid, nonce, token_data, [exit_key])
 
-        # Return path is reverse of forward, skipping the exit (it created the packet)
         relay_path = list(reversed(fwd_path[:-1]))
         for nid in relay_path:
             node = self.nodes[nid]
@@ -457,25 +503,23 @@ class MixnetSim:
 
         return packet
 
-    def create_circuit_stream(self, fwd_path, circuit_id):
+    def create_circuit_stream(self, fwd_path, client_inbound_cid):
         """Create a CircuitStream at the exit node for sending return packets.
 
-        Returns (stream, exit_key) where stream.send(token) produces packets
-        and exit_key is for reference only.
+        Uses the exit's installed circuit state to find its outbound_cid
+        (= first relay's inbound). The client_inbound_cid is used to look
+        up the exit's circuit entry via the binding chain.
         """
-        exit_nid = fwd_path[-1]
-        exit_node = self.nodes[exit_nid]
-        entry = exit_node.circuits.lookup(circuit_id)
+        entry, outbound = self._find_exit_entry(fwd_path, client_inbound_cid)
         if entry is None:
             return None, None
-        stream = CircuitStream(self.params, circuit_id, [entry["key"]])
-        return stream, entry["key"]
+        return CircuitStream(self.params, outbound, [entry["key"]]), entry["key"]
 
     def create_paced_circuit_stream(
-        self, fwd_path, circuit_id, interval_ms=CIRCUIT_PACE_INTERVAL_MS
+        self, fwd_path, client_inbound_cid, interval_ms=CIRCUIT_PACE_INTERVAL_MS
     ):
         """Create a PacedCircuitStream at the exit (constant cadence emitter)."""
-        stream, exit_key = self.create_circuit_stream(fwd_path, circuit_id)
+        stream, exit_key = self.create_circuit_stream(fwd_path, client_inbound_cid)
         if stream is None:
             return None, None
         return PacedCircuitStream(stream, interval_ms), exit_key
@@ -509,6 +553,16 @@ class MixnetSim:
             forwarded = self.forward_circuit_packet(fwd_path, packet)
             if forwarded is None:
                 return routed
+            routed.append(forwarded)
+        return routed
+
+    def stream_paced_drain(self, fwd_path, paced_stream, start_ms=0):
+        """Block-drain a closed paced stream through the return path."""
+        routed = []
+        for packet in paced_stream.drain_all(start_ms=start_ms):
+            forwarded = self.forward_circuit_packet(fwd_path, packet)
+            if forwarded is None:
+                break
             routed.append(forwarded)
         return routed
 

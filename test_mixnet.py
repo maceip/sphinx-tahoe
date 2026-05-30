@@ -184,11 +184,12 @@ def test_circuit_table():
     cid = b"circuit_id_12345"
     key = b"symmetric_key!!!"
 
-    table.store(cid, key, next_hop=b"next_node_id____")
+    table.store(cid, key, next_hop=b"next_node_id____", outbound_cid=b"outbound_cid____")
     entry = table.lookup(cid)
     assert entry is not None
     assert entry["key"] == key
     assert entry["next_hop"] == b"next_node_id____"
+    assert entry["outbound_cid"] == b"outbound_cid____"
     assert entry["high_watermark"] == 0
     assert table.size() == 1
 
@@ -361,7 +362,7 @@ def test_circuit_install_on_forward():
     fwd_path = sim.node_ids()[:4]
     rply_relays = sim.node_ids()[4:7]
 
-    header, payload, circuit_id = client.create_repliable_with_circuit(
+    header, payload, client_inbound = client.create_repliable_with_circuit(
         fwd_path, rply_relays, b"setup circuits")
 
     result = sim.route_forward(fwd_path, header, payload)
@@ -369,14 +370,20 @@ def test_circuit_install_on_forward():
     routing, flag, msg, surb_info = result
     assert msg == b"setup circuits"
 
+    all_inbound_cids = set()
     for nid in fwd_path:
         node = sim.nodes[nid]
-        entry = node.circuits.lookup(circuit_id)
-        assert entry is not None, f"Circuit not installed at {nid!r}"
+        assert node.circuits.size() == 1, f"Circuit not installed at {nid!r}"
+        inbound_cid = list(node.circuits.entries.keys())[0]
+        entry = node.circuits.entries[inbound_cid]
         assert entry["key"] is not None
         assert entry["next_hop"] is not None
+        assert entry["outbound_cid"] is not None
+        all_inbound_cids.add(inbound_cid)
 
-    print("[PASS] Circuit install: forward packet installed state at all relays.")
+    assert len(all_inbound_cids) == len(fwd_path), "Inbound CIDs must be unique per hop"
+
+    print("[PASS] Circuit install: per-hop link CIDs installed, all unique.")
 
 
 def test_circuit_reply_end_to_end():
@@ -387,20 +394,19 @@ def test_circuit_reply_end_to_end():
     fwd_path = sim.node_ids()[:4]
     rply_relays = sim.node_ids()[4:5]
 
-    header, payload, circuit_id = client.create_repliable_with_circuit(
+    header, payload, client_inbound = client.create_repliable_with_circuit(
         fwd_path, rply_relays, b"prompt")
 
     result = sim.route_forward(fwd_path, header, payload)
     assert result is not None
 
-    exit_nid = fwd_path[-1]
-    exit_entry = sim.nodes[exit_nid].circuits.lookup(circuit_id)
+    exit_entry, exit_outbound = sim._find_exit_entry(fwd_path, client_inbound)
     exit_key = exit_entry["key"]
 
     tokens = [b"Hello", b" world", b"!", b" How", b" are", b" you?"]
     for i, token in enumerate(tokens):
         packet = sim.route_circuit_reply(
-            fwd_path, circuit_id, exit_key, i + 1, token)
+            fwd_path, exit_outbound, exit_key, i + 1, token)
         assert packet is not None, f"Circuit reply failed for token {i}"
 
         decrypted = client.decrypt_circuit(packet)
@@ -417,17 +423,17 @@ def test_circuit_reply_multi_hop():
     fwd_path = sim.node_ids()[:5]
     rply_relays = sim.node_ids()[5:7]
 
-    header, payload, circuit_id = client.create_repliable_with_circuit(
+    header, payload, client_inbound = client.create_repliable_with_circuit(
         fwd_path, rply_relays, b"deep path")
 
     result = sim.route_forward(fwd_path, header, payload)
     assert result is not None
 
-    exit_entry = sim.nodes[fwd_path[-1]].circuits.lookup(circuit_id)
+    exit_entry, exit_outbound = sim._find_exit_entry(fwd_path, client_inbound)
     exit_key = exit_entry["key"]
 
     packet = sim.route_circuit_reply(
-        fwd_path, circuit_id, exit_key, 1, b"deep token")
+        fwd_path, exit_outbound, exit_key, 1, b"deep token")
     assert packet is not None
     assert client.decrypt_circuit(packet) == b"deep token"
 
@@ -442,27 +448,27 @@ def test_circuit_nonce_rejection():
     fwd_path = sim.node_ids()[:3]
     rply_relays = []
 
-    header, payload, circuit_id = client.create_repliable_with_circuit(
+    header, payload, client_inbound = client.create_repliable_with_circuit(
         fwd_path, rply_relays, b"nonce test")
 
     sim.route_forward(fwd_path, header, payload)
-    exit_entry = sim.nodes[fwd_path[-1]].circuits.lookup(circuit_id)
+    exit_entry, exit_outbound = sim._find_exit_entry(fwd_path, client_inbound)
     exit_key = exit_entry["key"]
 
-    p1 = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, 5, b"five")
+    p1 = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, 5, b"five")
     assert p1 is not None
     assert client.decrypt_circuit(p1) == b"five"
 
     # Nonce regression — rejected at relay level
-    p2 = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, 3, b"three")
+    p2 = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, 3, b"three")
     assert p2 is None
 
     # Nonce replay — also rejected at relay level
-    p3 = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, 5, b"replay")
+    p3 = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, 5, b"replay")
     assert p3 is None
 
     # Higher nonce — accepted (gap from 5 to 10 is fine)
-    p4 = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, 10, b"ten")
+    p4 = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, 10, b"ten")
     assert p4 is not None
     assert client.decrypt_circuit(p4) == b"ten"
 
@@ -477,19 +483,19 @@ def test_circuit_corruption_detection():
     fwd_path = sim.node_ids()[:3]
     rply_relays = []
 
-    header, payload, circuit_id = client.create_repliable_with_circuit(
+    header, payload, client_inbound = client.create_repliable_with_circuit(
         fwd_path, rply_relays, b"corruption test")
 
     sim.route_forward(fwd_path, header, payload)
-    exit_entry = sim.nodes[fwd_path[-1]].circuits.lookup(circuit_id)
+    exit_entry, exit_outbound = sim._find_exit_entry(fwd_path, client_inbound)
     exit_key = exit_entry["key"]
 
-    packet = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, 1, b"ok")
+    packet = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, 1, b"ok")
     corrupted = bytearray(packet)
     corrupted[30] ^= 0xFF
     assert client.decrypt_circuit(bytes(corrupted)) is None
 
-    good = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, 2, b"good")
+    good = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, 2, b"good")
     assert client.decrypt_circuit(good) == b"good"
 
     print("[PASS] Circuit corruption: tampered packet rejected, good packet accepted.")
@@ -501,15 +507,15 @@ def test_circuit_stats():
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
-    header, payload, circuit_id = client.create_repliable_with_circuit(
+    header, payload, client_inbound = client.create_repliable_with_circuit(
         fwd_path, [], b"stats")
 
     sim.route_forward(fwd_path, header, payload)
-    exit_entry = sim.nodes[fwd_path[-1]].circuits.lookup(circuit_id)
+    exit_entry, exit_outbound = sim._find_exit_entry(fwd_path, client_inbound)
 
     for i in range(5):
         sim.route_circuit_reply(
-            fwd_path, circuit_id, exit_entry["key"], i + 1, b"tok")
+            fwd_path, client_inbound, exit_entry["key"], i + 1, b"tok")
 
     stats = sim.stats()
     assert stats["circuit"] > 0
@@ -523,16 +529,16 @@ def test_circuit_reestablish_trigger():
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
-    header, payload, circuit_id = client.create_repliable_with_circuit(
+    header, payload, client_inbound = client.create_repliable_with_circuit(
         fwd_path, [], b"reestablish test")
 
     sim.route_forward(fwd_path, header, payload)
-    exit_entry = sim.nodes[fwd_path[-1]].circuits.lookup(circuit_id)
+    exit_entry, exit_outbound = sim._find_exit_entry(fwd_path, client_inbound)
     exit_key = exit_entry["key"]
 
     # Send 3 consecutive corrupted packets
     for i in range(3):
-        packet = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, i + 1, b"tok")
+        packet = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, i + 1, b"tok")
         corrupted = bytearray(packet)
         corrupted[30] ^= 0xFF
         if i < 2:
@@ -542,23 +548,90 @@ def test_circuit_reestablish_trigger():
                 client.decrypt_circuit(bytes(corrupted))
                 assert False, "Should have raised CircuitCorrupted"
             except CircuitCorrupted as e:
-                assert e.circuit_id == circuit_id
+                assert e.link_cid == client_inbound
 
     # Circuit is removed — subsequent packets return None (no entry)
-    good = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, 10, b"late")
+    good = sim.route_circuit_reply(fwd_path, client_inbound, exit_key, 10, b"late")
     assert client.decrypt_circuit(good) is None
 
     # But client can re-establish with a new circuit
-    header2, payload2, circuit_id2 = client.create_repliable_with_circuit(
+    header2, payload2, client_inbound2 = client.create_repliable_with_circuit(
         fwd_path, [], b"reestablished")
     sim.route_forward(fwd_path, header2, payload2)
-    exit_entry2 = sim.nodes[fwd_path[-1]].circuits.lookup(circuit_id2)
+    exit_entry2, exit_outbound2 = sim._find_exit_entry(fwd_path, client_inbound2)
 
     packet2 = sim.route_circuit_reply(
-        fwd_path, circuit_id2, exit_entry2["key"], 1, b"back online")
+        fwd_path, client_inbound2, exit_entry2["key"], 1, b"back online")
     assert client.decrypt_circuit(packet2) == b"back online"
 
     print("[PASS] Circuit reestablish: 3 corruptions triggers exception, re-establish works.")
+
+
+def test_per_hop_link_cid_unlinkability():
+    """Non-adjacent relays MUST NOT see the same link_cid on the wire."""
+    sim = MixnetSim(num_nodes=8)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:5]
+    header, payload, client_inbound = client.create_repliable_with_circuit(
+        fwd_path, [], b"unlinkability test")
+
+    sim.route_forward(fwd_path, header, payload)
+
+    # Collect each node's inbound and outbound CIDs
+    hop_cids = {}
+    for nid in fwd_path:
+        node = sim.nodes[nid]
+        assert node.circuits.size() == 1
+        inbound_cid = list(node.circuits.entries.keys())[0]
+        entry = node.circuits.entries[inbound_cid]
+        hop_cids[nid] = {
+            "inbound": inbound_cid,
+            "outbound": entry["outbound_cid"],
+        }
+
+    # Link binding: each hop's outbound must equal the next hop's inbound
+    for i in range(len(fwd_path) - 1):
+        this_hop = hop_cids[fwd_path[i]]
+        next_hop_toward_client = hop_cids[fwd_path[i + 1]] if i + 1 < len(fwd_path) else None
+        # In the return path (reverse), fwd_path[i+1].outbound should equal fwd_path[i].inbound
+        # because return goes exit→...→relay0→client
+
+    # Reverse to get return-path order: exit, relay3, relay2, relay1, relay0
+    return_order = list(reversed(fwd_path))
+    for i in range(len(return_order) - 1):
+        sender = hop_cids[return_order[i]]
+        receiver = hop_cids[return_order[i + 1]]
+        assert sender["outbound"] == receiver["inbound"], \
+            f"Link binding broken: {return_order[i]!r}.outbound != {return_order[i+1]!r}.inbound"
+
+    # Last relay's outbound must equal client_inbound
+    last_relay = hop_cids[return_order[-1]]
+    assert last_relay["outbound"] == client_inbound, \
+        "Last relay outbound must equal client inbound"
+
+    # NON-ADJACENT collusion test: no inbound_cid appears at more than one hop
+    all_inbound = [hop_cids[nid]["inbound"] for nid in fwd_path]
+    assert len(set(all_inbound)) == len(all_inbound), "Inbound CIDs must be globally unique"
+
+    # Non-adjacent hops must not share any CID (inbound or outbound)
+    for i in range(len(fwd_path)):
+        for j in range(i + 2, len(fwd_path)):
+            cids_i = {hop_cids[fwd_path[i]]["inbound"], hop_cids[fwd_path[i]]["outbound"]}
+            cids_j = {hop_cids[fwd_path[j]]["inbound"], hop_cids[fwd_path[j]]["outbound"]}
+            shared = cids_i & cids_j
+            # Adjacent hops (i, i+1) MAY share one CID (the binding link).
+            # Non-adjacent hops (distance >= 2) MUST NOT share any.
+            assert not shared, \
+                f"Non-adjacent hops {i} and {j} share CID(s): {shared!r}"
+
+    # End-to-end: stream a token through and verify it works
+    exit_entry, exit_outbound = sim._find_exit_entry(fwd_path, client_inbound)
+    packet = sim.route_circuit_reply(
+        fwd_path, client_inbound, exit_entry["key"], 1, b"unlinkable token")
+    assert client.decrypt_circuit(packet) == b"unlinkable token"
+
+    print("[PASS] Per-hop link CIDs: binding invariants hold, non-adjacent hops unlinkable.")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -574,13 +647,13 @@ def test_stream_tokens_end_to_end():
     fwd_path = sim.node_ids()[:4]
     rply_relays = sim.node_ids()[4:5]
 
-    header, payload, circuit_id = client.create_repliable_with_circuit(
+    header, payload, client_inbound = client.create_repliable_with_circuit(
         fwd_path, rply_relays, b"stream prompt")
 
     result = sim.route_forward(fwd_path, header, payload)
     assert result is not None
 
-    stream, _ = sim.create_circuit_stream(fwd_path, circuit_id)
+    stream, _ = sim.create_circuit_stream(fwd_path, client_inbound)
     assert stream is not None
 
     tokens = [b"The", b" quick", b" brown", b" fox", b" jumps",
@@ -604,12 +677,12 @@ def test_stream_keepalive():
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
-    header, payload, circuit_id = client.create_repliable_with_circuit(
+    header, payload, client_inbound = client.create_repliable_with_circuit(
         fwd_path, [], b"keepalive test")
 
     sim.route_forward(fwd_path, header, payload)
 
-    stream, _ = sim.create_circuit_stream(fwd_path, circuit_id)
+    stream, _ = sim.create_circuit_stream(fwd_path, client_inbound)
     keepalive_packet = stream.keepalive()
     assert len(keepalive_packet) == sim.params.payload_size
 
@@ -634,12 +707,12 @@ def test_stream_large_chunked():
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
-    header, payload, circuit_id = client.create_repliable_with_circuit(
+    header, payload, client_inbound = client.create_repliable_with_circuit(
         fwd_path, [], b"chunk test")
 
     sim.route_forward(fwd_path, header, payload)
 
-    stream, _ = sim.create_circuit_stream(fwd_path, circuit_id)
+    stream, _ = sim.create_circuit_stream(fwd_path, client_inbound)
     large_data = b"X" * 1000
 
     packets = stream.send_chunked(large_data)
@@ -669,7 +742,7 @@ def test_stream_and_surb_coexist():
     rply_relays = sim.node_ids()[4:5]
 
     # Circuit-bearing request
-    header, payload, circuit_id = client.create_repliable_with_circuit(
+    header, payload, client_inbound = client.create_repliable_with_circuit(
         fwd_path, rply_relays, b"dual mode request")
 
     result = sim.route_forward(fwd_path, header, payload)
@@ -679,7 +752,7 @@ def test_stream_and_surb_coexist():
     assert surb_info is not None
 
     # Stream tokens via circuit
-    stream, _ = sim.create_circuit_stream(fwd_path, circuit_id)
+    stream, _ = sim.create_circuit_stream(fwd_path, client_inbound)
     packet = sim.stream_token(fwd_path, stream, b"streamed token")
     assert client.decrypt_circuit(packet) == b"streamed token"
 
@@ -699,7 +772,7 @@ def test_type_byte_dispatch():
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
-    header, payload, circuit_id = client.create_repliable_with_circuit(
+    header, payload, client_inbound = client.create_repliable_with_circuit(
         fwd_path, [], b"dispatch test")
 
     # Forward packet via process_packet with 0x00 prefix
@@ -713,7 +786,7 @@ def test_type_byte_dispatch():
     sim.route_forward(fwd_path, header, payload)
 
     # Circuit packet via process_packet (already has 0x01 prefix)
-    stream, _ = sim.create_circuit_stream(fwd_path, circuit_id)
+    stream, _ = sim.create_circuit_stream(fwd_path, client_inbound)
     circuit_pkt = stream.send(b"dispatched token")
     # Process at last relay (fwd_path[-2])
     relay_nid = fwd_path[-2]
@@ -730,12 +803,12 @@ def test_paced_stream_flattens_token_burst():
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
-    header, payload, circuit_id = client.create_repliable_with_circuit(
+    header, payload, client_inbound = client.create_repliable_with_circuit(
         fwd_path, [], b"paced burst")
 
     sim.route_forward(fwd_path, header, payload)
 
-    paced, _ = sim.create_paced_circuit_stream(fwd_path, circuit_id, interval_ms=50)
+    paced, _ = sim.create_paced_circuit_stream(fwd_path, client_inbound, interval_ms=50)
     tokens = [f"t{idx}".encode() for idx in range(6)]
     for token in tokens:
         paced.offer(token)
@@ -763,12 +836,12 @@ def test_paced_stream_keepalive_fills_idle_gap():
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
-    header, payload, circuit_id = client.create_repliable_with_circuit(
+    header, payload, client_inbound = client.create_repliable_with_circuit(
         fwd_path, [], b"paced idle")
 
     sim.route_forward(fwd_path, header, payload)
 
-    paced, _ = sim.create_paced_circuit_stream(fwd_path, circuit_id, interval_ms=40)
+    paced, _ = sim.create_paced_circuit_stream(fwd_path, client_inbound, interval_ms=40)
     paced.offer(b"only")
 
     seen = []
@@ -778,6 +851,31 @@ def test_paced_stream_keepalive_fills_idle_gap():
 
     assert seen[0] == (0, b"only")
     assert (40, b"") in seen
+
+
+def test_paced_drain_all_delivers_burst():
+    """drain_all + stream_paced_drain returns full payload after close()."""
+    sim = MixnetSim(num_nodes=4)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:3]
+    header, payload, client_inbound = client.create_repliable_with_circuit(
+        fwd_path, [], b"drain")
+
+    sim.route_forward(fwd_path, header, payload)
+
+    paced, _ = sim.create_paced_circuit_stream(fwd_path, client_inbound, interval_ms=30)
+    for part in (b"abc", b"def", b"ghi"):
+        paced.offer(part)
+    paced.close()
+
+    out = bytearray()
+    for packet in sim.stream_paced_drain(fwd_path, paced, start_ms=0):
+        chunk = client.decrypt_circuit(packet)
+        if chunk:
+            out.extend(chunk)
+
+    assert bytes(out) == b"abcdefghi"
 
 
 if __name__ == "__main__":
@@ -818,6 +916,7 @@ if __name__ == "__main__":
     test_type_byte_dispatch()
     test_paced_stream_flattens_token_burst()
     test_paced_stream_keepalive_fills_idle_gap()
+    test_paced_drain_all_delivers_burst()
 
     print()
     print("=" * 60)

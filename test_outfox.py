@@ -337,7 +337,7 @@ def test_circuit_packet_round_trip_single_hop():
 
 
 def test_circuit_packet_round_trip_multi_hop():
-    """Multi-hop circuit: create at exit, relay processing, client decrypt."""
+    """Multi-hop relay-additive circuit: exit creates, relays add, client peels."""
     params = OutfoxParams(payload_size=512)
     circuit_id = urandom(16)
 
@@ -345,47 +345,45 @@ def test_circuit_packet_round_trip_multi_hop():
     key_a = urandom(16)
     key_b = urandom(16)
 
-    # Exit encrypts inside-out: exit_key (layer 0), key_a (layer 1), key_b (layer 2)
-    all_keys = [exit_key, key_a, key_b]
     token = b"multi-hop token data here"
-    packet = circuit_packet_create(params, circuit_id, 42, token, all_keys)
+    packet = circuit_packet_create(params, circuit_id, 42, token, [exit_key])
     assert len(packet) == params.payload_size
 
-    # Relay B (outermost) peels layer 2
+    # Relay B is closest to the exit and adds its layer first.
     cid, nonce, packet = circuit_packet_process(params, key_b, packet)
     assert cid == circuit_id
     assert nonce == 42
 
-    # Relay A peels layer 1
+    # Relay A is closest to the client and adds the outermost layer.
     cid, nonce, packet = circuit_packet_process(params, key_a, packet)
     assert cid == circuit_id
     assert nonce == 42
 
-    # Client peels exit layer
-    result = circuit_packet_decrypt(params, exit_key, packet)
+    # Client peels client-side relay, exit-side relay, then exit.
+    result = circuit_packet_decrypt(params, [key_a, key_b, exit_key], packet)
     assert result == token
 
-    print("[PASS] Circuit packet: 3-layer create/relay/relay/decrypt round-trip.")
+    print("[PASS] Circuit packet: relay-additive 3-layer round-trip.")
 
 
 def test_circuit_packet_variable_hops():
-    """Circuit packets work for 1-5 hops."""
+    """Relay-additive circuit packets work for 1-5 hops."""
     params = OutfoxParams(payload_size=512)
     circuit_id = urandom(16)
 
     for num_hops in range(1, 6):
         keys = [urandom(16) for _ in range(num_hops)]
         token = f"hops={num_hops}".encode()
-        packet = circuit_packet_create(params, circuit_id, 1, token, keys)
+        packet = circuit_packet_create(params, circuit_id, 1, token, [keys[0]])
 
-        # Relay processing: peel layers num_hops-1 down to 1 (skip exit key)
-        for i in range(num_hops - 1, 0, -1):
+        # Relay processing adds layers from exit-side toward client-side.
+        for i in range(1, num_hops):
             _, _, packet = circuit_packet_process(params, keys[i], packet)
 
-        result = circuit_packet_decrypt(params, keys[0], packet)
+        result = circuit_packet_decrypt(params, list(reversed(keys[1:])) + [keys[0]], packet)
         assert result == token, f"Failed at {num_hops} hops"
 
-    print("[PASS] Circuit packet: 1-5 hop round-trips all work.")
+    print("[PASS] Circuit packet: relay-additive 1-5 hop round-trips all work.")
 
 
 def test_circuit_packet_nonce_in_header():
@@ -450,23 +448,22 @@ def test_circuit_packet_fixed_size():
 
 
 def test_circuit_packet_derived_keys():
-    """End-to-end with derive_circuit_key (as actual implementation will use)."""
+    """Relay-additive end-to-end with derive_circuit_key."""
     params = OutfoxParams(payload_size=512)
     circuit_id = urandom(16)
     seeds = [urandom(16) for _ in range(3)]
     keys = [derive_circuit_key(s, circuit_id) for s in seeds]
 
     token = b"derived key round trip"
-    packet = circuit_packet_create(params, circuit_id, 7, token, keys)
+    packet = circuit_packet_create(params, circuit_id, 7, token, [keys[0]])
 
-    # Relays peel
-    _, _, packet = circuit_packet_process(params, keys[2], packet)
     _, _, packet = circuit_packet_process(params, keys[1], packet)
+    _, _, packet = circuit_packet_process(params, keys[2], packet)
 
-    result = circuit_packet_decrypt(params, keys[0], packet)
+    result = circuit_packet_decrypt(params, [keys[2], keys[1], keys[0]], packet)
     assert result == token
 
-    print("[PASS] Circuit packet: full round-trip with HKDF-derived keys.")
+    print("[PASS] Circuit packet: relay-additive full round-trip with HKDF-derived keys.")
 
 
 def test_circuit_header_budget():
@@ -494,7 +491,7 @@ def test_circuit_header_budget():
         for i in range(max_hops):
             is_last = (i == max_hops - 1)
             circuits_installed = []
-            def _capture(cid, ck, nh, ttl):
+            def _capture(cid, ck, nh, outbound_cid, ttl):
                 circuits_installed.append(cid)
             result = outfox_process(params, pkiPriv[path[i]].x,
                                     pkiPriv[path[i]].y, (h, p),

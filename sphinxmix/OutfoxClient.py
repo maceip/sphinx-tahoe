@@ -47,7 +47,8 @@ def _build_header(params, route, public_keys, flag=FLAG_REAL, circuit_setup=None
       routing(16) + timestamp(8) + flag(1) [+ circuit_fields] [+ inner_header]
 
     circuit_setup: optional list of per-hop dicts with keys:
-      circuit_id (16 bytes), key_seed (16 bytes), next_hop (routing_size bytes),
+      inbound_link_cid (16 bytes), key_seed (16 bytes),
+      next_hop (routing_size bytes), outbound_link_cid (16 bytes),
       ttl (int, seconds). When present, flag bit 0x02 is set for that hop.
     """
     n = len(route)
@@ -73,9 +74,10 @@ def _build_header(params, route, public_keys, flag=FLAG_REAL, circuit_setup=None
             hop_flag = bytes([flag[0] | 0x02])
             next_hop_padded = (cs["next_hop"] + b'\x00' * params.routing_size)[:params.routing_size]
             circuit_bytes = (
-                cs["circuit_id"]
+                cs["inbound_link_cid"]
                 + cs["key_seed"]
                 + next_hop_padded
+                + cs["outbound_link_cid"]
                 + struct.pack(">H", cs["ttl"])
             )
 
@@ -171,18 +173,29 @@ def packet_create_repliable(params, fwd_route, fwd_keys,
 
     Returns (packet, idsurb, sksurb) when install_circuit is False.
     Returns (packet, idsurb, sksurb, circuit_info) when install_circuit is True,
-    where circuit_info = {"circuit_id": bytes, "keys": [exit_key, relay_keys...]}
-    with keys ordered innermost-first (exit at index 0).
+    where circuit_info contains per-hop link CIDs and keys for client decryption.
     """
     surb, idsurb, sksurb = surb_create(params, rply_route, rply_keys)
 
     circuit_setup = None
     circuit_info = None
     if install_circuit:
-        circuit_id = urandom(16)
         n = len(fwd_route)
+        logical_circuit = urandom(16)
+        client_inbound = urandom(16)
+
+        inbound_cids = [urandom(16) for _ in range(n)]
+        outbound_cids = [None] * n
         seeds = [urandom(16) for _ in range(n)]
-        keys = [derive_circuit_key(seeds[i], circuit_id) for i in range(n)]
+
+        # Link binding: hop[i].outbound = hop[i-1].inbound (toward client)
+        # hop[0] (first relay) outbound = client_inbound
+        # hop[n-1] (exit) outbound = hop[n-2].inbound
+        outbound_cids[0] = client_inbound
+        for i in range(1, n):
+            outbound_cids[i] = inbound_cids[i - 1]
+
+        keys = [derive_circuit_key(seeds[i], inbound_cids[i]) for i in range(n)]
 
         circuit_setup = []
         for i in range(n):
@@ -191,14 +204,17 @@ def packet_create_repliable(params, fwd_route, fwd_keys,
             else:
                 next_hop = fwd_route[i - 1]
             circuit_setup.append({
-                "circuit_id": circuit_id,
+                "inbound_link_cid": inbound_cids[i],
                 "key_seed": seeds[i],
                 "next_hop": next_hop,
+                "outbound_link_cid": outbound_cids[i],
                 "ttl": 120,
             })
 
         circuit_info = {
-            "circuit_id": circuit_id,
+            "logical_circuit": logical_circuit,
+            "client_inbound": client_inbound,
+            "exit_outbound": outbound_cids[n - 1],
             "keys": list(reversed(keys)),
         }
 
