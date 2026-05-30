@@ -228,6 +228,11 @@ class QuicDatagramServer:
 
     ``datagram_handler`` runs on the QUIC event loop and must not block.
     Production node logic should hand work to a task/queue and return quickly.
+
+    For supernode demux, pass ``on_reach_datagram``, ``on_mix_datagram``,
+    and/or ``on_opaque_datagram`` instead of ``datagram_handler``. The
+    demux callbacks use the same order as UDP (REACH → Outfox → opaque).
+    When demux callbacks are set, ``datagram_handler`` is ignored.
     """
 
     def __init__(
@@ -237,13 +242,28 @@ class QuicDatagramServer:
         configuration: "QuicConfiguration",
         datagram_handler: DatagramHandler | None = None,
         session_ticket_store: InMemorySessionTicketStore | None = None,
+        on_reach_datagram: ReachDatagramHandler | None = None,
+        on_mix_datagram: MixDatagramHandler | None = None,
+        on_opaque_datagram: OpaqueDatagramHandler | None = None,
     ) -> None:
         _require_aioquic()
         self.endpoint = endpoint
         self.configuration = configuration
-        self.datagram_handler = datagram_handler
         self.session_ticket_store = session_ticket_store
         self._server: QuicServer | None = None
+
+        if on_reach_datagram or on_mix_datagram or on_opaque_datagram:
+            def _demux_handler(data: bytes) -> bytes | None:
+                demux_datagram(
+                    data,
+                    on_reach=on_reach_datagram,
+                    on_mix=on_mix_datagram,
+                    on_opaque=on_opaque_datagram,
+                )
+                return None
+            self.datagram_handler = _demux_handler
+        else:
+            self.datagram_handler = datagram_handler
 
     async def start(self) -> "QuicDatagramServer":
         self._server = await serve(
