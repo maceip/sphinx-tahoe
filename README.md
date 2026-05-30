@@ -61,6 +61,10 @@ python3 scripts/demo.py
 # Run wire demo (real UDP sockets, separate relay processes)
 python3 -m por.udp_demo demo
 
+# Unified binary shape
+python3 -m por --help
+python3 -m por run --config por-config.json
+
 # Run with real LLM at the expert exit
 POR_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... python3 -m por.udp_demo demo
 ```
@@ -72,10 +76,144 @@ Project structure
 sphinxmix/           Packet crypto and in-process simulator
 por/                 Application layer (expert mode, envelopes, transport)
 por/daemon/          Production node entry points
-tests/               Test suite (120 tests)
+tests/               Test suite
 scripts/             Demos, sim proxies, CI scripts
 docs/                Specs and architecture notes
 ```
+
+Home client shape
+-----------------
+
+The product path is `python3 -m por run --config client.json`. A home client
+does not need an inbound listener and should not paste an expert IP address into
+config. It loads a public directory snapshot, verifies the selected expert's
+signed `peer_address` record, and dials a trusted reachability relay.
+
+```json
+{
+  "node_id": "client-home",
+  "role": "client",
+  "client": {
+    "directory_snapshot": "https://directory.example/snapshot",
+    "trusted_reachability_relays": [
+      {
+        "relay_id": "bootstrap-1",
+        "host": "203.0.113.10",
+        "port": 4433,
+        "verify_key": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+      }
+    ],
+    "local_http": {
+      "enabled": true,
+      "bind": {"host": "127.0.0.1", "port": 8766},
+      "path": "/v1/expert",
+      "status_path": "/v1/status"
+    }
+  },
+  "peer_address": {"enabled": true}
+}
+```
+
+Current MVP note: `verify_key` verifies `PeerAddressRecord` signatures. In this
+Python harness the record signature is HMAC-based; the field is intentionally
+named as a verification key so the wire format can move to public-key
+signatures later without changing client config shape.
+
+Client logs use stable event names such as `peer_address_plan`, `dial_target`,
+and `peer_address_rejected`. These logs include peer IDs, relay IDs, hosts, and
+ports needed for operations; they must not include prompt text.
+
+Supernode block
+---------------
+
+A reachability relay is still the same `por` binary. In config it is a relay
+daemon promoted with `supernode` flags; the daemon key, `node_id`, and client
+trusted relay `relay_id` must match.
+
+```json
+{
+  "daemons": {
+    "client-home": {
+      "role": "client",
+      "client": {
+        "trusted_reachability_relays": [
+          {
+            "relay_id": "bootstrap-1",
+            "host": "203.0.113.10",
+            "port": 4433,
+            "verify_key": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+          }
+        ]
+      },
+      "peer_address": {"enabled": true}
+    },
+    "bootstrap-1": {
+      "role": "relay",
+      "transport": {"kind": "udp", "host": "0.0.0.0", "port": 4433},
+      "supernode": {
+        "enabled": true,
+        "public_ip": "203.0.113.10",
+        "advertise_relay": true,
+        "register_directory": true,
+        "accept_inbound_mix": true
+      }
+    }
+  }
+}
+```
+
+Run shape for the promoted relay/supernode and home client:
+
+```bash
+python3 -m por run --config examples/home-client-supernode.config.json --node-id bootstrap-1
+python3 -m por run --config examples/home-client-supernode.config.json --node-id client-home
+```
+
+Test groups
+-----------
+
+The test suite uses pytest markers so crypto regressions and product paths do
+not blur together:
+
+```bash
+# Product/runtime acceptance paths
+pytest -m product
+
+# Packet-crypto and simulator regressions
+pytest -m crypto
+
+# Multi-process or threaded runtime checks
+pytest -m integration
+```
+
+Product tests cover the unified `por` binary, persistent client session, local
+HTTP/SSE chunk streaming, structured runtime logs, public directory snapshots,
+JSON health/status surfaces, and binary UDP wire integration. Crypto tests
+cover the underlying Outfox / Sphinx-style packet behavior and simulator
+invariants.
+
+Release binary
+--------------
+
+Build one executable per platform with PyInstaller from that platform:
+
+```bash
+python3 scripts/build_binary.py
+```
+
+On Apple Silicon macOS this writes `dist/por-macos-arm64`. The executable
+contains the Python runtime and project dependencies, so the user-facing install
+shape is download one file, make it executable if needed, and run:
+
+```bash
+./por-macos-arm64 --help
+./por-macos-arm64 run --config client.json
+```
+
+Builds are platform-local: run the same script on Linux and Windows runners to
+produce `por-linux-*` and `por-windows-*` release artifacts. macOS release
+publishing still needs normal Developer ID signing and notarization outside this
+script.
 
 References
 ----------

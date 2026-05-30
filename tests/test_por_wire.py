@@ -30,7 +30,8 @@ from por.wire_frame import (
     encode_shutdown,
 )
 
-from tests.helpers import has_log_event, parse_json_log_events, write_wire_cluster
+from tests.harness import mixnet_harness, static_wire_cluster
+from tests.helpers import has_log_event, parse_json_log_events
 
 
 @pytest.mark.parametrize(
@@ -75,13 +76,9 @@ def test_wire_frame_rejects_invalid_datagrams(raw):
     assert kind == "unknown"
 
 
-def test_wire_runtime_logs_unknown_binary_datagram(tmp_path, capsys):
-    config_path, _harness = write_wire_cluster(
-        tmp_path,
-        node_ids=("relay1",),
-        payload_size=2048,
-    )
-    runtime = WireNodeRuntime(ClusterConfig.load(config_path), "relay1", role="relay")
+def test_wire_runtime_logs_unknown_binary_datagram(capsys):
+    cluster = static_wire_cluster(("relay1", "relay"), payload_size=2048)
+    runtime = WireNodeRuntime(cluster, "relay1", role="relay")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         runtime._dispatch_binary(sock, b"\xffbad", ("127.0.0.1", 1))
@@ -102,8 +99,8 @@ def test_truncated_forward_header_rejected():
 def test_corrupt_reach_tag_no_crash(tmp_path, capsys):
     """Corrupt REACH-range tag doesn't crash or dispatch to mix."""
     from por.reach_wire import REACH_REGISTER
-    config_path, _ = write_wire_cluster(tmp_path, node_ids=("relay1",), payload_size=2048)
-    runtime = WireNodeRuntime(ClusterConfig.load(config_path), "relay1", role="relay")
+    cluster = static_wire_cluster(("relay1", "relay"), payload_size=2048)
+    runtime = WireNodeRuntime(cluster, "relay1", role="relay")
     reach_calls = []
     runtime.on_reach_control = lambda data, addr: reach_calls.append(data)
 
@@ -122,8 +119,8 @@ def test_circuit_replay_nonce_rejected(tmp_path, capsys):
     from sphinxmix.OutfoxNode import circuit_packet_create
     from os import urandom
 
-    config_path, _ = write_wire_cluster(tmp_path, node_ids=("relay1",), payload_size=512)
-    runtime = WireNodeRuntime(ClusterConfig.load(config_path), "relay1", role="relay")
+    cluster = static_wire_cluster(("relay1", "relay"), payload_size=512)
+    runtime = WireNodeRuntime(cluster, "relay1", role="relay")
     key = urandom(16)
     cid = urandom(16)
     runtime.circuits[cid.hex()] = {
@@ -143,10 +140,10 @@ def test_circuit_replay_nonce_rejected(tmp_path, capsys):
     assert has_log_event(events, "circuit_replay")
 
 
-def test_shutdown_stops_runtime(tmp_path, monkeypatch):
+def test_shutdown_stops_runtime():
     """0x02 shutdown sets _shutdown flag cleanly."""
-    config_path, _ = write_wire_cluster(tmp_path, node_ids=("relay1",), payload_size=2048)
-    runtime = WireNodeRuntime(ClusterConfig.load(config_path), "relay1", role="relay")
+    cluster = static_wire_cluster(("relay1", "relay"), payload_size=2048)
+    runtime = WireNodeRuntime(cluster, "relay1", role="relay")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         runtime._dispatch_binary(sock, encode_shutdown(), ("127.0.0.1", 1))
@@ -231,50 +228,34 @@ def test_binary_wire_subprocess_uses_client_send_path(tmp_path, wire_cluster_fac
 
 @pytest.mark.integration
 @pytest.mark.product
-def test_wire_node_runtime_threaded_end_to_end(tmp_path, monkeypatch):
-    """WireNodeRuntime hot path without subprocess — relay → expert → client."""
-    monkeypatch.setattr(WireNodeRuntime, "install_signal_handlers", lambda self: None)
+def test_wire_node_runtime_threaded_end_to_end():
+    """WireNodeRuntime hot path without subprocess — relay → expert → client.
 
-    config_path, harness = write_wire_cluster(
-        tmp_path,
-        node_ids=("relay1", "expert_art"),
-        payload_size=2048,
-    )
-    cluster = ClusterConfig.load(config_path)
-    envelope = PromptRequestEnvelope.visible_prompt(
-        prompt="Quick test",
-        selected_peer_id="expert_art",
-        requested_expertise="general",
-    )
+    Deterministic via the harness: bind-once held sockets, joined serve threads,
+    and a client socket the send path reuses (no rebind race)."""
+    with mixnet_harness() as net:
+        cluster, nodes, client_sock = net.wire_cluster(
+            ("relay1", "relay"),
+            ("expert_art", "expert"),
+        )
+        envelope = PromptRequestEnvelope.visible_prompt(
+            prompt="Quick test",
+            selected_peer_id="expert_art",
+            requested_expertise="general",
+        )
 
-    runtimes = [
-        WireNodeRuntime(cluster, "relay1", role="relay"),
-        WireNodeRuntime(cluster, "expert_art", role="expert"),
-    ]
-    threads = [
-        threading.Thread(target=runtime.serve_forever, kwargs={"binary_wire": True}, daemon=True)
-        for runtime in runtimes
-    ]
-    for thread in threads:
-        thread.start()
-    time.sleep(0.2)
+        net.serve(WireNodeRuntime(cluster, "relay1", role="relay"), nodes["relay1"].sock)
+        net.serve(
+            WireNodeRuntime(cluster, "expert_art", role="expert"),
+            nodes["expert_art"].sock,
+        )
 
-    try:
         response, logs = send_prepared_envelope(
             cluster=cluster,
             forward_path=["relay1", "expert_art"],
             envelope=envelope,
             timeout=6.0,
+            client_sock=client_sock,
         )
         assert len(response) > 0
         assert any("wire=binary" in line for line in logs)
-    finally:
-        shutdown_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        for node_id in ("relay1", "expert_art"):
-            port = harness["nodes"][node_id]["port"]
-            shutdown_sock.sendto(encode_shutdown(), ("127.0.0.1", port))
-        shutdown_sock.close()
-        time.sleep(0.3)
-
-    for runtime in runtimes:
-        runtime._shutdown = True

@@ -9,7 +9,9 @@ __all__ = (
     "CandidatePool",
     "CandidateScore",
     "ChunkProof",
+    "ClientConfig",
     "ClientRunResult",
+    "ClientSessionStats",
     "ClusterConfig",
     "ClusterNodeConfig",
     "CONFIG_VERSION",
@@ -31,6 +33,7 @@ __all__ = (
     "H3WebSocketServer",
     "InMemorySessionTicketStore",
     "IndexConfig",
+    "LocalHttpConfig",
     "LocalMemoryIndex",
     "LoggingConfig",
     "MemoryManifest",
@@ -40,6 +43,7 @@ __all__ = (
     "PeerObservation",
     "PeerEndpointConfig",
     "PeerRecord",
+    "PersistentClientSession",
     "PorConfig",
     "PorLogEvent",
     "PrivateDiscoveryUnavailable",
@@ -55,11 +59,14 @@ __all__ = (
     "AddressExposurePolicy",
     "DialPlan",
     "DialRoute",
+    "DialTarget",
     "PeerAddressRecord",
     "PeerAddressRelay",
     "RelayCandidate",
     "RetrievalHit",
     "RouteIntent",
+    "SupernodeConfig",
+    "TrustedReachabilityRelayConfig",
     "UdpEndpoint",
     "build_dial_plan",
     "build_memory_index",
@@ -71,10 +78,14 @@ __all__ = (
     "load_records_from_snapshot_file",
     "plan_expert_route",
     "prepare_expert_mode_request",
+    "peer_address_record_from_dict",
+    "resolve_dial_target",
     "run_client_once",
     "send_prepared_envelope",
+    "send_prepared_envelope_via_plan",
     "score_manifest",
     "verify_chunk_proof",
+    "verify_record_signature",
     "write_config",
 )
 
@@ -83,10 +94,15 @@ def __getattr__(name):
     if name in __all__:
         if name in {
             "ClientRunResult",
+            "ClientSessionStats",
+            "PersistentClientSession",
             "run_client_once",
             "send_prepared_envelope",
         }:
-            from . import client
+            if name in {"ClientSessionStats", "PersistentClientSession"}:
+                from .daemon import client
+            else:
+                from . import client
 
             return getattr(client, name)
         if name in {
@@ -105,16 +121,20 @@ def __getattr__(name):
             "CONFIG_VERSION",
             "ClusterConfig",
             "ClusterNodeConfig",
+            "ClientConfig",
             "DaemonConfig",
             "DirectoryConfig",
             "EndpointConfig",
             "ExpertRoutingConfig",
+            "LocalHttpConfig",
             "LoggingConfig",
             "PacketConfig",
             "PeerAddressConfig",
             "PeerEndpointConfig",
             "PorConfig",
             "ProviderConfig",
+            "SupernodeConfig",
+            "TrustedReachabilityRelayConfig",
             "load_config",
             "write_config",
         }:
@@ -152,10 +172,20 @@ def __getattr__(name):
             "RelayCandidate",
             "UdpEndpoint",
             "build_dial_plan",
+            "peer_address_record_from_dict",
+            "verify_record_signature",
         }:
             from . import peer_address
 
             return getattr(peer_address, name)
+        if name in {
+            "DialTarget",
+            "resolve_dial_target",
+            "send_prepared_envelope_via_plan",
+        }:
+            from . import transport_dial
+
+            return getattr(transport_dial, name)
         if name in {
             "H3WebSocketClient",
             "H3WebSocketServer",

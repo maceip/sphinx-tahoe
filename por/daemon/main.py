@@ -109,20 +109,19 @@ def _run_from_daemon_config(config_path: str, *, node_id: str | None) -> int:
     if daemon.role == ROLE_RELAY:
         from por.daemon.relay import run_relay_cluster
 
-        return run_relay_cluster(daemon)
+        return run_relay_cluster(daemon, por_cfg)
     if daemon.role == ROLE_EXPERT:
         from por.daemon.expert import run_expert_cluster
 
-        return run_expert_cluster(daemon)
+        return run_expert_cluster(daemon, por_cfg)
     if daemon.role == ROLE_CLIENT:
-        raise SystemExit(
-            "por run: persistent client loop is not implemented yet; use `por send` "
-            "for one-shot requests or wait for Milestone A1 polish."
-        )
+        from por.daemon.client import run_client_from_daemon
+
+        return run_client_from_daemon(daemon, por_cfg)
     if daemon.role == ROLE_DIRECTORY:
         from por.daemon.directory import run_directory_from_daemon
 
-        return run_directory_from_daemon(daemon)
+        return run_directory_from_daemon(daemon, por_cfg)
 
     raise SystemExit(f"por run: unsupported daemon role {daemon.role!r}")
 

@@ -24,6 +24,13 @@ pytestmark = pytest.mark.skipif(not AIOQUIC_AVAILABLE, reason="aioquic is not in
 
 
 def _free_udp_port() -> int:
+    """Reserve an ephemeral port for an aioquic server (bind-then-close).
+
+    Quarantined TOCTOU, like ``tests.helpers.reserve_udp_ports``: aioquic's
+    ``serve()`` binds its own socket to a port chosen in advance and cannot adopt
+    a held-open socket, so this case can't use the bind-once ``mixnet_harness``.
+    Localhost + skip-gated, so the race window is negligible here.
+    """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sock.bind(("127.0.0.1", 0))

@@ -155,6 +155,7 @@ class PeerAddressRelay:
         self.ttl_seconds = ttl_seconds
         self.heartbeat_interval_seconds = heartbeat_interval_seconds
         self._registrations: dict[str, _Registration] = {}
+        self._pending: dict[str, AddressChallenge] = {}
 
     def request_registration(
         self,
@@ -165,7 +166,7 @@ class PeerAddressRelay:
     ) -> AddressChallenge:
         now = time.time() if now is None else now
         cookie = self._cookie(peer_id, observed_endpoint, self._bucket(now))
-        return AddressChallenge(
+        challenge = AddressChallenge(
             peer_id=peer_id,
             relay_id=self.relay_id,
             observed_endpoint=observed_endpoint,
@@ -173,6 +174,33 @@ class PeerAddressRelay:
             issued_at=now,
             expires_at=now + COOKIE_BUCKET_SECONDS,
         )
+        self._pending[peer_id] = challenge
+        return challenge
+
+    def pending_challenge(
+        self,
+        peer_id: str,
+        *,
+        cookie: bytes,
+        observed_endpoint: UdpEndpoint,
+        now: float | None = None,
+    ) -> AddressChallenge:
+        now = time.time() if now is None else now
+        challenge = self._pending.pop(peer_id, None)
+        if challenge is None:
+            raise ValueError("no pending registration for peer")
+        if challenge.cookie != cookie:
+            raise ValueError("registration cookie mismatch")
+        challenge = AddressChallenge(
+            peer_id=challenge.peer_id,
+            relay_id=challenge.relay_id,
+            observed_endpoint=observed_endpoint,
+            cookie=challenge.cookie,
+            issued_at=challenge.issued_at,
+            expires_at=challenge.expires_at,
+        )
+        self._verify_challenge(challenge, now)
+        return challenge
 
     def confirm_registration(
         self,
@@ -285,24 +313,7 @@ class PeerAddressRelay:
         return hmac.new(self.secret, msg, sha256).digest()[:COOKIE_SIZE]
 
     def _record_signature(self, record: PeerAddressRecord) -> str:
-        relay_bits = ",".join(
-            f"{candidate.relay_id}@{candidate.endpoint.host}:{candidate.endpoint.port}:{candidate.transport}"
-            for candidate in record.relay_candidates
-        )
-        direct_bits = ",".join(
-            f"{endpoint.host}:{endpoint.port}" for endpoint in record.observed_udp_endpoints
-        )
-        msg = "|".join(
-            (
-                record.version,
-                record.peer_id,
-                relay_bits,
-                direct_bits,
-                ",".join(record.supported_transports),
-                str(int(record.expires_at)),
-            )
-        ).encode("utf-8")
-        return hmac.new(self.secret, msg, sha256).hexdigest()
+        return hmac.new(self.secret, _record_signature_payload(record), sha256).hexdigest()
 
 
 def build_dial_plan(
@@ -365,3 +376,105 @@ def build_dial_plan(
         record_expires_at=record.expires_at,
         warnings=tuple(warnings),
     )
+
+
+def peer_address_record_from_dict(raw: dict[str, object]) -> PeerAddressRecord:
+    """Parse a public peer address record from JSON/config data."""
+
+    version = str(raw.get("version", ""))
+    if version != PEER_ADDRESS_RECORD_V1:
+        raise ValueError(f"unsupported peer address record version: {version!r}")
+    relay_candidates = tuple(
+        _relay_candidate_from_dict(item)
+        for item in _object_sequence(raw.get("relay_candidates"))
+    )
+    observed = tuple(
+        _udp_endpoint_from_dict(item)
+        for item in _object_sequence(raw.get("observed_udp_endpoints"))
+    )
+    policy_raw = raw.get("address_policy") or {}
+    if not isinstance(policy_raw, dict):
+        raise ValueError("address_policy must be an object")
+    return PeerAddressRecord(
+        version=version,
+        peer_id=str(raw.get("peer_id", "")),
+        relay_candidates=relay_candidates,
+        observed_udp_endpoints=observed,
+        nat_hints=tuple(str(item) for item in raw.get("nat_hints", ()) or ()),
+        supported_transports=tuple(str(item) for item in raw.get("supported_transports", ()) or ()),
+        issued_at=float(raw.get("issued_at", 0.0)),
+        expires_at=float(raw.get("expires_at", 0.0)),
+        address_policy=AddressExposurePolicy(
+            expose_direct_endpoint=bool(policy_raw.get("expose_direct_endpoint", False)),
+            stable_relay_only=bool(policy_raw.get("stable_relay_only", True)),
+        ),
+        signature=str(raw.get("signature", "")),
+    )
+
+
+def verify_record_signature(record: PeerAddressRecord, key: bytes | str) -> bool:
+    """Verify a public peer address record signature.
+
+    The MVP uses the same HMAC signature produced by ``PeerAddressRelay``.
+    ``key`` may be raw bytes or a hex string from client config.
+    """
+
+    if isinstance(key, str):
+        try:
+            key_bytes = bytes.fromhex(key)
+        except ValueError:
+            return False
+    else:
+        key_bytes = key
+    if not key_bytes or not record.signature:
+        return False
+    expected = hmac.new(key_bytes, _record_signature_payload(record), sha256).hexdigest()
+    return hmac.compare_digest(record.signature, expected)
+
+
+def _record_signature_payload(record: PeerAddressRecord) -> bytes:
+    relay_bits = ",".join(
+        f"{candidate.relay_id}@{candidate.endpoint.host}:{candidate.endpoint.port}:{candidate.transport}"
+        for candidate in record.relay_candidates
+    )
+    direct_bits = ",".join(
+        f"{endpoint.host}:{endpoint.port}" for endpoint in record.observed_udp_endpoints
+    )
+    return "|".join(
+        (
+            record.version,
+            record.peer_id,
+            relay_bits,
+            direct_bits,
+            ",".join(record.supported_transports),
+            str(int(record.expires_at)),
+        )
+    ).encode("utf-8")
+
+
+def _relay_candidate_from_dict(raw: object) -> RelayCandidate:
+    if not isinstance(raw, dict):
+        raise ValueError("relay candidate must be an object")
+    endpoint_raw = raw.get("endpoint")
+    if not isinstance(endpoint_raw, dict):
+        raise ValueError("relay candidate endpoint must be an object")
+    return RelayCandidate(
+        relay_id=str(raw.get("relay_id", "")),
+        endpoint=_udp_endpoint_from_dict(endpoint_raw),
+        transport=str(raw.get("transport", TRANSPORT_QUIC_DATAGRAM)),
+        inline_required=bool(raw.get("inline_required", True)),
+    )
+
+
+def _udp_endpoint_from_dict(raw: object) -> UdpEndpoint:
+    if not isinstance(raw, dict):
+        raise ValueError("UDP endpoint must be an object")
+    return UdpEndpoint(host=str(raw.get("host", "")), port=int(raw.get("port", 0)))
+
+
+def _object_sequence(value: object) -> tuple[object, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("expected list")
+    return tuple(value)

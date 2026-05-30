@@ -26,6 +26,7 @@ if __name__ == "__main__":
                   "petlib >= 0.0.41",
                   "pynacl >= 1.1.0",
                   "aioquic >= 1.3.0",
+                  "pqcrypto >= 0.4.0",
             ],
             install_requires=[
                   "future >= 0.14.3",
@@ -34,6 +35,7 @@ if __name__ == "__main__":
                   "petlib >= 0.0.41",
                   "pynacl >= 1.1.0",
                   "aioquic >= 1.3.0",
+                  "pqcrypto >= 0.4.0",
             ],
             entry_points={
                   "console_scripts": [

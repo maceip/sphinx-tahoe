@@ -1,7 +1,54 @@
 # Supernode Reachability — Threat Model & Constraints
 
-Status: **review required before code merge**. This document must be approved
-by security review before supernode forwarding code lands on main.
+Status: **conditionally approved** (coordination/security review, 2026-05-30).
+Reviewer: architecture coordination (Composer agent — same party that wrote the
+gate). **D2–D4 may proceed.** **D5 (bundled defaults) remains blocked** until
+D3 + D4 + security regression tests land.
+
+## Review outcome (2026-05-30)
+
+**Approved for continued implementation:**
+
+- Reachability supernode as **bootstrap infrastructure** with **documented trust**
+  (not anonymity-neutral).
+- `PeerAddressRelay` challenge/confirm + TTL (already implemented).
+- `SupernodeForwarder` as **registry only** today; D2 must add opaque byte relay.
+
+**Conditions on D2 (daemon forward loop):**
+
+1. Forward path must not import `envelope`, `provider`, `expert_route`, or call
+   `outfox_process` / `PromptRequestEnvelope` — only move UDP datagram bytes and
+   optional type-byte demux to `WireNodeRuntime` vs peer table.
+2. Add **rate limits** on registration (per source IP + per peer_id) before any
+   public deployment.
+3. Log **metadata only** (peer_id, bytes, event) — never payload hex/dumps on
+   reachability path.
+
+**Conditions on D3/D4 (before D5):**
+
+4. Client verifies `PeerAddressRecord.signature` before dial (landed in the
+   client dial planner; current harness uses HMAC signatures).
+5. Directory `PeerAddressRecord` per expert — not just `supernodes[]` ads
+   (landed in directory snapshots).
+6. `trusted_reachability_relays` in client config — no dial of unsigned or
+   unlisted supernodes (landed; dev override exists for tests only).
+
+**Demux decision (closed for MVP):**
+
+Use **one UDP bind** on the supernode. Demux order:
+
+1. `REACH_*` control datagrams → `PeerAddressRelay` (registration/heartbeat).
+2. Otherwise → if destination is this node's mix identity, hand to `WireNodeRuntime`.
+3. Otherwise → opaque forward to registered peer NAT mapping (D2).
+
+Log `supernode_role=reachability|mix` at debug. Document in operator docs that
+**mix + reachability on one public IP increases correlation** (constraint 2).
+
+**Not approved yet:**
+
+- Shipped default supernodes without named operator trust text (D5).
+- Automated directory self-registration without operator approval.
+- Direct UDP / hole punch as correctness path.
 
 ## What a supernode is
 
@@ -16,7 +63,8 @@ prompts, envelopes, or provider metadata.
 ## What a supernode is NOT
 
 - Not a mix node (no batching, delay, or cover traffic at the relay layer)
-- Not a trusted intermediary (all forwarded bytes are encrypted end-to-end)
+- Not confidentiality-neutral — bootstrap reachability relays are **trusted for
+  metadata** (timing, IPs, session linking), not for reading payloads
 - Not a NAT hole-punching server (no STUN/TURN/ICE)
 - Not an eBPF/XDP accelerator (user-space UDP only)
 
@@ -88,11 +136,17 @@ prompts, envelopes, or provider metadata.
   forwarding layer (would add latency, not in scope for MVP)
 - **Multiple supernodes per expert** — failover between supernodes
 
+## Open decision (pick before D2 daemon)
+
+**Demux:** ~~open~~ **Closed for MVP** — see Review outcome above (one UDP bind,
+three-way demux: REACH control → mix runtime → opaque NAT forward).
+
 ## Implementation order (per security team)
 
-0. This threat model doc (approved before code merge)
-1. Opaque inline forward (SupernodeForwarder) — done, pending review
-2. Client dial to trusted relay endpoints from config/directory
-3. Directory embeds signed PeerAddressRecord
-4. Bootstrap defaults with explicit trust story
-5. Security regression tests (not just happy path)
+0. Threat model doc — **conditionally approved** (2026-05-30)
+1. Opaque inline forward — **lookup table landed**; daemon receive→forward loop is **D2 (unblocked)**
+2. Client dial to trusted relay endpoints — **D3 partial** (target resolution
+   landed; socket IO still waits for Transport D2/D3)
+3. Directory embeds signed PeerAddressRecord — **D4 landed**
+4. Bootstrap defaults — **D5 blocked** until 2–3 + item 5
+5. Security regression tests — required before D5

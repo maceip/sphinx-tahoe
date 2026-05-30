@@ -11,7 +11,7 @@ import json
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Mapping
+from typing import Mapping, Sequence
 
 
 CONFIG_VERSION = "por.config.v1"
@@ -410,6 +410,7 @@ class PeerAddressConfig:
     enabled: bool = False
     allow_direct: bool = False
     prefer_direct: bool = False
+    records: dict[str, dict[str, object]] = field(default_factory=dict)
     heartbeat_interval_seconds: int = 90
     registration_ttl_seconds: int = 270
 
@@ -423,6 +424,10 @@ class PeerAddressConfig:
             enabled=_bool(raw.get("enabled", False)),
             allow_direct=_bool(raw.get("allow_direct", False)),
             prefer_direct=_bool(raw.get("prefer_direct", False)),
+            records={
+                str(peer_id): _mutable_mapping_copy(record_raw)
+                for peer_id, record_raw in (_mapping_or_none(raw.get("records")) or {}).items()
+            },
             heartbeat_interval_seconds=int(raw.get("heartbeat_interval_seconds", 90)),
             registration_ttl_seconds=int(raw.get("registration_ttl_seconds", 270)),
         ).validate()
@@ -434,6 +439,161 @@ class PeerAddressConfig:
             raise ValueError("registration_ttl_seconds must be positive")
         if self.prefer_direct and not self.allow_direct:
             raise ValueError("prefer_direct requires allow_direct")
+        return self
+
+
+@dataclass(frozen=True)
+class TrustedReachabilityRelayConfig:
+    relay_id: str
+    host: str
+    port: int
+    verify_key: str
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, object]) -> "TrustedReachabilityRelayConfig":
+        return cls(
+            relay_id=str(raw.get("relay_id", "")),
+            host=str(raw.get("host", DEFAULT_HOST)),
+            port=int(raw.get("port", DEFAULT_PORT)),
+            verify_key=str(raw.get("verify_key", "")),
+        ).validate()
+
+    def validate(self) -> "TrustedReachabilityRelayConfig":
+        if not self.relay_id:
+            raise ValueError("trusted reachability relay_id is required")
+        if not self.host:
+            raise ValueError("trusted reachability relay host is required")
+        if not 0 < int(self.port) <= 65535:
+            raise ValueError("trusted reachability relay port must be 1..65535")
+        if not self.verify_key:
+            raise ValueError("trusted reachability relay verify_key is required")
+        try:
+            bytes.fromhex(self.verify_key)
+        except ValueError as exc:
+            raise ValueError("trusted reachability relay verify_key must be hex") from exc
+        return self
+
+
+@dataclass(frozen=True)
+class LocalHttpConfig:
+    enabled: bool = False
+    bind: EndpointConfig = field(default_factory=lambda: EndpointConfig(DEFAULT_HOST, 8766))
+    path: str = "/v1/expert"
+    status_path: str = "/v1/status"
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, object] | None) -> "LocalHttpConfig":
+        raw = raw or {}
+        bind_raw = raw.get("bind")
+        if bind_raw is None and ("host" in raw or "port" in raw):
+            bind_raw = raw
+        return cls(
+            enabled=_bool(raw.get("enabled", False)),
+            bind=EndpointConfig.from_dict(_mapping_or_none(bind_raw)),
+            path=str(raw.get("path", "/v1/expert")),
+            status_path=str(raw.get("status_path", "/v1/status")),
+        ).validate()
+
+    def validate(self) -> "LocalHttpConfig":
+        self.bind.validate()
+        if not self.path.startswith("/"):
+            raise ValueError("local_http.path must start with /")
+        if not self.status_path.startswith("/"):
+            raise ValueError("local_http.status_path must start with /")
+        if self.status_path == self.path:
+            raise ValueError("local_http.status_path must differ from local_http.path")
+        return self
+
+
+@dataclass(frozen=True)
+class ClientConfig:
+    directory_snapshot: str | None = None
+    prompt: str | None = None
+    expertise: str | None = None
+    relay_path: tuple[str, ...] = ()
+    timeout_seconds: float = 8.0
+    random_seed: int | None = None
+    max_concurrent_requests: int = 8
+    trusted_reachability_relays: tuple[TrustedReachabilityRelayConfig, ...] = ()
+    dev_allow_untrusted_reachability_relays: bool = False
+    local_http: LocalHttpConfig = field(default_factory=LocalHttpConfig)
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, object] | None) -> "ClientConfig":
+        raw = raw or {}
+        return cls(
+            directory_snapshot=_optional_str(raw.get("directory_snapshot") or raw.get("directory_snapshot_url")),
+            prompt=_optional_str(raw.get("prompt")),
+            expertise=_optional_str(raw.get("expertise")),
+            relay_path=_string_tuple(raw.get("relay_path")),
+            timeout_seconds=float(raw.get("timeout_seconds", raw.get("timeout", 8.0))),
+            random_seed=_optional_int(raw.get("random_seed")),
+            max_concurrent_requests=int(raw.get("max_concurrent_requests", 8)),
+            trusted_reachability_relays=tuple(
+                TrustedReachabilityRelayConfig.from_dict(_mapping_or_empty(item))
+                for item in _sequence_or_empty(raw.get("trusted_reachability_relays"))
+            ),
+            dev_allow_untrusted_reachability_relays=_bool(
+                raw.get("dev_allow_untrusted_reachability_relays", False)
+            ),
+            local_http=LocalHttpConfig.from_dict(_mapping_or_none(raw.get("local_http"))),
+        ).validate()
+
+    def validate(self) -> "ClientConfig":
+        if self.timeout_seconds <= 0:
+            raise ValueError("client timeout_seconds must be positive")
+        if self.max_concurrent_requests <= 0:
+            raise ValueError("client max_concurrent_requests must be positive")
+        relay_ids = [relay.relay_id for relay in self.trusted_reachability_relays]
+        if len(set(relay_ids)) != len(relay_ids):
+            raise ValueError("trusted reachability relay_id values must be unique")
+        return self
+
+
+@dataclass(frozen=True)
+class SupernodeConfig:
+    enabled: bool = False
+    public_ip: str | None = None
+    advertise_relay: bool = False
+    register_directory: bool = False
+    accept_inbound_mix: bool = False
+    promote_expert: bool = False
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, object] | None) -> "SupernodeConfig":
+        raw = raw or {}
+        return cls(
+            enabled=_bool(raw.get("enabled", False)),
+            public_ip=_optional_str(raw.get("public_ip")),
+            advertise_relay=_bool(raw.get("advertise_relay", False)),
+            register_directory=_bool(raw.get("register_directory", False)),
+            accept_inbound_mix=_bool(raw.get("accept_inbound_mix", False)),
+            promote_expert=_bool(raw.get("promote_expert", False)),
+        ).validate()
+
+    def validate(self) -> "SupernodeConfig":
+        promoted = (
+            self.advertise_relay
+            or self.register_directory
+            or self.accept_inbound_mix
+            or self.promote_expert
+        )
+        if promoted and not self.enabled:
+            raise ValueError("supernode promotion flags require supernode.enabled=true")
+        if (self.advertise_relay or self.register_directory) and not self.public_ip:
+            raise ValueError("supernode public_ip is required for relay advertisement or directory registration")
         return self
 
 
@@ -476,12 +636,16 @@ class LoggingConfig:
 class DaemonConfig:
     node_id: str
     role: str
+    kem_pk_hex: str | None = None
+    kem_sk_hex: str | None = None
     transport: TransportConfig = field(default_factory=TransportConfig)
     packet: PacketConfig = field(default_factory=PacketConfig)
     directory: DirectoryConfig = field(default_factory=DirectoryConfig)
+    client: ClientConfig = field(default_factory=ClientConfig)
     expert_routing: ExpertRoutingConfig = field(default_factory=ExpertRoutingConfig)
     provider: ProviderConfig | None = None
     peer_address: PeerAddressConfig = field(default_factory=PeerAddressConfig)
+    supernode: SupernodeConfig = field(default_factory=SupernodeConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     peers: dict[str, PeerEndpointConfig] = field(default_factory=dict)
 
@@ -496,9 +660,12 @@ class DaemonConfig:
         return cls(
             node_id=node_id,
             role=role,
+            kem_pk_hex=_optional_str(raw.get("kem_pk_hex") or raw.get("kem_pk")),
+            kem_sk_hex=_optional_str(raw.get("kem_sk_hex") or raw.get("kem_sk")),
             transport=TransportConfig.from_dict(_mapping_or_none(raw.get("transport"))),
             packet=PacketConfig.from_dict(_mapping_or_none(raw.get("packet") or raw.get("params"))),
             directory=DirectoryConfig.from_dict(_mapping_or_none(raw.get("directory"))),
+            client=ClientConfig.from_dict(_mapping_or_none(raw.get("client"))),
             expert_routing=ExpertRoutingConfig.from_dict(_mapping_or_none(raw.get("expert_routing"))),
             provider=(
                 ProviderConfig.from_dict(_mapping_or_none(raw.get("provider")))
@@ -506,6 +673,7 @@ class DaemonConfig:
                 else None
             ),
             peer_address=PeerAddressConfig.from_dict(_mapping_or_none(raw.get("peer_address"))),
+            supernode=SupernodeConfig.from_dict(_mapping_or_none(raw.get("supernode"))),
             logging=LoggingConfig.from_dict(_mapping_or_none(raw.get("logging"))),
             peers={
                 str(peer_id): PeerEndpointConfig.from_dict(str(peer_id), _mapping_or_empty(peer_raw))
@@ -521,10 +689,12 @@ class DaemonConfig:
         self.transport.validate()
         self.packet.validate()
         self.directory.validate()
+        self.client.validate()
         self.expert_routing.validate()
         if self.provider is not None:
             self.provider.validate()
         self.peer_address.validate()
+        self.supernode.validate()
         self.logging.validate()
         for peer in self.peers.values():
             peer.validate()
@@ -532,6 +702,21 @@ class DaemonConfig:
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
+
+    def cluster_node(self) -> ClusterNodeConfig:
+        if self.role not in {ROLE_RELAY, ROLE_EXPERT}:
+            raise ValueError(f"{self.node_id} role {self.role!r} is not a cluster node")
+        if not self.kem_pk_hex or not self.kem_sk_hex:
+            raise ValueError(f"{self.node_id} requires kem_pk_hex and kem_sk_hex")
+        bind = self.transport.bind
+        return ClusterNodeConfig(
+            node_id=self.node_id,
+            host=bind.host,
+            port=bind.port,
+            kem_pk_hex=self.kem_pk_hex,
+            kem_sk_hex=self.kem_sk_hex,
+            role=self.role,
+        )
 
 
 @dataclass(frozen=True)
@@ -542,6 +727,10 @@ class PorConfig:
 
     def __post_init__(self) -> None:
         self.validate()
+
+    @classmethod
+    def load(cls, path: str | Path) -> "PorConfig":
+        return load_config(path)
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, object]) -> "PorConfig":
@@ -586,11 +775,82 @@ class PorConfig:
         except KeyError as exc:
             raise KeyError(f"unknown daemon node_id: {selected}") from exc
 
+    def client_daemon(self, node_id: str | None = None) -> DaemonConfig | None:
+        if node_id is not None:
+            daemon = self.daemon(node_id)
+            if daemon.role != ROLE_CLIENT:
+                raise ValueError(f"{node_id} is not a client daemon")
+            return daemon
+        clients = [daemon for daemon in self.daemons.values() if daemon.role == ROLE_CLIENT]
+        if not clients:
+            return None
+        if self.default_node_id:
+            default = self.daemons[self.default_node_id]
+            if default.role == ROLE_CLIENT:
+                return default
+        return clients[0]
+
+    def to_cluster_config(self, *, client_node_id: str | None = None) -> ClusterConfig:
+        client = self.client_daemon(client_node_id)
+        packet_source = client or self.daemon()
+        nodes = {
+            daemon.node_id: daemon.cluster_node()
+            for daemon in self.daemons.values()
+            if daemon.role in {ROLE_RELAY, ROLE_EXPERT}
+        }
+        if not nodes:
+            raise ValueError("por.config.v1 cluster view requires at least one relay or expert daemon")
+        return ClusterConfig(
+            params=packet_source.packet,
+            client=client.transport.bind if client else EndpointConfig(),
+            nodes=nodes,
+        )
+
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, indent=2)
+
+    def supernode_directory_records(self) -> tuple[dict[str, object], ...]:
+        """Return public supernode advertisements implied by daemon config."""
+
+        records: list[dict[str, object]] = []
+        for daemon in self.daemons.values():
+            supernode = daemon.supernode
+            if not (supernode.enabled and supernode.register_directory):
+                continue
+            bind = daemon.transport.bind
+            public_host = supernode.public_ip or bind.host
+            records.append(
+                {
+                    "node_id": daemon.node_id,
+                    "role": daemon.role,
+                    "public_ip": supernode.public_ip,
+                    "relay_handle": f"{daemon.node_id}@{public_host}:{bind.port}",
+                    "endpoint": {
+                        "host": public_host,
+                        "port": bind.port,
+                        "transport": daemon.transport.kind,
+                    },
+                    "advertise_relay": supernode.advertise_relay,
+                    "accept_inbound_mix": supernode.accept_inbound_mix,
+                    "promote_expert": supernode.promote_expert,
+                }
+            )
+        return tuple(records)
+
+    def peer_address_directory_records(self) -> dict[str, dict[str, object]]:
+        """Return expert peer-address records published from daemon config."""
+
+        records: dict[str, dict[str, object]] = {}
+        for daemon in self.daemons.values():
+            if daemon.role != ROLE_EXPERT:
+                continue
+            raw = daemon.peer_address.records.get(daemon.node_id)
+            if raw is not None:
+                records[daemon.node_id] = dict(raw)
+        return records
 
 
 def load_config(path: str | Path) -> PorConfig:
@@ -627,6 +887,24 @@ def _optional_int(value: object) -> int | None:
     return int(value)
 
 
+def _string_tuple(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,) if value else ()
+    if isinstance(value, Sequence):
+        return tuple(str(item) for item in value)
+    raise TypeError("expected string sequence")
+
+
+def _sequence_or_empty(value: object) -> tuple[object, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        raise TypeError("expected sequence")
+    return tuple(value)
+
+
 def _mapping_or_none(value: object) -> Mapping[str, object] | None:
     if value is None:
         return None
@@ -641,3 +919,9 @@ def _mapping_or_empty(value: object) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise TypeError("expected mapping")
     return value
+
+
+def _mutable_mapping_copy(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise TypeError("expected mapping")
+    return dict(value)

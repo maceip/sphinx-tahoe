@@ -12,17 +12,21 @@ from por.node_runtime import WireNodeRuntime
 def run_relay(*, config_path: str, node_id: str) -> int:
     cluster = ClusterConfig.load(config_path)
     runtime = WireNodeRuntime(cluster, node_id, role="relay")
-    return runtime.serve_forever(binary_wire=True)
+    return runtime.serve_forever()
 
 
 def run_relay_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
+    if daemon.supernode.enabled:
+        from por.daemon.supernode import run_supernode_cluster
+
+        return run_supernode_cluster(daemon, por_config)
     _emit_node_log(
         daemon,
         "daemon_start",
-        fields={"supernode_enabled": daemon.supernode.enabled},
+        fields={"supernode_enabled": False},
     )
     cluster = por_config.to_cluster_config()
-    runtime = WireNodeRuntime(cluster, daemon.node_id, role="relay")
+    runtime = WireNodeRuntime(cluster, daemon.node_id, role="relay", logging=daemon.logging)
     return runtime.serve_forever()
 
 

@@ -12,7 +12,7 @@ import json
 from datetime import datetime, timezone
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Protocol, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -47,6 +47,7 @@ class PeerRecord:
     manifest: MemoryManifest
     observation: PeerObservation | None = None
     descriptor: dict[str, object] | None = None
+    peer_address: dict[str, object] | None = None
 
     @property
     def peer_id(self) -> str:
@@ -100,6 +101,7 @@ class DirectorySnapshot:
     records: tuple[PeerRecord, ...]
     generated_at: str
     source: str = "snapshot"
+    supernodes: tuple[dict[str, object], ...] = ()
     version: str = DIRECTORY_SNAPSHOT_VERSION
 
     @classmethod
@@ -145,19 +147,34 @@ class DirectorySnapshot:
             raise DirectorySnapshotFormatError("directory snapshot records must be a list")
 
         records = tuple(_peer_record_from_dict(item) for item in raw_records)
-        return cls(records=records, generated_at=generated_at, source=source, version=version)
+        supernodes_raw = raw.get("supernodes", [])
+        if supernodes_raw is None:
+            supernodes_raw = []
+        if not isinstance(supernodes_raw, list):
+            raise DirectorySnapshotFormatError("directory snapshot supernodes must be a list")
+        supernodes = tuple(_supernode_record_from_dict(item) for item in supernodes_raw)
+        return cls(
+            records=records,
+            generated_at=generated_at,
+            source=source,
+            supernodes=supernodes,
+            version=version,
+        )
 
     @classmethod
     def load(cls, path: str | Path) -> "DirectorySnapshot":
         return cls.from_json(Path(path).read_text(encoding="utf-8"))
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "version": self.version,
             "generated_at": self.generated_at,
             "source": self.source,
             "records": [_peer_record_to_dict(record) for record in self.records],
         }
+        if self.supernodes:
+            data["supernodes"] = [dict(record) for record in self.supernodes]
+        return data
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, indent=2)
@@ -167,6 +184,43 @@ class DirectorySnapshot:
 
     def directory(self) -> "PublicManifestDirectory":
         return PublicManifestDirectory(records=self.records, source=self.source)
+
+    def with_supernodes(self, supernodes: Sequence[dict[str, object]]) -> "DirectorySnapshot":
+        merged = {str(record.get("node_id", "")): dict(record) for record in self.supernodes}
+        for record in supernodes:
+            node_id = str(record.get("node_id", ""))
+            if node_id:
+                merged[node_id] = dict(record)
+        return DirectorySnapshot(
+            records=self.records,
+            generated_at=self.generated_at,
+            source=self.source,
+            supernodes=tuple(merged.values()),
+            version=self.version,
+        )
+
+    def with_peer_address_records(
+        self,
+        peer_address_records: Mapping[str, dict[str, object]],
+    ) -> "DirectorySnapshot":
+        records = []
+        for record in self.records:
+            peer_address = peer_address_records.get(record.peer_id, record.peer_address)
+            records.append(
+                PeerRecord(
+                    manifest=record.manifest,
+                    observation=record.observation,
+                    descriptor=record.descriptor,
+                    peer_address=dict(peer_address) if peer_address is not None else None,
+                )
+            )
+        return DirectorySnapshot(
+            records=tuple(records),
+            generated_at=self.generated_at,
+            source=self.source,
+            supernodes=self.supernodes,
+            version=self.version,
+        )
 
 
 @dataclass(frozen=True)
@@ -205,6 +259,22 @@ class PublicManifestDirectory:
 
     def save_snapshot(self, path: str | Path, generated_at: str | None = None) -> None:
         self.snapshot(generated_at=generated_at).save(path)
+
+    def peer_address_records(self) -> dict[str, dict[str, object]]:
+        return {
+            record.peer_id: dict(record.peer_address)
+            for record in self.records
+            if record.peer_address is not None
+        }
+
+    def routing_kem_pk_hex(self, peer_id: str) -> str | None:
+        for record in self.records:
+            if record.peer_id != peer_id or not record.descriptor:
+                continue
+            kem = record.descriptor.get("kem_pk") or record.descriptor.get("kem_pk_hex")
+            if kem:
+                return str(kem)
+        return None
 
     def discover(self, request: DiscoveryRequest) -> DiscoveryResult:
         if request.mode != PUBLIC_SNAPSHOT_V1:
@@ -299,6 +369,8 @@ def _peer_record_to_dict(record: PeerRecord) -> dict[str, Any]:
         data["observation"] = asdict(record.observation)
     if record.descriptor is not None:
         data["descriptor"] = record.descriptor
+    if record.peer_address is not None:
+        data["peer_address"] = record.peer_address
     return data
 
 
@@ -324,13 +396,39 @@ def _peer_record_from_dict(raw: object) -> PeerRecord:
     descriptor = raw.get("descriptor")
     if descriptor is not None and not isinstance(descriptor, dict):
         raise DirectorySnapshotFormatError("record descriptor must be an object")
+    peer_address = raw.get("peer_address")
+    if peer_address is not None and not isinstance(peer_address, dict):
+        raise DirectorySnapshotFormatError("record peer_address must be an object")
 
-    record = PeerRecord(manifest=manifest, observation=observation, descriptor=descriptor)
+    record = PeerRecord(
+        manifest=manifest,
+        observation=observation,
+        descriptor=descriptor,
+        peer_address=peer_address,
+    )
     try:
         record.candidate()
     except ValueError as exc:
         raise DirectorySnapshotFormatError(str(exc)) from exc
     return record
+
+
+def _supernode_record_from_dict(raw: object) -> dict[str, object]:
+    if not isinstance(raw, dict):
+        raise DirectorySnapshotFormatError("directory snapshot supernode must be an object")
+    node_id = raw.get("node_id")
+    if not isinstance(node_id, str) or not node_id:
+        raise DirectorySnapshotFormatError("directory snapshot supernode requires node_id")
+    endpoint = raw.get("endpoint")
+    if not isinstance(endpoint, dict):
+        raise DirectorySnapshotFormatError("directory snapshot supernode requires endpoint")
+    host = endpoint.get("host")
+    port = endpoint.get("port")
+    if not isinstance(host, str) or not host:
+        raise DirectorySnapshotFormatError("directory snapshot supernode endpoint requires host")
+    if not isinstance(port, int) or not 0 <= port <= 65535:
+        raise DirectorySnapshotFormatError("directory snapshot supernode endpoint port must be 0..65535")
+    return dict(raw)
 
 
 def _peer_observation_from_dict(raw: dict[str, Any]) -> PeerObservation:

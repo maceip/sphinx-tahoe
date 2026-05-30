@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64 as _base64
 import json
 import subprocess
 import sys
@@ -42,11 +43,15 @@ from .quic_transport import (
     write_localhost_self_signed_cert,
 )
 from .config import DEFAULT_PAYLOAD_SIZE, DEFAULT_ROUTING_SIZE
-from .node_runtime import (
-    _b64d,
-    _b64e,
-    build_native_forward_plan,
-)
+from .node_runtime import build_native_forward_plan
+
+
+def _b64e(data: bytes) -> str:
+    return _base64.b64encode(data).decode("ascii")
+
+
+def _b64d(data: str) -> bytes:
+    return _base64.b64decode(data.encode("ascii"))
 from .provider import ProviderError, expert_reply_chunks
 from .udp_demo import (
     DemoResult,

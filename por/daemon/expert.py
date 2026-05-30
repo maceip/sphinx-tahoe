@@ -12,7 +12,7 @@ from por.node_runtime import WireNodeRuntime
 def run_expert(*, config_path: str, node_id: str) -> int:
     cluster = ClusterConfig.load(config_path)
     runtime = WireNodeRuntime(cluster, node_id, role="expert")
-    return runtime.serve_forever(binary_wire=True)
+    return runtime.serve_forever()
 
 
 def run_expert_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
@@ -22,7 +22,7 @@ def run_expert_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
         fields={"supernode_enabled": daemon.supernode.enabled},
     )
     cluster = por_config.to_cluster_config()
-    runtime = WireNodeRuntime(cluster, daemon.node_id, role="expert")
+    runtime = WireNodeRuntime(cluster, daemon.node_id, role="expert", logging=daemon.logging)
     return runtime.serve_forever()
 
 

@@ -1,13 +1,12 @@
 """Wire node runtime for P-OR daemons.
 
-**Current wire:** canonical binary datagrams via
-``por.wire_frame`` (``0x00`` forward, ``0x01`` circuit, ``0x02`` shutdown).
-JSON/base64 support remains as a compatibility harness path only.
+**Wire:** canonical binary datagrams via ``por.wire_frame`` (``0x00`` forward,
+``0x01`` circuit, ``0x02`` shutdown). This is the only path; the legacy
+JSON/base64 framing and the POR1 route-info blob format have been removed.
 """
 
 from __future__ import annotations
 
-import base64
 import json
 import signal
 import socket
@@ -26,11 +25,9 @@ from .config import ClusterConfig, LoggingConfig
 from .envelope import PromptRequestEnvelope
 from .log_events import PorLogEvent, emit_log_event
 from .provider import ProviderError, expert_reply_chunks
-from .wire_frame import decode_datagram, encode_forward, encode_circuit, encode_shutdown
+from .wire_frame import decode_datagram, encode_forward
 
 
-ROUTE_MAGIC = b"POR1"
-NODE_ID_SIZE = 16
 CIRCUIT_ID_SIZE = 16
 KEY_SIZE = 16
 
@@ -66,6 +63,8 @@ class WireNodeRuntime:
         self.logging = logging or LoggingConfig()
         self.on_reach_control = None
         self.on_opaque_forward = None
+        self.supernode_daemon = None
+        self._current_src_addr: tuple[str, int] | None = None
 
     def install_signal_handlers(self) -> None:
         def _handle(_signum, _frame):
@@ -74,29 +73,54 @@ class WireNodeRuntime:
         signal.signal(signal.SIGTERM, _handle)
         signal.signal(signal.SIGINT, _handle)
 
-    def serve_forever(self, *, binary_wire: bool = True) -> int:
+    def serve_forever(self) -> int:
         self.install_signal_handlers()
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind((self.identity.host, self.identity.port))
-        sock.settimeout(0.5)
-        wire_mode = "binary" if binary_wire else "json"
         self._log(
             "started",
             fields={
-                "wire": wire_mode,
+                "wire": "binary",
                 "addr": f"{self.identity.host}:{self.identity.port}",
             },
         )
-        while not self._shutdown:
+        try:
+            return self.serve_on_socket(sock)
+        finally:
+            sock.close()
+            self._log("stopped", fields={"signal": True})
+
+    def serve_on_socket(
+        self,
+        sock: socket.socket,
+        *,
+        stop: "object | None" = None,
+    ) -> int:
+        """Drive the canonical binary receive/dispatch loop on a bound socket.
+
+        Production ``serve_forever`` binds its own socket and delegates here.
+        Test harnesses bind a socket once, hold it open, and pass it in — so a
+        node never closes a port only to rebind it later (the source of the
+        cross-test datagram races). ``stop`` is an optional ``threading.Event``;
+        when set, the loop exits without relying on signal handlers.
+        """
+
+        sock.settimeout(0.5)
+
+        def _should_stop() -> bool:
+            if self._shutdown:
+                return True
+            return stop is not None and stop.is_set()
+
+        while not _should_stop():
             try:
                 data, addr = sock.recvfrom(65535)
             except socket.timeout:
                 continue
-            if binary_wire:
-                self._dispatch_binary(sock, data, addr)
-            else:
-                self._dispatch_json(sock, data)
-        self._log("stopped", fields={"signal": True})
+            self._current_src_addr = addr
+            self._dispatch_binary(sock, data, addr)
+            if self.supernode_daemon is not None:
+                self.supernode_daemon.purge_if_due()
         return 0
 
     def _log(
@@ -144,9 +168,9 @@ class WireNodeRuntime:
             self._log("shutdown", fields={"wire": "binary"})
             self._shutdown = True
         elif kind == "forward":
-            self._handle_forward_binary(sock, a, b)
+            self._handle_forward_binary(sock, a, b, addr)
         elif kind == "circuit":
-            self._handle_circuit_binary(sock, a)
+            self._handle_circuit_binary(sock, a, addr)
         elif self.on_opaque_forward is not None:
             self.on_opaque_forward(data, addr)
         else:
@@ -156,20 +180,13 @@ class WireNodeRuntime:
                 fields={"wire": "binary", "bytes": len(data)},
             )
 
-    def _dispatch_json(self, sock: socket.socket, data: bytes) -> None:
-        frame = json.loads(data.decode("utf-8"))
-        kind = frame.get("kind")
-        if kind == "shutdown":
-            self._log("shutdown", fields={"wire": "json"})
-            self._shutdown = True
-        elif kind == "forward":
-            self._handle_forward(sock, frame)
-        elif kind == "circuit":
-            self._handle_circuit(sock, frame)
-        else:
-            self._log("wire_unknown", level="warning", fields={"wire": "json", "kind": kind})
-
-    def _handle_forward_binary(self, sock: socket.socket, header: bytes, payload: bytes) -> None:
+    def _handle_forward_binary(
+        self,
+        sock: socket.socket,
+        header: bytes,
+        payload: bytes,
+        src_addr: tuple[str, int] | None = None,
+    ) -> None:
         circuit_installed = {}
         def _on_circuit(inbound_cid, circuit_key, next_hop, outbound_cid, ttl):
             cid_hex = inbound_cid.hex()
@@ -212,7 +229,12 @@ class WireNodeRuntime:
                     "prompt_visible": False,
                 },
             )
-            self._send_binary(sock, next_id, encode_forward(next_header, next_payload))
+            self._send_binary(
+                sock,
+                next_id,
+                encode_forward(next_header, next_payload),
+                src_addr=src_addr,
+            )
             return
 
         if self.role == "relay":
@@ -264,14 +286,19 @@ class WireNodeRuntime:
         for seq, chunk in enumerate(chunks):
             plain = json.dumps({"seq": seq, "data": chunk, "done": False}).encode("utf-8")
             pkt = circuit_packet_create(self.params, exit_outbound, seq, plain, [exit_key])
-            self._send_binary(sock, return_next, pkt)
+            self._send_binary(sock, return_next, pkt, src_addr=src_addr)
             time.sleep(0.05)
 
         done = json.dumps({"seq": len(chunks), "data": "", "done": True}).encode("utf-8")
         pkt = circuit_packet_create(self.params, exit_outbound, len(chunks), done, [exit_key])
-        self._send_binary(sock, return_next, pkt)
+        self._send_binary(sock, return_next, pkt, src_addr=src_addr)
 
-    def _handle_circuit_binary(self, sock: socket.socket, packet: bytes) -> None:
+    def _handle_circuit_binary(
+        self,
+        sock: socket.socket,
+        packet: bytes,
+        src_addr: tuple[str, int] | None = None,
+    ) -> None:
         inbound_cid = packet[1:17].hex()
         nonce = int.from_bytes(packet[17:25], "big")
         entry = self.circuits.get(inbound_cid)
@@ -296,222 +323,32 @@ class WireNodeRuntime:
             link_cid=inbound_cid[:8],
             fields={"next": next_id, "payload_visible": False},
         )
-        self._send_binary(sock, next_id, forwarded)
+        self._send_binary(sock, next_id, forwarded, src_addr=src_addr)
 
-    def _send_binary(self, sock: socket.socket, target_id: str, data: bytes) -> None:
+    def _send_binary(
+        self,
+        sock: socket.socket,
+        target_id: str,
+        data: bytes,
+        *,
+        src_addr: tuple[str, int] | None = None,
+    ) -> None:
         if target_id == "client":
             target = self.cluster.client
-        else:
-            target = self.cluster.node(target_id)
+            sock.sendto(data, (target.host, target.port))
+            return
+        sn = self.supernode_daemon
+        if sn is not None:
+            peer_addr = sn.forwarder.lookup_peer_addr(target_id)
+            if peer_addr is not None:
+                client_addr = src_addr or self._current_src_addr
+                if client_addr is not None:
+                    sn.forward_to_peer(target_id, data, client_addr)
+                else:
+                    sock.sendto(data, peer_addr)
+                return
+        target = self.cluster.node(target_id)
         sock.sendto(data, (target.host, target.port))
-
-    def _handle_forward(self, sock: socket.socket, frame: dict) -> None:
-        header = _b64d(frame["header"])
-        payload = _b64d(frame["payload"])
-
-        circuit_installed = {}
-        def _on_circuit(inbound_cid, circuit_key, next_hop, outbound_cid, ttl):
-            cid_hex = inbound_cid.hex()
-            out_hex = outbound_cid.hex()
-            nh = next_hop.rstrip(b'\x00').decode('ascii', errors='replace')
-            self.circuits[cid_hex] = {
-                "key": circuit_key.hex(),
-                "outbound_cid": out_hex,
-                "next_id": nh,
-                "high_watermark": -1,
-                "last_active": time.time(),
-            }
-            circuit_installed["inbound_cid"] = cid_hex
-            circuit_installed["return_next"] = nh
-
-        try:
-            hop_result = outfox_process(
-                self.params, self.sk, self.pk, (header, payload),
-                is_last=False, on_circuit=_on_circuit)
-        except ValueError as exc:
-            self._log("forward_rejected", level="warning", fields={"reason": str(exc)})
-            return
-
-        if hop_result is None:
-            self._log("forward_expired_or_invalid", level="warning")
-            return
-
-        routing_info, _flag, next_packet = hop_result
-        por1_instr = None
-        if routing_info[: len(ROUTE_MAGIC)] == ROUTE_MAGIC:
-            por1_instr = _unpack_route_info(routing_info, self.params.routing_size)
-            _install_circuit(self.circuits, por1_instr, self.node_id)
-
-        if por1_instr is not None:
-            next_id = por1_instr["next_forward"]
-            cid_log = por1_instr["inbound_cid"][:8]
-            return_next = por1_instr["return_next"]
-        else:
-            next_id = routing_info.rstrip(b'\x00').decode('ascii', errors='replace')
-            cid_log = circuit_installed.get("inbound_cid", "")[:8]
-            return_next = circuit_installed.get("return_next", "")
-
-        next_header, next_payload = next_packet
-
-        if next_id and next_header:
-            self._log(
-                "forward_hop",
-                link_cid=cid_log,
-                fields={
-                    "next": next_id,
-                    "return_next": return_next,
-                    "prompt_visible": False,
-                },
-            )
-            _send_frame(sock, self._harness, next_id, {
-                "kind": "forward",
-                "header": _b64e(next_header),
-                "payload": _b64e(next_payload),
-            })
-            return
-
-        if self.role == "relay":
-            self._log("forward_exit_disallowed", level="warning")
-            return
-
-        final_result = outfox_process(
-            self.params, self.sk, self.pk, (header, payload),
-            is_last=True, on_circuit=_on_circuit)
-        if final_result is None:
-            self._log("exit_rejected", level="warning")
-            return
-
-        _routing, _flag, msg, _surb_info = final_result
-        envelope = PromptRequestEnvelope.from_json(msg)
-        prompt = envelope.prompt_text()
-        expertise = envelope.intent_descriptor.get("requested_expertise") or "auto"
-        degraded = bool(envelope.intent_descriptor.get("degraded_anonymity"))
-        if por1_instr is not None:
-            exit_cid = por1_instr["inbound_cid"]
-            return_next = por1_instr["return_next"]
-        else:
-            exit_cid = circuit_installed.get("inbound_cid", "")
-            return_next = circuit_installed.get("return_next", "")
-        exit_entry = self.circuits.get(exit_cid)
-        if exit_entry is None:
-            self._log("exit_missing_circuit", level="warning", link_cid=exit_cid[:8])
-            return
-        exit_key = bytes.fromhex(exit_entry["key"])
-        exit_outbound = bytes.fromhex(exit_entry["outbound_cid"])
-
-        self._log(
-            "expert_exit",
-            link_cid=exit_cid[:8],
-            fields={
-                "selected": True,
-                "prompt_visible": True,
-                "expertise": expertise,
-                "return_next": return_next or exit_entry["next_id"],
-                "degraded": degraded,
-            },
-        )
-        try:
-            chunks = expert_reply_chunks(envelope, self.node_id)
-        except ProviderError as exc:
-            self._log(
-                "provider_error",
-                level="error",
-                fields={"reason": str(exc), "retryable": exc.retryable, "status": exc.status},
-            )
-            chunks = [
-                f"[provider_error] peer={self.node_id} status={exc.status} message={exc}"
-            ]
-
-        for seq, chunk in enumerate(chunks):
-            plain = json.dumps({"seq": seq, "data": chunk, "done": False}).encode("utf-8")
-            _stream_return_chunk(
-                sock,
-                self._harness,
-                self.params,
-                exit_entry["next_id"],
-                exit_outbound,
-                seq,
-                plain,
-                exit_key,
-            )
-            time.sleep(0.05)
-
-        done_seq = len(chunks)
-        done = json.dumps({"seq": done_seq, "data": "", "done": True}).encode("utf-8")
-        _stream_return_chunk(
-            sock,
-            self._harness,
-            self.params,
-            exit_entry["next_id"],
-            exit_outbound,
-            done_seq,
-            done,
-            exit_key,
-        )
-
-    def _handle_circuit(self, sock: socket.socket, frame: dict) -> None:
-        packet = _b64d(frame["packet"])
-        inbound_cid = packet[1:17].hex()
-        nonce = int.from_bytes(packet[17:25], "big")
-        entry = self.circuits.get(inbound_cid)
-        seq = frame.get("seq", -1)
-
-        if entry is None:
-            self._log(
-                "circuit_missing",
-                level="warning",
-                link_cid=inbound_cid[:8],
-                fields={"seq": seq},
-            )
-            return
-        if nonce <= int(entry.get("high_watermark", -1)):
-            self._log(
-                "circuit_replay",
-                level="warning",
-                link_cid=inbound_cid[:8],
-                fields={"seq": seq},
-            )
-            return
-        entry["high_watermark"] = nonce
-
-        key = bytes.fromhex(entry["key"])
-        outbound_cid = bytes.fromhex(entry["outbound_cid"])
-        next_id = entry["next_id"]
-        processed = circuit_packet_process(
-            self.params, key, packet, outbound_link_cid=outbound_cid
-        )
-        if processed is None:
-            self._log(
-                "circuit_malformed",
-                level="warning",
-                link_cid=inbound_cid[:8],
-                fields={"seq": seq},
-            )
-            return
-        _inbound, _nonce, forwarded = processed
-        self._log(
-            "circuit_hop",
-            link_cid=inbound_cid[:8],
-            fields={"seq": seq, "next": next_id, "payload_visible": False},
-        )
-        _send_frame(sock, self._harness, next_id, {
-            "kind": "circuit",
-            "seq": seq,
-            "packet": _b64e(forwarded),
-        })
-
-
-def pack_route_info(next_forward, return_next, inbound_cid, key_seed, outbound_cid, routing_size):
-    raw = (
-        ROUTE_MAGIC
-        + _fixed_id(next_forward)
-        + _fixed_id(return_next)
-        + inbound_cid
-        + key_seed
-        + outbound_cid
-    )
-    return raw + (b"\x00" * (routing_size - len(raw)))
-
 
 def build_native_forward_plan(forward_path: Sequence[str] | list[str] | tuple[str, ...]):
     """Build route-info and circuit setup for process-wire clients.
@@ -548,126 +385,3 @@ def build_native_forward_plan(forward_path: Sequence[str] | list[str] | tuple[st
         )
 
     return route_infos, circuit_setup, list(reversed(keys))
-
-
-def build_por1_forward_plan(
-    forward_path: Sequence[str],
-    *,
-    selected_peer_id: str,
-    routing_size: int,
-):
-    """Legacy harness plan: circuit state embedded in POR1 routing_info blobs.
-
-    Kept during migration so clients that still pack setup in route info work
-    against runtimes that prefer native Outfox circuit callbacks.
-    """
-
-    if not forward_path:
-        raise ValueError("forward_path is required")
-
-    n = len(forward_path)
-    client_inbound = urandom(CIRCUIT_ID_SIZE)
-    inbound_cids = [urandom(CIRCUIT_ID_SIZE) for _ in range(n)]
-    outbound_cids = [client_inbound] + inbound_cids[:-1]
-    seeds = [urandom(KEY_SIZE) for _ in range(n)]
-    keys = [derive_circuit_key(seeds[i], inbound_cids[i]) for i in range(n)]
-
-    route_infos: list[bytes] = []
-    for index, fwd_node_id in enumerate(forward_path):
-        next_forward = forward_path[index + 1] if index + 1 < n else ""
-        if fwd_node_id == selected_peer_id:
-            return_next = (
-                list(reversed(forward_path[:-1]))[0]
-                if len(forward_path) > 1
-                else "client"
-            )
-        else:
-            return_relays = list(reversed(forward_path[:-1]))
-            pos = return_relays.index(fwd_node_id)
-            return_next = (
-                "client" if pos + 1 == len(return_relays) else return_relays[pos + 1]
-            )
-        route_infos.append(
-            pack_route_info(
-                next_forward,
-                return_next,
-                inbound_cids[index],
-                seeds[index],
-                outbound_cids[index],
-                routing_size,
-            )
-        )
-
-    return route_infos, list(reversed(keys))
-
-
-def _unpack_route_info(data, routing_size):
-    data = bytes(data)
-    if data[:4] != ROUTE_MAGIC:
-        raise ValueError("bad route info magic")
-    offset = 4
-    next_forward = _read_fixed_id(data[offset : offset + NODE_ID_SIZE])
-    offset += NODE_ID_SIZE
-    return_next = _read_fixed_id(data[offset : offset + NODE_ID_SIZE])
-    offset += NODE_ID_SIZE
-    inbound_cid = data[offset : offset + CIRCUIT_ID_SIZE]
-    offset += CIRCUIT_ID_SIZE
-    key_seed = data[offset : offset + KEY_SIZE]
-    offset += KEY_SIZE
-    outbound_cid = data[offset : offset + CIRCUIT_ID_SIZE]
-    circuit_key = derive_circuit_key(key_seed, inbound_cid)
-    return {
-        "next_forward": next_forward,
-        "return_next": return_next,
-        "inbound_cid": inbound_cid.hex(),
-        "outbound_cid": outbound_cid.hex(),
-        "key": circuit_key.hex(),
-    }
-
-
-def _install_circuit(circuits, instr, node_id: str):
-    if not instr["return_next"] or instr["return_next"] == node_id:
-        return
-    circuits[instr["inbound_cid"]] = {
-        "key": instr["key"],
-        "outbound_cid": instr["outbound_cid"],
-        "next_id": instr["return_next"],
-        "high_watermark": -1,
-        "last_active": time.time(),
-    }
-
-
-def _stream_return_chunk(sock, harness, params, next_id, outbound_cid, seq, plaintext, exit_key):
-    packet = circuit_packet_create(params, outbound_cid, seq, plaintext, [exit_key])
-    _send_frame(sock, harness, next_id, {
-        "kind": "circuit",
-        "seq": seq,
-        "packet": _b64e(packet),
-    })
-
-
-def _send_frame(sock, harness: dict, target_id: str, frame: dict) -> None:
-    if target_id == "client":
-        target = harness["client"]
-    else:
-        target = harness["nodes"][target_id]
-    sock.sendto(json.dumps(frame).encode("utf-8"), (target["host"], target["port"]))
-
-
-def _fixed_id(value: str) -> bytes:
-    encoded = value.encode("ascii")
-    if len(encoded) > NODE_ID_SIZE:
-        raise ValueError(f"node id too long: {value}")
-    return encoded + (b"\x00" * (NODE_ID_SIZE - len(encoded)))
-
-
-def _read_fixed_id(data: bytes) -> str:
-    return data.rstrip(b"\x00").decode("ascii")
-
-
-def _b64e(data: bytes) -> str:
-    return base64.b64encode(data).decode("ascii")
-
-
-def _b64d(data: str) -> bytes:
-    return base64.b64decode(data.encode("ascii"))
