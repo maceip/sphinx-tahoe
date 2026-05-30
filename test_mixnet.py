@@ -5,7 +5,7 @@ exit processing → reply → sender decryption. No network — direct calls.
 """
 
 import struct
-from sphinxmix.mixnet import MixnetSim, Client
+from sphinxmix.mixnet import MixnetSim, Client, CircuitCorrupted
 from sphinxmix.OutfoxParams import (
     FLAG_REAL, FLAG_DUMMY, verify_payload, generate_signing_keypair,
 )
@@ -184,16 +184,32 @@ def test_circuit_table():
     cid = b"circuit_id_12345"
     key = b"symmetric_key!!!"
 
-    table.store(cid, key)
-    assert table.lookup(cid) == key
+    table.store(cid, key, next_hop=b"next_node_id____")
+    entry = table.lookup(cid)
+    assert entry is not None
+    assert entry["key"] == key
+    assert entry["next_hop"] == b"next_node_id____"
+    assert entry["high_watermark"] == 0
     assert table.size() == 1
+
+    assert table.check_nonce(cid, 1)
+    assert not table.check_nonce(cid, 1)
+    assert not table.check_nonce(cid, 0)
+    assert table.check_nonce(cid, 2)
 
     import time
     time.sleep(1.1)
     assert table.lookup(cid) is None
     assert table.size() == 0
 
-    print("[PASS] Circuit table: store, lookup, TTL expiry.")
+    table2 = CircuitTable(ttl=60, max_entries=2)
+    table2.store(b"cid_1___________", b"key1____________")
+    table2.store(b"cid_2___________", b"key2____________")
+    table2.store(b"cid_3___________", b"key3____________")
+    assert table2.size() == 2
+    assert table2.lookup(b"cid_1___________") is None
+
+    print("[PASS] Circuit table: store, lookup, TTL expiry, nonce check, LRU.")
 
 
 def test_exit_node_discovery():
@@ -332,6 +348,438 @@ def test_network_stats():
     print(f"[PASS] Stats: {stats['forward']} forward hops across 10 messages.")
 
 
+# ═══════════════════════════════════════════════════════════════════
+# Phase 2: Circuit setup + streaming return path
+# ═══════════════════════════════════════════════════════════════════
+
+
+def test_circuit_install_on_forward():
+    """Forward packet with circuit setup installs state at each relay."""
+    sim = MixnetSim(num_nodes=8)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:4]
+    rply_relays = sim.node_ids()[4:7]
+
+    header, payload, circuit_id = client.create_repliable_with_circuit(
+        fwd_path, rply_relays, b"setup circuits")
+
+    result = sim.route_forward(fwd_path, header, payload)
+    assert result is not None
+    routing, flag, msg, surb_info = result
+    assert msg == b"setup circuits"
+
+    for nid in fwd_path:
+        node = sim.nodes[nid]
+        entry = node.circuits.lookup(circuit_id)
+        assert entry is not None, f"Circuit not installed at {nid!r}"
+        assert entry["key"] is not None
+        assert entry["next_hop"] is not None
+
+    print("[PASS] Circuit install: forward packet installed state at all relays.")
+
+
+def test_circuit_reply_end_to_end():
+    """Full circuit reply: forward installs state, exit streams tokens back."""
+    sim = MixnetSim(num_nodes=6)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:4]
+    rply_relays = sim.node_ids()[4:5]
+
+    header, payload, circuit_id = client.create_repliable_with_circuit(
+        fwd_path, rply_relays, b"prompt")
+
+    result = sim.route_forward(fwd_path, header, payload)
+    assert result is not None
+
+    exit_nid = fwd_path[-1]
+    exit_entry = sim.nodes[exit_nid].circuits.lookup(circuit_id)
+    exit_key = exit_entry["key"]
+
+    tokens = [b"Hello", b" world", b"!", b" How", b" are", b" you?"]
+    for i, token in enumerate(tokens):
+        packet = sim.route_circuit_reply(
+            fwd_path, circuit_id, exit_key, i + 1, token)
+        assert packet is not None, f"Circuit reply failed for token {i}"
+
+        decrypted = client.decrypt_circuit(packet)
+        assert decrypted == token, f"Token {i}: {decrypted!r} != {token!r}"
+
+    print(f"[PASS] Circuit reply: {len(tokens)} tokens streamed and decrypted.")
+
+
+def test_circuit_reply_multi_hop():
+    """Circuit reply through 5 hops."""
+    sim = MixnetSim(num_nodes=8)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:5]
+    rply_relays = sim.node_ids()[5:7]
+
+    header, payload, circuit_id = client.create_repliable_with_circuit(
+        fwd_path, rply_relays, b"deep path")
+
+    result = sim.route_forward(fwd_path, header, payload)
+    assert result is not None
+
+    exit_entry = sim.nodes[fwd_path[-1]].circuits.lookup(circuit_id)
+    exit_key = exit_entry["key"]
+
+    packet = sim.route_circuit_reply(
+        fwd_path, circuit_id, exit_key, 1, b"deep token")
+    assert packet is not None
+    assert client.decrypt_circuit(packet) == b"deep token"
+
+    print("[PASS] Circuit reply: 5-hop path works.")
+
+
+def test_circuit_nonce_rejection():
+    """Client rejects replayed or regressed nonces."""
+    sim = MixnetSim(num_nodes=4)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:3]
+    rply_relays = []
+
+    header, payload, circuit_id = client.create_repliable_with_circuit(
+        fwd_path, rply_relays, b"nonce test")
+
+    sim.route_forward(fwd_path, header, payload)
+    exit_entry = sim.nodes[fwd_path[-1]].circuits.lookup(circuit_id)
+    exit_key = exit_entry["key"]
+
+    p1 = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, 5, b"five")
+    assert p1 is not None
+    assert client.decrypt_circuit(p1) == b"five"
+
+    # Nonce regression — rejected at relay level
+    p2 = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, 3, b"three")
+    assert p2 is None
+
+    # Nonce replay — also rejected at relay level
+    p3 = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, 5, b"replay")
+    assert p3 is None
+
+    # Higher nonce — accepted (gap from 5 to 10 is fine)
+    p4 = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, 10, b"ten")
+    assert p4 is not None
+    assert client.decrypt_circuit(p4) == b"ten"
+
+    print("[PASS] Circuit nonce: replay and regression rejected, gaps accepted.")
+
+
+def test_circuit_corruption_detection():
+    """Client detects corrupted circuit packets via magic field."""
+    sim = MixnetSim(num_nodes=4)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:3]
+    rply_relays = []
+
+    header, payload, circuit_id = client.create_repliable_with_circuit(
+        fwd_path, rply_relays, b"corruption test")
+
+    sim.route_forward(fwd_path, header, payload)
+    exit_entry = sim.nodes[fwd_path[-1]].circuits.lookup(circuit_id)
+    exit_key = exit_entry["key"]
+
+    packet = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, 1, b"ok")
+    corrupted = bytearray(packet)
+    corrupted[30] ^= 0xFF
+    assert client.decrypt_circuit(bytes(corrupted)) is None
+
+    good = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, 2, b"good")
+    assert client.decrypt_circuit(good) == b"good"
+
+    print("[PASS] Circuit corruption: tampered packet rejected, good packet accepted.")
+
+
+def test_circuit_stats():
+    """Circuit processing increments node stats."""
+    sim = MixnetSim(num_nodes=4)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:3]
+    header, payload, circuit_id = client.create_repliable_with_circuit(
+        fwd_path, [], b"stats")
+
+    sim.route_forward(fwd_path, header, payload)
+    exit_entry = sim.nodes[fwd_path[-1]].circuits.lookup(circuit_id)
+
+    for i in range(5):
+        sim.route_circuit_reply(
+            fwd_path, circuit_id, exit_entry["key"], i + 1, b"tok")
+
+    stats = sim.stats()
+    assert stats["circuit"] > 0
+
+    print(f"[PASS] Circuit stats: {stats['circuit']} circuit hops tracked.")
+
+
+def test_circuit_reestablish_trigger():
+    """3 consecutive corrupted packets triggers CircuitCorrupted exception."""
+    sim = MixnetSim(num_nodes=4)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:3]
+    header, payload, circuit_id = client.create_repliable_with_circuit(
+        fwd_path, [], b"reestablish test")
+
+    sim.route_forward(fwd_path, header, payload)
+    exit_entry = sim.nodes[fwd_path[-1]].circuits.lookup(circuit_id)
+    exit_key = exit_entry["key"]
+
+    # Send 3 consecutive corrupted packets
+    for i in range(3):
+        packet = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, i + 1, b"tok")
+        corrupted = bytearray(packet)
+        corrupted[30] ^= 0xFF
+        if i < 2:
+            assert client.decrypt_circuit(bytes(corrupted)) is None
+        else:
+            try:
+                client.decrypt_circuit(bytes(corrupted))
+                assert False, "Should have raised CircuitCorrupted"
+            except CircuitCorrupted as e:
+                assert e.circuit_id == circuit_id
+
+    # Circuit is removed — subsequent packets return None (no entry)
+    good = sim.route_circuit_reply(fwd_path, circuit_id, exit_key, 10, b"late")
+    assert client.decrypt_circuit(good) is None
+
+    # But client can re-establish with a new circuit
+    header2, payload2, circuit_id2 = client.create_repliable_with_circuit(
+        fwd_path, [], b"reestablished")
+    sim.route_forward(fwd_path, header2, payload2)
+    exit_entry2 = sim.nodes[fwd_path[-1]].circuits.lookup(circuit_id2)
+
+    packet2 = sim.route_circuit_reply(
+        fwd_path, circuit_id2, exit_entry2["key"], 1, b"back online")
+    assert client.decrypt_circuit(packet2) == b"back online"
+
+    print("[PASS] Circuit reestablish: 3 corruptions triggers exception, re-establish works.")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Phase 4: Streaming integration
+# ═══════════════════════════════════════════════════════════════════
+
+
+def test_stream_tokens_end_to_end():
+    """Full streaming flow: forward installs circuit, exit streams tokens via CircuitStream."""
+    sim = MixnetSim(num_nodes=6)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:4]
+    rply_relays = sim.node_ids()[4:5]
+
+    header, payload, circuit_id = client.create_repliable_with_circuit(
+        fwd_path, rply_relays, b"stream prompt")
+
+    result = sim.route_forward(fwd_path, header, payload)
+    assert result is not None
+
+    stream, _ = sim.create_circuit_stream(fwd_path, circuit_id)
+    assert stream is not None
+
+    tokens = [b"The", b" quick", b" brown", b" fox", b" jumps",
+              b" over", b" the", b" lazy", b" dog", b"."]
+    received = []
+    for token in tokens:
+        packet = sim.stream_token(fwd_path, stream, token)
+        assert packet is not None
+        decrypted = client.decrypt_circuit(packet)
+        assert decrypted == token
+        received.append(decrypted)
+
+    assert b"".join(received) == b"The quick brown fox jumps over the lazy dog."
+
+    print(f"[PASS] Stream: {len(tokens)} tokens streamed and reassembled.")
+
+
+def test_stream_keepalive():
+    """Keepalive packets round-trip as empty tokens."""
+    sim = MixnetSim(num_nodes=4)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:3]
+    header, payload, circuit_id = client.create_repliable_with_circuit(
+        fwd_path, [], b"keepalive test")
+
+    sim.route_forward(fwd_path, header, payload)
+
+    stream, _ = sim.create_circuit_stream(fwd_path, circuit_id)
+    keepalive_packet = stream.keepalive()
+    assert len(keepalive_packet) == sim.params.payload_size
+
+    relay_path = list(reversed(fwd_path[:-1]))
+    for nid in relay_path:
+        result = sim.nodes[nid].process_circuit_packet(keepalive_packet)
+        assert result is not None
+        _, keepalive_packet = result
+
+    result = client.decrypt_circuit(keepalive_packet)
+    assert result == b""
+
+    real_packet = sim.stream_token(fwd_path, stream, b"after keepalive")
+    assert client.decrypt_circuit(real_packet) == b"after keepalive"
+
+    print("[PASS] Keepalive: empty packet round-trips, subsequent tokens work.")
+
+
+def test_stream_large_chunked():
+    """Large data auto-chunked into multiple circuit packets."""
+    sim = MixnetSim(num_nodes=4, payload_size=512)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:3]
+    header, payload, circuit_id = client.create_repliable_with_circuit(
+        fwd_path, [], b"chunk test")
+
+    sim.route_forward(fwd_path, header, payload)
+
+    stream, _ = sim.create_circuit_stream(fwd_path, circuit_id)
+    large_data = b"X" * 1000
+
+    packets = stream.send_chunked(large_data)
+    assert len(packets) > 1
+
+    reassembled = b""
+    for pkt in packets:
+        relay_path = list(reversed(fwd_path[:-1]))
+        for nid in relay_path:
+            result = sim.nodes[nid].process_circuit_packet(pkt)
+            _, pkt = result
+        chunk = client.decrypt_circuit(pkt)
+        assert chunk is not None
+        reassembled += chunk
+
+    assert reassembled == large_data
+
+    print(f"[PASS] Chunked: {len(large_data)} bytes into {len(packets)} packets, reassembled.")
+
+
+def test_stream_and_surb_coexist():
+    """Circuit streaming and SURB reply work in the same session."""
+    sim = MixnetSim(num_nodes=6)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:4]
+    rply_relays = sim.node_ids()[4:5]
+
+    # Circuit-bearing request
+    header, payload, circuit_id = client.create_repliable_with_circuit(
+        fwd_path, rply_relays, b"dual mode request")
+
+    result = sim.route_forward(fwd_path, header, payload)
+    assert result is not None
+    routing, flag, msg, surb_info = result
+    assert msg == b"dual mode request"
+    assert surb_info is not None
+
+    # Stream tokens via circuit
+    stream, _ = sim.create_circuit_stream(fwd_path, circuit_id)
+    packet = sim.stream_token(fwd_path, stream, b"streamed token")
+    assert client.decrypt_circuit(packet) == b"streamed token"
+
+    # SURB reply also works (separate mechanism)
+    from sphinxmix.OutfoxClient import surb_use
+    surb_header, surb_key = surb_info
+    rply_h, rply_p = surb_use(sim.params, (surb_header, surb_key), b"surb reply")
+    rply_h, rply_p = sim.route_reply(rply_relays, rply_h, rply_p)
+    assert client.receive_reply(rply_h, rply_p) == b"surb reply"
+
+    print("[PASS] Coexistence: circuit stream and SURB reply both work in same session.")
+
+
+def test_type_byte_dispatch():
+    """MixNode.process_packet dispatches on byte 0."""
+    sim = MixnetSim(num_nodes=4)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:3]
+    header, payload, circuit_id = client.create_repliable_with_circuit(
+        fwd_path, [], b"dispatch test")
+
+    # Forward packet via process_packet with 0x00 prefix
+    raw_fwd = b'\x00' + header + payload
+    node = sim.nodes[fwd_path[0]]
+    result = node.process_packet(raw_fwd, is_last=False)
+    assert result is not None
+    routing, flag, (next_h, next_p) = result
+
+    # Finish the forward to install circuits
+    sim.route_forward(fwd_path, header, payload)
+
+    # Circuit packet via process_packet (already has 0x01 prefix)
+    stream, _ = sim.create_circuit_stream(fwd_path, circuit_id)
+    circuit_pkt = stream.send(b"dispatched token")
+    # Process at last relay (fwd_path[-2])
+    relay_nid = fwd_path[-2]
+    result = sim.nodes[relay_nid].process_packet(circuit_pkt)
+    assert result is not None
+    next_hop, forwarded = result
+
+    print("[PASS] Type dispatch: 0x00 → forward, 0x01 → circuit.")
+
+
+def test_paced_stream_flattens_token_burst():
+    """PacedCircuitStream spreads an instant token burst across fixed intervals."""
+    sim = MixnetSim(num_nodes=4)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:3]
+    header, payload, circuit_id = client.create_repliable_with_circuit(
+        fwd_path, [], b"paced burst")
+
+    sim.route_forward(fwd_path, header, payload)
+
+    paced, _ = sim.create_paced_circuit_stream(fwd_path, circuit_id, interval_ms=50)
+    tokens = [f"t{idx}".encode() for idx in range(6)]
+    for token in tokens:
+        paced.offer(token)
+    paced.close()
+
+    emit_times = []
+    received = []
+    for tick in range(400):
+        for packet in sim.stream_paced_due(fwd_path, paced, tick):
+            emit_times.append(tick)
+            token = client.decrypt_circuit(packet)
+            assert token is not None
+            if token:
+                received.append(token)
+
+    assert received == tokens
+    assert len(emit_times) == len(tokens)
+    for earlier, later in zip(emit_times, emit_times[1:]):
+        assert later - earlier >= 50
+
+
+def test_paced_stream_keepalive_fills_idle_gap():
+    """Active paced sessions emit keepalives on empty cadence ticks."""
+    sim = MixnetSim(num_nodes=4)
+    client = sim.create_client(b"alice")
+
+    fwd_path = sim.node_ids()[:3]
+    header, payload, circuit_id = client.create_repliable_with_circuit(
+        fwd_path, [], b"paced idle")
+
+    sim.route_forward(fwd_path, header, payload)
+
+    paced, _ = sim.create_paced_circuit_stream(fwd_path, circuit_id, interval_ms=40)
+    paced.offer(b"only")
+
+    seen = []
+    for tick in range(200):
+        for packet in sim.stream_paced_due(fwd_path, paced, tick):
+            seen.append((tick, client.decrypt_circuit(packet)))
+
+    assert seen[0] == (0, b"only")
+    assert (40, b"") in seen
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("P-OR Mixnet Simulator Tests")
@@ -350,6 +798,26 @@ if __name__ == "__main__":
     test_capability_based_routing()
     test_exit_with_api_call()
     test_network_stats()
+
+    print()
+    print("--- Phase 2: Circuit Streaming ---")
+    test_circuit_install_on_forward()
+    test_circuit_reply_end_to_end()
+    test_circuit_reply_multi_hop()
+    test_circuit_nonce_rejection()
+    test_circuit_corruption_detection()
+    test_circuit_stats()
+    test_circuit_reestablish_trigger()
+
+    print()
+    print("--- Phase 4: Streaming ---")
+    test_stream_tokens_end_to_end()
+    test_stream_keepalive()
+    test_stream_large_chunked()
+    test_stream_and_surb_coexist()
+    test_type_byte_dispatch()
+    test_paced_stream_flattens_token_burst()
+    test_paced_stream_keepalive_fills_idle_gap()
 
     print()
     print("=" * 60)

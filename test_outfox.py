@@ -18,7 +18,11 @@ from sphinxmix.OutfoxClient import (
     surb_create, surb_use, surb_check, surb_recover,
     pad_body, unpad_body,
 )
-from sphinxmix.OutfoxNode import outfox_process, circuit_process, circuit_self_heal
+from sphinxmix.OutfoxNode import (
+    outfox_process, circuit_process, circuit_self_heal,
+    circuit_packet_create, circuit_packet_process, circuit_packet_decrypt,
+)
+from sphinxmix.OutfoxParams import derive_circuit_key, CIRCUIT_MAGIC
 from os import urandom
 import struct
 
@@ -293,6 +297,216 @@ def test_multiple_path_lengths():
     print("[PASS] Variable path lengths: 1 through 7 hops all work.")
 
 
+# ═══════════════════════════════════════════════════════════════════
+# Phase 1: Circuit packet tests
+# ═══════════════════════════════════════════════════════════════════
+
+
+def test_derive_circuit_key():
+    """derive_circuit_key produces deterministic 16-byte keys."""
+    seed = urandom(16)
+    cid = urandom(16)
+    k1 = derive_circuit_key(seed, cid)
+    k2 = derive_circuit_key(seed, cid)
+    assert k1 == k2
+    assert len(k1) == 16
+
+    k3 = derive_circuit_key(seed, urandom(16))
+    assert k3 != k1
+
+    k4 = derive_circuit_key(urandom(16), cid)
+    assert k4 != k1
+
+    print("[PASS] derive_circuit_key: deterministic, 16 bytes, varies with inputs.")
+
+
+def test_circuit_packet_round_trip_single_hop():
+    """Single-hop circuit: create at exit, decrypt at client."""
+    params = OutfoxParams(payload_size=256)
+    exit_key = urandom(16)
+    circuit_id = urandom(16)
+    token = b"hello streaming world"
+
+    packet = circuit_packet_create(params, circuit_id, 1, token, [exit_key])
+    assert len(packet) == params.payload_size
+
+    result = circuit_packet_decrypt(params, exit_key, packet)
+    assert result == token
+
+    print("[PASS] Circuit packet: single-hop create/decrypt round-trip.")
+
+
+def test_circuit_packet_round_trip_multi_hop():
+    """Multi-hop circuit: create at exit, relay processing, client decrypt."""
+    params = OutfoxParams(payload_size=512)
+    circuit_id = urandom(16)
+
+    exit_key = urandom(16)
+    key_a = urandom(16)
+    key_b = urandom(16)
+
+    # Exit encrypts inside-out: exit_key (layer 0), key_a (layer 1), key_b (layer 2)
+    all_keys = [exit_key, key_a, key_b]
+    token = b"multi-hop token data here"
+    packet = circuit_packet_create(params, circuit_id, 42, token, all_keys)
+    assert len(packet) == params.payload_size
+
+    # Relay B (outermost) peels layer 2
+    cid, nonce, packet = circuit_packet_process(params, key_b, packet)
+    assert cid == circuit_id
+    assert nonce == 42
+
+    # Relay A peels layer 1
+    cid, nonce, packet = circuit_packet_process(params, key_a, packet)
+    assert cid == circuit_id
+    assert nonce == 42
+
+    # Client peels exit layer
+    result = circuit_packet_decrypt(params, exit_key, packet)
+    assert result == token
+
+    print("[PASS] Circuit packet: 3-layer create/relay/relay/decrypt round-trip.")
+
+
+def test_circuit_packet_variable_hops():
+    """Circuit packets work for 1-5 hops."""
+    params = OutfoxParams(payload_size=512)
+    circuit_id = urandom(16)
+
+    for num_hops in range(1, 6):
+        keys = [urandom(16) for _ in range(num_hops)]
+        token = f"hops={num_hops}".encode()
+        packet = circuit_packet_create(params, circuit_id, 1, token, keys)
+
+        # Relay processing: peel layers num_hops-1 down to 1 (skip exit key)
+        for i in range(num_hops - 1, 0, -1):
+            _, _, packet = circuit_packet_process(params, keys[i], packet)
+
+        result = circuit_packet_decrypt(params, keys[0], packet)
+        assert result == token, f"Failed at {num_hops} hops"
+
+    print("[PASS] Circuit packet: 1-5 hop round-trips all work.")
+
+
+def test_circuit_packet_nonce_in_header():
+    """Nonce is readable from the packet header without decryption."""
+    params = OutfoxParams(payload_size=256)
+    key = urandom(16)
+    circuit_id = urandom(16)
+
+    for nonce_val in [0, 1, 255, 65535, 2**32, 2**63 - 1]:
+        packet = circuit_packet_create(params, circuit_id, nonce_val, b"x", [key])
+        read_nonce = struct.unpack(">Q", packet[17:25])[0]
+        assert read_nonce == nonce_val
+
+    print("[PASS] Circuit packet: nonce readable from header at all values.")
+
+
+def test_circuit_packet_magic_corruption():
+    """Corrupted magic field causes client decrypt to return None."""
+    params = OutfoxParams(payload_size=256)
+    exit_key = urandom(16)
+    circuit_id = urandom(16)
+
+    packet = circuit_packet_create(params, circuit_id, 1, b"test", [exit_key])
+    assert circuit_packet_decrypt(params, exit_key, packet) == b"test"
+
+    # Corrupt one byte in the encrypted region (which contains magic)
+    corrupted = bytearray(packet)
+    corrupted[28] ^= 0xFF
+    result = circuit_packet_decrypt(params, exit_key, bytes(corrupted))
+    assert result is None
+
+    print("[PASS] Circuit packet: magic corruption detected, returns None.")
+
+
+def test_circuit_packet_wrong_key():
+    """Wrong exit key produces magic mismatch."""
+    params = OutfoxParams(payload_size=256)
+    real_key = urandom(16)
+    wrong_key = urandom(16)
+    circuit_id = urandom(16)
+
+    packet = circuit_packet_create(params, circuit_id, 1, b"secret", [real_key])
+    result = circuit_packet_decrypt(params, wrong_key, packet)
+    assert result is None
+
+    print("[PASS] Circuit packet: wrong key produces None (magic mismatch).")
+
+
+def test_circuit_packet_fixed_size():
+    """All circuit packets pad to exactly payload_size regardless of token length."""
+    params = OutfoxParams(payload_size=512)
+    key = urandom(16)
+    cid = urandom(16)
+
+    for token_len in [0, 1, 16, 100, 400]:
+        token = urandom(token_len)
+        packet = circuit_packet_create(params, cid, 1, token, [key])
+        assert len(packet) == params.payload_size
+        assert circuit_packet_decrypt(params, key, packet) == token
+
+    print("[PASS] Circuit packet: fixed-size padding for all token lengths.")
+
+
+def test_circuit_packet_derived_keys():
+    """End-to-end with derive_circuit_key (as actual implementation will use)."""
+    params = OutfoxParams(payload_size=512)
+    circuit_id = urandom(16)
+    seeds = [urandom(16) for _ in range(3)]
+    keys = [derive_circuit_key(s, circuit_id) for s in seeds]
+
+    token = b"derived key round trip"
+    packet = circuit_packet_create(params, circuit_id, 7, token, keys)
+
+    # Relays peel
+    _, _, packet = circuit_packet_process(params, keys[2], packet)
+    _, _, packet = circuit_packet_process(params, keys[1], packet)
+
+    result = circuit_packet_decrypt(params, keys[0], packet)
+    assert result == token
+
+    print("[PASS] Circuit packet: full round-trip with HKDF-derived keys.")
+
+
+def test_circuit_header_budget():
+    """Circuit setup fields fit within header budget at max_hops."""
+    for max_hops in [3, 5, 7]:
+        params = OutfoxParams(payload_size=1024, max_hops=max_hops)
+        sizes_plain = params.header_sizes(max_hops, circuit_setup=False)
+        sizes_circuit = params.header_sizes(max_hops, circuit_setup=True)
+
+        for i in range(max_hops):
+            assert sizes_circuit[i] > sizes_plain[i]
+
+        pkiPriv, pkiPub = make_pki(params, n=max_hops)
+        path = [bytes([i]) for i in range(max_hops)]
+        route = list(path)
+        keys_list = [pkiPub[nid].y for nid in path]
+
+        from sphinxmix.OutfoxClient import packet_create_repliable
+        from sphinxmix.OutfoxParams import derive_circuit_key
+        (header, payload), _, _, circuit_info = packet_create_repliable(
+            params, route, keys_list, route, keys_list, b"budget test",
+            install_circuit=True)
+
+        h, p = header, payload
+        for i in range(max_hops):
+            is_last = (i == max_hops - 1)
+            circuits_installed = []
+            def _capture(cid, ck, nh, ttl):
+                circuits_installed.append(cid)
+            result = outfox_process(params, pkiPriv[path[i]].x,
+                                    pkiPriv[path[i]].y, (h, p),
+                                    is_last=is_last, on_circuit=_capture)
+            assert result is not None, f"Failed at hop {i}/{max_hops}"
+            assert len(circuits_installed) == 1, f"No circuit installed at hop {i}"
+            if not is_last:
+                _, _, (h, p) = result
+
+    print("[PASS] Circuit header budget: 3, 5, 7 hops all fit with circuit setup.")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Outfox + P-OR Extensions Test Suite")
@@ -310,6 +524,19 @@ if __name__ == "__main__":
     test_payload_tagging()
     test_circuit_symmetric()
     test_multiple_path_lengths()
+
+    print()
+    print("--- Phase 1: Circuit Packets ---")
+    test_derive_circuit_key()
+    test_circuit_packet_round_trip_single_hop()
+    test_circuit_packet_round_trip_multi_hop()
+    test_circuit_packet_variable_hops()
+    test_circuit_packet_nonce_in_header()
+    test_circuit_packet_magic_corruption()
+    test_circuit_packet_wrong_key()
+    test_circuit_packet_fixed_size()
+    test_circuit_packet_derived_keys()
+    test_circuit_header_budget()
 
     print()
     print("=" * 60)

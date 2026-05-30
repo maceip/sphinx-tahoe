@@ -13,7 +13,7 @@ from collections import namedtuple
 
 from .OutfoxParams import (
     OutfoxParams, KEM_X25519,
-    aead_encrypt, aead_decrypt, hkdf,
+    aead_encrypt, aead_decrypt, hkdf, derive_circuit_key,
     AEAD_TAG_SIZE, TIMESTAMP_SIZE, FLAG_SIZE,
     FLAG_REAL, FLAG_DUMMY,
     make_timestamp, sign_payload, generate_signing_keypair,
@@ -40,10 +40,15 @@ def unpad_body(body):
     return b''
 
 
-def _build_header(params, route, public_keys, flag=FLAG_REAL):
+def _build_header(params, route, public_keys, flag=FLAG_REAL, circuit_setup=None):
     """Build nested AEAD header and collect per-hop keys.
 
-    Each layer's AEAD plaintext: routing(16) + timestamp(8) + flag(1) [+ inner_header]
+    Each layer's AEAD plaintext:
+      routing(16) + timestamp(8) + flag(1) [+ circuit_fields] [+ inner_header]
+
+    circuit_setup: optional list of per-hop dicts with keys:
+      circuit_id (16 bytes), key_seed (16 bytes), next_hop (routing_size bytes),
+      ttl (int, seconds). When present, flag bit 0x02 is set for that hop.
     """
     n = len(route)
     assert n == len(public_keys)
@@ -60,7 +65,21 @@ def _build_header(params, route, public_keys, flag=FLAG_REAL):
         s_h, s_p, c = hop_data[i]
         padded = (route[i] + b'\x00' * params.routing_size)[:params.routing_size]
         ts = make_timestamp()
-        meta = padded + ts + flag
+
+        hop_flag = flag
+        circuit_bytes = b''
+        if circuit_setup is not None and i < len(circuit_setup):
+            cs = circuit_setup[i]
+            hop_flag = bytes([flag[0] | 0x02])
+            next_hop_padded = (cs["next_hop"] + b'\x00' * params.routing_size)[:params.routing_size]
+            circuit_bytes = (
+                cs["circuit_id"]
+                + cs["key_seed"]
+                + next_hop_padded
+                + struct.pack(">H", cs["ttl"])
+            )
+
+        meta = padded + ts + hop_flag + circuit_bytes
         if header is None:
             plaintext = meta
         else:
@@ -146,15 +165,48 @@ def surb_recover(params, packet_payload, sksurb):
 
 
 def packet_create_repliable(params, fwd_route, fwd_keys,
-                            rply_route, rply_keys, message):
+                            rply_route, rply_keys, message,
+                            install_circuit=False):
     """Create a repliable request with embedded SURB.
 
-    Returns (packet, idsurb, sksurb) where idsurb and sksurb are
-    stored by the sender to identify and decrypt the reply.
+    Returns (packet, idsurb, sksurb) when install_circuit is False.
+    Returns (packet, idsurb, sksurb, circuit_info) when install_circuit is True,
+    where circuit_info = {"circuit_id": bytes, "keys": [exit_key, relay_keys...]}
+    with keys ordered innermost-first (exit at index 0).
     """
     surb, idsurb, sksurb = surb_create(params, rply_route, rply_keys)
 
-    packet = packet_create(params, fwd_route, fwd_keys, message, surb=surb)
+    circuit_setup = None
+    circuit_info = None
+    if install_circuit:
+        circuit_id = urandom(16)
+        n = len(fwd_route)
+        seeds = [urandom(16) for _ in range(n)]
+        keys = [derive_circuit_key(seeds[i], circuit_id) for i in range(n)]
+
+        circuit_setup = []
+        for i in range(n):
+            if i == 0:
+                next_hop = b"client"
+            else:
+                next_hop = fwd_route[i - 1]
+            circuit_setup.append({
+                "circuit_id": circuit_id,
+                "key_seed": seeds[i],
+                "next_hop": next_hop,
+                "ttl": 120,
+            })
+
+        circuit_info = {
+            "circuit_id": circuit_id,
+            "keys": list(reversed(keys)),
+        }
+
+    packet = packet_create(params, fwd_route, fwd_keys, message,
+                           surb=surb, circuit_setup=circuit_setup)
+
+    if install_circuit:
+        return packet, idsurb, sksurb, circuit_info
     return packet, idsurb, sksurb
 
 
@@ -182,7 +234,8 @@ def packet_create_dummy(params, route, public_keys):
     return packet_create(params, route, public_keys, dummy_msg, flag=FLAG_DUMMY)
 
 
-def packet_create(params, route, public_keys, message, surb=None, flag=FLAG_REAL):
+def packet_create(params, route, public_keys, message, surb=None, flag=FLAG_REAL,
+                   circuit_setup=None):
     """LMC.PacketCreate: create a request packet.
 
     route: list of routing info bytes, one per hop (including receiver)
@@ -190,11 +243,13 @@ def packet_create(params, route, public_keys, message, surb=None, flag=FLAG_REAL
     message: plaintext message bytes
     surb: optional SURB to embed for repliability
     flag: FLAG_REAL or FLAG_DUMMY
+    circuit_setup: optional per-hop circuit setup dicts (see _build_header)
 
     Returns packet = (header, payload)
     """
     n = len(route)
-    header, hop_data, _ = _build_header(params, route, public_keys, flag=flag)
+    header, hop_data, _ = _build_header(params, route, public_keys, flag=flag,
+                                        circuit_setup=circuit_setup)
 
     from struct import pack as struct_pack
     if surb is not None:

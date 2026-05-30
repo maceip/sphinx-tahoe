@@ -65,8 +65,14 @@ class KEM_X25519:
 
     @staticmethod
     def decapsulate(c, sk):
-        shk = crypto_scalarmult(sk, c)
+        try:
+            shk = crypto_scalarmult(sk, c)
+        except Exception:
+            return None
         if shk == b'\x00' * 32:
+            return None
+        x = int.from_bytes(shk, 'little')
+        if x >= 2**255 - 19:
             return None
         return shk
 
@@ -76,9 +82,18 @@ AEAD_NONCE = b'\x00' * 12
 TIMESTAMP_SIZE = 8
 FLAG_SIZE = 1
 CIRCUIT_TTL_SECONDS = 120
+# Exit-side streaming cadence (traffic-analysis mitigation v1). During an active
+# session the exit emits at most one circuit packet per interval; empty ticks
+# send keepalives so gaps between SSE tokens are not visibly idle on the wire.
+# This does NOT provide network-wide constant-rate mixing (spec §2 non-goals).
+CIRCUIT_PACE_INTERVAL_MS = 50
 
 FLAG_REAL = b'\x00'
 FLAG_DUMMY = b'\x01'
+
+CIRCUIT_MAGIC = b'POR2'
+CIRCUIT_TYPE = b'\x01'
+FORWARD_TYPE = b'\x00'
 
 
 def hkdf(ikm, length, salt=None, info=b""):
@@ -94,6 +109,14 @@ def hkdf(ikm, length, salt=None, info=b""):
     return okm[:length]
 
 
+def derive_circuit_key(key_seed, circuit_id):
+    """Derive a per-hop circuit key from a seed and circuit ID.
+
+    Uses HKDF-SHA256 with domain separation per spec §4.
+    """
+    return hkdf(key_seed, 16, salt=circuit_id, info=b"circuit_v1")
+
+
 def aead_encrypt(key, plaintext):
     """ChaCha20-Poly1305 AEAD. Returns (ciphertext, tag)."""
     ct_with_tag = crypto_aead_chacha20poly1305_ietf_encrypt(
@@ -103,10 +126,11 @@ def aead_encrypt(key, plaintext):
 
 def aead_decrypt(key, ciphertext, tag):
     """ChaCha20-Poly1305 AEAD. Returns plaintext or raises."""
+    from nacl.exceptions import CryptoError
     try:
         return crypto_aead_chacha20poly1305_ietf_decrypt(
             ciphertext + tag, None, AEAD_NONCE, key)
-    except Exception:
+    except CryptoError:
         raise ValueError("AEAD decryption failed")
 
 
@@ -132,7 +156,7 @@ def verify_payload(pk, payload, signature):
     """Verify ML-DSA-65 signature. Returns True/False."""
     try:
         return dilithium_verify(pk, payload, signature) is not False
-    except Exception:
+    except (TypeError, ValueError):
         return False
 
 
@@ -144,7 +168,7 @@ def generate_signing_keypair():
 class OutfoxParams:
     """Outfox packet format parameters.
 
-    Replaces SphinxParams with per-hop KEM, AEAD headers, and formal KDF.
+    Per-hop KEM, AEAD headers, and formal KDF.
     Extended with per-layer timestamps, dummy flag, and return-path circuits.
     """
 
@@ -170,19 +194,21 @@ class OutfoxParams:
         s_p = material[32:32 + self.k]
         return s_h, s_p
 
-    def header_sizes(self, num_hops):
+    def header_sizes(self, num_hops, circuit_setup=False):
         """Compute header byte size at each layer.
 
-        Each layer's AEAD plaintext now includes: routing + timestamp + flag + inner_header.
+        Each layer's AEAD plaintext: routing + timestamp + flag [+ circuit_fields] + inner_header.
+        Circuit fields add 16 (cid) + 16 (seed) + routing_size (next_hop) + 2 (ttl) per hop.
         """
         ct = self.kem.CIPHERTEXT_SIZE
         r = self.routing_size
         t = AEAD_TAG_SIZE
         m = TIMESTAMP_SIZE + FLAG_SIZE
+        circ = (16 + 16 + r + 2) if circuit_setup else 0
         sizes = [0] * num_hops
-        sizes[num_hops - 1] = ct + r + m + t
+        sizes[num_hops - 1] = ct + r + m + circ + t
         for i in range(num_hops - 2, -1, -1):
-            sizes[i] = ct + (r + m + sizes[i + 1]) + t
+            sizes[i] = ct + (r + m + circ + sizes[i + 1]) + t
         return sizes
 
     def aes_ctr(self, k, m, iv=None):
@@ -210,8 +236,8 @@ class OutfoxParams:
         r4_short, r4_long = message[:self.k], message[self.k:]
         r3_long = self.aes_ctr(key, r4_long, iv=r4_short)
         r3_short = r4_short
-        k2 = sha256(r3_long + key + b'3').digest()[:self.k]
-        r2_short = self.aes_ctr(key, r3_short, iv=k2)
+        k3 = sha256(r3_long + key + b'3').digest()[:self.k]
+        r2_short = self.aes_ctr(key, r3_short, iv=k3)
         r2_long = r3_long
         r1_long = self.aes_ctr(key, r2_long, iv=r2_short)
         r1_short = r2_short
