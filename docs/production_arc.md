@@ -7,7 +7,7 @@ constraints, ownership, and status. New updates go in
 Status: coordination note for current Python work. This is not a privacy claim
 or release checklist.
 
-**Last updated:** 2026-05-30 (product stance: one binary)
+**Last updated:** 2026-05-30 (runtime config convergence)
 
 ---
 
@@ -42,29 +42,25 @@ Track in coordination log when items flip to done.
 | `python -m por` same as `por` CLI | **Done** — `por/__main__.py` | A1 |
 | UDP demo spawns `python -m por relay\|expert` | **Done** — `udp_demo._start_nodes` | A1 |
 | Legacy `por-relay` / `por-expert` / `por-client` delegate + deprecate | **Done** — stderr notice | A1 |
-| **`por run --config`** from single `por.config.v1` for relay/expert | **Open** — needs kem keys in daemon schema | A1 + wire |
-| Persistent client loop (`por run`, role=client) | **Open** | A1 |
-| Supernode promotion flags in one config file | **Open** — public IP + relay registration | A1 + D |
-| Local HTTP/SSE on client process (not separate binary) | **Open** | C |
+| **`por run --config`** from single `por.config.v1` for relay/expert/client | **Done** — config carries KEM identity + client options | A1 + runtime |
+| Persistent client loop (`por run`, role=client) | **Open** — one-shot config + local HTTP/SSE exist | A1 |
+| Supernode promotion flags in one config file | **Done (schema)** — public IP + relay registration flags | A1 + D |
+| Local HTTP/SSE on client process (not separate binary) | **Done (MVP)** — same `por run` client process | C |
 | Remove legacy console script names | **Open** — after one release cycle | A1 |
 
 **Gate:** do not add new top-level console scripts. New behavior → **`por` subcommand** or config flag on the same binary.
 
-### Runtime agent gate (until binary wire merges)
+### Runtime agent gate
 
-**Do not start** on the Runtime track until Wire lands binary framing in
-``WireNodeRuntime`` + ``por/client.py`` (process-wire A5 green):
+Binary framing is now present in `WireNodeRuntime` + `por/client.py`. Runtime
+work may proceed, but do not change recv/send framing in client/runtime without a
+wire-owner review.
 
-- Local HTTP/SSE listener on `por`
-- NAT / peer-address dial integration in client
-- Persistent client session loop that assumes production wire shape
+Runtime may work on config, local HTTP/SSE, peer-address planning, structured
+logging, and replay policy. Persistent sessions still need a separate design.
 
-Runtime **may** prep in parallel: ``por.config.v1`` schema (kem keys), structured
-logging helpers, replay policy **doc only** — no recv/send path changes.
-
-**Exception (parked prep, does not block wire):** continue or finish the
-**Freehold NAT synthesis** in ``docs/por_transport_backlog.md``. That is
-research/design only until wire merges; do not implement dial integration yet.
+**Freehold NAT synthesis** in `docs/por_transport_backlog.md` remains useful
+context. Implementation must stay relay-first and must not parse app payloads.
 
 ---
 
@@ -85,7 +81,8 @@ optional direct hints, heartbeats as NAT keepalives, observed-address learning
 from reverse path.
 
 **Code skeleton (landed):** `por/peer_address.py` — register/challenge/confirm,
-`PeerAddressRecord`, `build_dial_plan()`, privacy gates. **Not wired** to client.
+`PeerAddressRecord`, `build_dial_plan()`, privacy gates. Client planning now
+uses records to choose a relay path when no explicit relay path is supplied.
 
 **Remaining synthesis / implementation checklist** (assign to transport agent):
 
@@ -96,8 +93,8 @@ from reverse path.
 | Compare Freehold SNAT/DNAT/XDP vs P-OR user-space constraint | **Open** | Explicit “what we skip” section exists; deepen with 1-page decision |
 | DemuxSocket / shared UDP port pattern for `por` | **Open** | Deferred item #5 in backlog |
 | Local UDP registration heartbeat demo (2 processes) | **Open** | Backlog item #2 |
-| Wire `build_dial_plan()` into `por/client.py` | **Blocked** | After A2 wire |
-| Supernode + `peer_address` in one config | **Blocked** | After dial plan |
+| Wire `build_dial_plan()` into `por/client.py` | **Done (planning)** | Relay-first; no packet IO changes |
+| Supernode + `peer_address` in one config | **Done (schema)** | Behavior still limited to planning flags |
 
 **Owner:** unassigned transport/NAT agent (whoever ran Freehold review should
 append findings to backlog doc + coordination log).
@@ -157,8 +154,8 @@ Land **A2/A3** before HTTP/SSE edge and NAT work depend on wire shape:
 3. Keep **`prepared.envelope`** as the only app payload on wire.
 4. Extend **process-wire A5** coverage — not just in-process `test_a5_exit.py`.
 
-**Still open:** JSON recv loop still in `WireNodeRuntime.serve_forever()`; wire
-team must wire `por/wire_frame.py` into runtime + client and land tests.
+**Status:** binary wire is the default path. JSON/base64 remains compatibility
+harness code; new runtime features must not depend on it.
 
 ### HTTP/SSE local interface (Milestone C — same binary)
 
@@ -168,8 +165,9 @@ team must wire `por/wire_frame.py` into runtime + client and land tests.
 - HTTP/SSE in → client send path out. Not a mix hop, not a second routing
   harness.
 
-**Still open:** no local HTTP/SSE listener on unified client yet; use
-`sim_mixnet_anthropic_proxy.py` only as a streaming pattern reference.
+**Status:** MVP local HTTP/SSE adapter exists on the same client process. It
+emits the completed current response as SSE events; token-by-token streaming
+waits on persistent client sessions.
 
 ### Peer-address owner
 
@@ -178,7 +176,9 @@ team must wire `por/wire_frame.py` into runtime + client and land tests.
 - **Do not** parse prompts, expertise labels, provider metadata, or circuit packets.
 - **Relay-first**; direct UDP only as policy-controlled optimization.
 
-**Still open:** skeleton only; not in client dial path.
+**Status:** peer-address records are used by client route planning to select a
+relay path when the request has no explicit relay path. Direct UDP remains
+policy-gated and deferred from the send path.
 
 ### Logging / replay owner
 
@@ -187,7 +187,9 @@ team must wire `por/wire_frame.py` into runtime + client and land tests.
 - **Decide replay policy:** RAM-only circuits with explicit failure semantics
   **or** bounded persisted circuit-table state.
 
-**Still open:** daemons use plain `print()`; no replay policy doc.
+**Status:** unified config surfaces emit structured events for client,
+directory, relay, and expert startup/request boundaries. Runtime hot-path prints
+remain; replay policy doc is still open.
 
 ---
 
@@ -204,20 +206,22 @@ team must wire `por/wire_frame.py` into runtime + client and land tests.
 | QUIC TLS policy | Secure default landed; insecure localhost requires dev opt-in | Codex (D) |
 | `test_a5_exit.py` in-process native path | Landed (no JSON frames) | Wire lead (A5) |
 | `_find_exit_entry` + CI gate | Commit `40be4cf` on branch | Wire lead (E) |
-| Canonical `0x00`/`0x01` on process wire | **Prep only** — `por/wire_frame.py` + tests; runtime/client still JSON | Wire lead (A2) |
+| Canonical `0x00`/`0x01` on process wire | Default client/runtime path | Wire lead (A2) |
 | Unified **`por`** binary CLI | **Done** — `send\|relay\|expert\|directory\|run` | A1 |
-| Freehold NAT synthesis | **Parked** — review landed in `por_transport_backlog.md`; code skeleton in `peer_address.py` | Transport (after A2) |
+| Freehold NAT synthesis | Review landed; peer-address planning wired relay-first | Transport/runtime |
 | Only `prepared.envelope` on wire | Partial (`client` uses orchestrator) | Wire lead (A3) |
+| `por run --config` single-file runtime | Relay/expert/client config dispatch landed | Runtime |
+| Local HTTP/SSE client adapter | Same process, no new binary | Runtime (C) |
 
-**Latest local verification:** `python3 -m pytest -q` — 124 passed;
+**Latest local verification:** `python3 -m pytest -q` — 135 passed;
 `python3 scripts/check_ta_claims.py` — TA-3 OK.
 
 ## Conflict zones (coordinate before editing)
 
 | File | Who touches it | Rule |
 |------|----------------|------|
-| `por/node_runtime.py` | Composer + wire lead | Keep dual POR1 + `on_circuit` until wire lead drops POR1 from prod path |
-| `por/client.py` | Composer + wire lead (A3) | Client sends `prepared.envelope` only; no second envelope builder |
+| `por/node_runtime.py` | Runtime + wire lead | Do not change recv/send framing without wire-owner review |
+| `por/client.py` | Runtime + wire lead (A3) | Client sends `prepared.envelope` only; peer-address may plan relays but not parse payloads |
 | `por/config.py` | Everyone on A1 | Extend schema; do not fork per-daemon config shapes |
 | `por/udp_demo.py` / `por/quic_demo.py` | Harness only | Wire lead replaces framing here when A2 lands; not production daemons |
 
@@ -234,6 +238,9 @@ team must wire `por/wire_frame.py` into runtime + client and land tests.
 | **Bridge: POR1 + native circuit install** | `build_por1_forward_plan`, `build_native_forward_plan`, runtime dual-path |
 | **B: Directory service v1** | `load_public_snapshot_directory()` supports file/HTTP; `por-directory` serves snapshots |
 | **D: TLS on by default** | `por/quic_transport.py`; `verify_tls=False` requires `dev_allow_insecure_tls=True` |
+| **Runtime config convergence** | `por.config.v1` KEM identity, client options, supernode flags, cluster view |
+| **C: HTTP/SSE on same client binary** | `client.local_http.enabled` on `por run`, no gateway binary |
+| **D: `peer_address` wired** | Peer-address records can choose relay path before send |
 
 Composer is **not** taking wire-lead items below.
 
@@ -242,7 +249,7 @@ Composer is **not** taking wire-lead items below.
 | Item | Notes |
 |------|--------|
 | A2: Outfox-native circuit setup on wire | Default client already native; remove POR1 from prod when ready |
-| A2: Canonical `0x00`/`0x01` carrier | Replace JSON/base64 harness framing in daemon wire path |
+| A2: Canonical `0x00`/`0x01` carrier | Landed on default daemon/client path; keep compatibility contained |
 | A3: Only `prepared.envelope` on wire | Align with `por/client.py` send path |
 | A5: Exit test end-to-end | `test_a5_exit.py` started — extend to process-wire if needed |
 | E: `_find_exit_entry` hardening | `sphinxmix/mixnet.py` — commit on branch |
@@ -254,11 +261,11 @@ Composer is **not** taking wire-lead items below.
 |------|-------------------|
 | **A1: `por-client` daemon polish** | Persistent connections, edge adapter hookup, operator docs |
 | **B: TA-2 pacing from envelope** | Wire `PacedCircuitStream` at expert when descriptor requests pacing |
-| **C: HTTP/SSE on same client binary** | Optional local listener; pattern from `sim_mixnet_anthropic_proxy.py` |
-| **Supernode promotion** | Public IP + config → relay (and later expert) duties in same binary |
-| **D: `peer_address` wired** | `por/peer_address.py` → client dial plan; **see Freehold parked track** |
+| **C: HTTP/SSE token streaming** | MVP adapter exists; token-by-token SSE waits on persistent client sessions |
+| **Supernode promotion behavior** | Flags exist; directory registration / relay advertisement behavior still open |
+| **D: direct peer-address dialing** | Relay planning exists; direct UDP remains policy-gated and not used by send path |
 | **D: Freehold NAT synthesis (finish)** | Deepen `por_transport_backlog.md`; DemuxSocket note; registration demo |
-| **E: Structured logging rollout** | `por/log_events.py` → apply across daemons |
+| **E: Structured logging rollout** | Startup/request boundary events landed; runtime hot path still plain prints |
 | **E: Relay restart/replay policy** | Optional `CircuitTable` persistence design |
 
 ## Codex-started (verify owner)
@@ -296,6 +303,23 @@ Wakes on changes under `por/`, Outfox wire files, A5/UDP tests, and this doc.
 
 Append-only updates. **Wire team:** read blocking notes above + latest entry
 here before starting work.
+
+### 2026-05-30 — Wire lead (PR1+PR2+PR4 landed)
+
+- **Binary 0x00/0x01/0x02 carrier landed** in `por/wire_frame.py`. Daemons
+  default to `binary_wire=True`. JSON path retained for harness compat only.
+- **`WireNodeRuntime`**: binary dispatch via `_dispatch_binary` → `_handle_forward_binary` /
+  `_handle_circuit_binary`. Raw UDP datagrams, no base64, no JSON on production path.
+- **`por/client.py`**: `send_prepared_envelope` uses `encode_forward` + `decode_datagram`.
+  Removed `circuit_wire` param — native Outfox circuit setup is the only path.
+- **POR1 removed from prod**: `circuit_wire="por1"` param deleted. POR1 bridge test deleted.
+  Legacy `build_por1_forward_plan` may remain in `node_runtime.py` for reference only.
+- **`test_a5_process_wire.py`**: spawns relay+expert subprocesses with binary wire,
+  sends 0x00 forward, receives 0x01 circuit stream, verifies prompt visibility.
+- **135 tests green**, pushed to remote master.
+- **Unblocked**: Gateway team can wrap `send_prepared_envelope`. Peer-address can
+  plug into client dial below discovery. Logging team can swap `print()` for
+  `por/log_events.py` — event names are stable.
 
 ### 2026-05-30 — Composer
 
@@ -367,3 +391,18 @@ here before starting work.
 - **Not dropped:** pinned under “Parked — Freehold NAT synthesis” in
   `production_arc.md`. Blocked for **implementation** until binary wire merges;
   **research/doc** may continue (DemuxSocket comparison, registration demo design).
+
+### 2026-05-30 — Runtime config convergence
+
+- **`por run --config`** can dispatch relay, expert, and client roles from one
+  `por.config.v1` file. Relay/expert daemon config now carries KEM identity and
+  can produce the existing cluster runtime view.
+- **Supernode promotion flags** landed in config schema: public IP,
+  relay advertisement, directory registration, inbound mix acceptance, and
+  future expert promotion. Behavior beyond flags is still open.
+- **Peer-address planning** is wired into `por/client.py`: records may choose a
+  relay path when the caller did not provide one. Direct UDP stays deferred.
+- **Local HTTP/SSE** landed as an optional same-process client adapter via
+  `client.local_http.enabled`; no new gateway binary.
+- **Structured logging** now covers unified config startup/request boundaries;
+  runtime packet hot path still needs conversion.
