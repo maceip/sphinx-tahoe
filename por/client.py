@@ -1,4 +1,8 @@
-"""P-OR client orchestrator and send path."""
+"""P-OR client orchestrator and send path.
+
+Layer 7 contract: all app payloads must come from ``prepare_expert_mode_request()``.
+This module must not construct ``PromptRequestEnvelope`` directly.
+"""
 
 from __future__ import annotations
 

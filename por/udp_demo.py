@@ -83,7 +83,7 @@ def run_demo(node_count: int = 4, timeout: float = 8.0, *, circuit_wire: str = "
         procs = _start_nodes(config_path, node_ids)
         try:
             time.sleep(0.35)
-            selected_peer_id, degraded, fallback_used, prompt, expertise = _plan_demo_route(tmp_path)
+            selected_peer_id, degraded, fallback_used, prompt, expertise, prepared = _plan_demo_route(tmp_path)
             if selected_peer_id not in nodes:
                 response_text = "".join(stream_frontier_reply(prompt, "no selected expert peer"))
                 client_logs = (
@@ -196,7 +196,14 @@ def _plan_demo_route(tmp_path: Path):
         f"fallback_provider={fallback.plan.fallback_provider} reason={fallback.plan.reason!r}",
         flush=True,
     )
-    return plan.selected_peer_id or "", plan.pool.degraded_anonymity, not plan.use_expert, prompt, expertise
+    return (
+        plan.selected_peer_id or "",
+        plan.pool.degraded_anonymity,
+        not plan.use_expert,
+        prompt,
+        expertise,
+        prepared,
+    )
 
 
 def _node_ids(node_count: int) -> list[str]:
@@ -204,10 +211,9 @@ def _node_ids(node_count: int) -> list[str]:
     return base[:node_count]
 
 
-def _daemon_module(node_id: str) -> str:
-    if node_id.startswith("expert"):
-        return "por.daemon.expert"
-    return "por.daemon.relay"
+def _daemon_argv(node_id: str) -> list[str]:
+    subcommand = "expert" if node_id.startswith("expert") else "relay"
+    return ["-m", "por", subcommand, "--config"]
 
 
 def _reserve_ports(count: int) -> list[int]:
@@ -226,10 +232,9 @@ def _reserve_ports(count: int) -> list[int]:
 def _start_nodes(config_path: Path, node_ids: Sequence[str]) -> list[subprocess.Popen]:
     procs = []
     for node_id in node_ids:
-        module = _daemon_module(node_id)
         procs.append(
             subprocess.Popen(
-                [sys.executable, "-m", module, "--config", str(config_path), "--node-id", node_id],
+                [sys.executable, *_daemon_argv(node_id), str(config_path), "--node-id", node_id],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,

@@ -1,4 +1,13 @@
-"""JSON-framed wire node runtime shared by daemons and the UDP harness."""
+"""Wire node runtime for P-OR daemons.
+
+**Current wire (Milestone A harness):** JSON/base64 UDP frames
+(``{"kind":"forward",...}``). Used by ``por relay`` / ``por expert`` today.
+
+**Target wire (A2 — wire lead):** canonical binary datagrams via
+``por.wire_frame`` (``0x00`` forward, ``0x01`` circuit, ``0x02`` shutdown).
+Integration into ``serve_forever()`` is not landed yet; do not claim binary
+until client + runtime both use ``encode_*`` / ``decode_datagram``.
+"""
 
 from __future__ import annotations
 

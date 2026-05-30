@@ -26,7 +26,7 @@ from sphinxmix.OutfoxNode import (
 )
 from sphinxmix.OutfoxParams import OutfoxParams
 
-from .envelope import HYBRID_RETURN_PATH_V2, PromptRequestEnvelope
+from .envelope import PromptRequestEnvelope
 from .quic_transport import (
     H3WebSocketClient,
     H3WebSocketServer,
@@ -108,8 +108,8 @@ async def _run_demo_async(node_count: int, timeout: float) -> DemoResult:
         procs = _start_nodes(config_path, node_ids)
         try:
             await asyncio.sleep(0.75)
-            selected_peer_id, degraded, fallback_used, prompt, expertise = _plan_demo_route(tmp_path)
-            if selected_peer_id not in nodes:
+            selected_peer_id, degraded, fallback_used, prompt, expertise, prepared = _plan_demo_route(tmp_path)
+            if selected_peer_id not in nodes or prepared.envelope is None:
                 response_text = (
                     f"[wire-harness frontier_fallback] prompt_len={len(prompt)} "
                     "expert_used=no reason=no selected expert peer"
@@ -134,10 +134,7 @@ async def _run_demo_async(node_count: int, timeout: float) -> DemoResult:
                 config=config,
                 client_addr=client_addr,
                 forward_path=forward_path,
-                prompt=prompt,
-                expertise=expertise,
-                selected_peer_id=selected_peer_id,
-                degraded_anonymity=degraded,
+                envelope=prepared.envelope,
                 timeout=timeout,
             )
         finally:
@@ -375,10 +372,7 @@ async def _send_prompt_and_receive_stream(
     config,
     client_addr,
     forward_path,
-    prompt,
-    expertise,
-    selected_peer_id,
-    degraded_anonymity,
+    envelope: PromptRequestEnvelope,
     timeout,
 ):
     queue: asyncio.Queue[bytes] = asyncio.Queue()
@@ -398,38 +392,12 @@ async def _send_prompt_and_receive_stream(
 
     try:
         route_infos, circuit_setup, client_peel_keys = build_native_forward_plan(forward_path)
-        from sphinxmix.ta_claims import streaming_return_descriptor
-
-        app = PromptRequestEnvelope.visible_prompt(
-            prompt=prompt,
-            selected_peer_id=selected_peer_id,
-            requested_expertise=expertise,
-            provider_request={
-                "provider": "expert_peer",
-                "selected_peer_id": selected_peer_id,
-                "fallback_provider": "frontier",
-                "stream": True,
-                "harness_provider_call": False,
-            },
-            return_descriptor=streaming_return_descriptor(
-                mode=HYBRID_RETURN_PATH_V2,
-                paced=False,
-                extra={
-                    "return_profile": "relay_additive_link_cid",
-                    "transport": TRANSPORT_NAME,
-                },
-            ),
-            privacy_warnings=(
-                "candidate pool below privacy target; destination anonymity degraded",
-            ) if degraded_anonymity else (),
-            extra_intent={"degraded_anonymity": degraded_anonymity},
-        )
         keys = [bytes.fromhex(config["nodes"][node_id]["kem_pk"]) for node_id in forward_path]
         header, payload = packet_create(
             params,
             route_infos,
             keys,
-            app.to_json().encode("utf-8"),
+            envelope.to_json().encode("utf-8"),
             circuit_setup=circuit_setup,
         )
 
@@ -441,8 +409,9 @@ async def _send_prompt_and_receive_stream(
 
         chunks = []
         logs = [
-            f"client event=expert_plan transport={TRANSPORT_NAME} selected={selected_peer_id} "
-            f"degraded_anonymity={str(degraded_anonymity).lower()} forward_path={'/'.join(forward_path)}",
+            f"client event=send_prepared_envelope transport={TRANSPORT_NAME} "
+            f"selected={envelope.selected_peer_id or 'none'} "
+            f"forward_path={'/'.join(forward_path)}",
         ]
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:

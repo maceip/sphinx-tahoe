@@ -37,9 +37,10 @@ if __name__ == "__main__":
             ],
             entry_points={
                   "console_scripts": [
-                        "por-relay=por.daemon.relay:main",
-                        "por-expert=por.daemon.expert:main",
-                        "por-client=por.daemon.client:main",
+                        "por=por.daemon.main:main",
+                        "por-relay=por.daemon.main:legacy_relay_main",
+                        "por-expert=por.daemon.main:legacy_expert_main",
+                        "por-client=por.daemon.main:legacy_client_main",
                         "por-directory=por.daemon.directory:main",
                   ],
             },
