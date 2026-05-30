@@ -1,93 +1,121 @@
-P-OR: Better Answers Through the Crowd
-=======================================
+# tenet — the expert network
 
-P-OR is an expert routing network for LLM inference. Instead of asking one
-model one question, P-OR finds peers on the network whose local memory and
-domain expertise match your prompt, routes your question to them through an
-encrypted relay chain, and streams the answer back.
+**tenet routes a question to the peer most likely to answer it well.**
 
-The idea is simple: the crowd's memory is better than yours alone. A
-construction engineer's indexed reference library produces a better answer
-about load-bearing walls than a general-purpose model working from training
-data. A culinary researcher's corpus knows more about Maillard chemistry
-than a frontier chat completion.
+Most LLM setups ask one model, working from training data, every question.
+tenet does something different: it treats a network of participants — each with
+their own indexed knowledge and domain focus — as a routing surface. When you
+ask a question, tenet finds the peers whose local knowledge actually matches it,
+sends the question to one of them, and streams the answer back.
 
-Why would anyone run a node?
-----------------------------
+The premise is plain: for a specialized question, the right specialist's
+indexed library beats a general model guessing from memory. A structural
+engineer's reference shelf answers a load-bearing question better than a generic
+completion. A wine importer's tasting notes know more about a region than a
+chat model does. tenet is the routing layer that connects the question to that
+knowledge.
 
-The natural question: why would I let strangers route prompts through my
-machine?
+This is an **expert-routing network** — not a chain, not a token, and not a
+verification scheme. There is nothing to mine and nothing to stake. The unit of
+value is a good answer.
 
-Because you get access to the network's expertise in return. Running a node
-makes your own prompts routable to every other expert on the network. The
-more specialized knowledge you contribute, the more specialized knowledge
-you can access.
+## Why run a node
 
-The network protects participants:
+If you run a node, your own questions become routable to every other expert on
+the network — and in exchange, your indexed knowledge becomes reachable by
+others when it's the best match. The more specialized what you contribute, the
+more specialized what you can reach.
 
-- **Sender anonymity**: multi-hop encrypted relay chain (each relay only
-  sees the previous and next hop, never the sender or the expert)
-- **Prompt confidentiality**: only the selected expert peer sees the prompt
-  content; relay nodes see encrypted bytes
-- **Expert privacy**: memory manifests publish statistical summaries and
-  Merkle commitments, not raw text or file paths
-- **Replay rejection**: per-layer timestamps and monotonic nonce counters
-- **Integrity**: ML-DSA-65 post-quantum signatures on forward payloads
+Participation is designed to be low-commitment and low-exposure:
 
-How it works
-------------
+- **You don't expose your prompts.** A question travels a multi-hop encrypted
+  path; each relay on the path learns only the hop before and after it, never
+  who asked or who answered.
+- **Relays can't read traffic.** Only the chosen expert peer can open the
+  question; every relay in between forwards sealed bytes.
+- **You don't publish your files.** A node advertises a *manifest* — statistical
+  summaries and commitments describing *what it knows*, never raw documents or
+  paths.
+- **You don't need an open port.** A home node reaches the network through a
+  reachability relay; it never needs an inbound listener or a pasted IP address.
 
-1. Your client indexes local memory (documents, notes, corpora) into a
-   manifest describing what you know, not what you have
-2. You register on the network as an expert peer
-3. When someone's prompt matches your expertise, the network routes it
-   to you through encrypted relays
-4. Your node combines the prompt with your local knowledge and a frontier
-   LLM to produce a domain-specific answer
-5. The answer streams back through a symmetric circuit to the sender
+## How it works
 
-Quick start
------------
+1. Your client indexes local knowledge (documents, notes, corpora) into a
+   **manifest** that describes your expertise without revealing its contents.
+2. You register on the network as an **expert peer**.
+3. When someone's question matches your manifest, the network routes it to you
+   over an encrypted, multi-hop path.
+4. Your node answers using your local knowledge together with a frontier model,
+   producing a domain-specific reply.
+5. The answer streams back to the asker over a return path keyed so only they
+   can read it.
+
+## Architecture
+
+tenet is built from a small set of constructs. Each is described in full under
+[`docs/`](docs/); this is the map.
+
+| Construct | Role |
+|-----------|------|
+| **Client** | Indexes local knowledge, asks questions, and receives streamed answers. The same program everyone runs. |
+| **Expert peer** | A node selected to answer because its manifest matches the question. Combines local knowledge with a frontier model at the edge. |
+| **Manifest** | A privacy-preserving summary of a peer's knowledge — statistical features and commitments, published to the directory so the network can match questions to expertise without seeing the underlying corpus. |
+| **Directory** | A signed, public snapshot of who is on the network and what they claim to know. Clients pull it to plan a route; it carries no secrets. |
+| **Reachability relay** | A publicly reachable node that lets peers behind home routers participate without an inbound port. It forwards sealed bytes to a registered peer's current address and never inspects them. |
+| **Encrypted path** | The multi-hop forward route a question travels. Layered so each relay peels exactly one layer — enough to learn the next hop, and nothing more. |
+| **Return circuit** | The symmetric path the answer takes back, keyed so intermediate nodes forward opaque bytes and only the asker can read the result. |
+
+**One program, two postures.** Everyone runs the same client. A participant with
+a public address can be *promoted* by config into a reachability relay (a
+"supernode") that helps others connect. There is no separate gateway build and
+no second node type — capability comes from configuration, not from a different
+binary.
+
+**Where the boundaries sit.** Routing and reachability operate *below* the layer
+that can read a question and *above* the raw transport. Relays move sealed
+bytes; only the selected expert peer ever sees prompt content. These boundaries
+are enforced in the runtime and covered by the test suite.
+
+Full technical detail — the layered packet format, the wire protocol, the
+reachability/forwarding model, and the relay threat model — lives in
+[`docs/`](docs/):
+
+- [`docs/por_layer7_architecture.md`](docs/por_layer7_architecture.md) — application-layer design
+- [`docs/por_wire_protocol.md`](docs/por_wire_protocol.md) — on-the-wire packet and control formats
+- [`docs/supernode_threat_model.md`](docs/supernode_threat_model.md) — reachability-relay threat model
+
+## Quick start
+
+> The CLI and package are currently named `por`; a rename to `tenet` is in
+> progress and gated on the last reachability / persistent-connection work.
 
 ```bash
 pip install -r requirements.txt
 
-# Run tests
-pytest tests/
+# Run the test suite
+pytest -q
 
-# Run Expert Mode demo (simulated, no network)
+# Expert-routing demo (simulated, no network)
 python3 scripts/demo.py
 
-# Run wire demo (real UDP sockets, separate relay processes)
+# Wire demo over real UDP sockets (separate node processes)
 python3 -m por.udp_demo demo
 
-# Unified binary shape
+# Unified client
 python3 -m por --help
-python3 -m por run --config por-config.json
+python3 -m por run --config client.json
 
-# Run with real LLM at the expert exit
+# Answer with a real model at the expert edge
 POR_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... python3 -m por.udp_demo demo
 ```
 
-Project structure
------------------
-
-```
-sphinxmix/           Packet crypto and in-process simulator
-por/                 Application layer (expert mode, envelopes, transport)
-por/daemon/          Production node entry points
-tests/               Test suite
-scripts/             Demos, sim proxies, CI scripts
-docs/                Specs and architecture notes
-```
-
-Home client shape
------------------
+### Home client
 
 The product path is `python3 -m por run --config client.json`. A home client
-does not need an inbound listener and should not paste an expert IP address into
-config. It loads a public directory snapshot, verifies the selected expert's
-signed `peer_address` record, and dials a trusted reachability relay.
+needs no inbound listener and never pastes an expert's address into config: it
+loads a signed directory snapshot, verifies the selected expert's reachability
+record, and dials a trusted reachability relay.
 
 ```json
 {
@@ -106,126 +134,56 @@ signed `peer_address` record, and dials a trusted reachability relay.
     "local_http": {
       "enabled": true,
       "bind": {"host": "127.0.0.1", "port": 8766},
-      "path": "/v1/expert",
-      "status_path": "/v1/status"
+      "path": "/v1/expert"
     }
   },
   "peer_address": {"enabled": true}
 }
 ```
 
-Current MVP note: `verify_key` verifies `PeerAddressRecord` signatures. In this
-Python harness the record signature is HMAC-based; the field is intentionally
-named as a verification key so the wire format can move to public-key
-signatures later without changing client config shape.
+A reachability relay is the same program promoted with `supernode` flags; see
+[`examples/`](examples/) for a paired client + relay config.
 
-Client logs use stable event names such as `peer_address_plan`, `dial_target`,
-and `peer_address_rejected`. These logs include peer IDs, relay IDs, hosts, and
-ports needed for operations; they must not include prompt text.
+## Project layout
 
-Supernode block
----------------
-
-A reachability relay is still the same `por` binary. In config it is a relay
-daemon promoted with `supernode` flags; the daemon key, `node_id`, and client
-trusted relay `relay_id` must match.
-
-```json
-{
-  "daemons": {
-    "client-home": {
-      "role": "client",
-      "client": {
-        "trusted_reachability_relays": [
-          {
-            "relay_id": "bootstrap-1",
-            "host": "203.0.113.10",
-            "port": 4433,
-            "verify_key": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
-          }
-        ]
-      },
-      "peer_address": {"enabled": true}
-    },
-    "bootstrap-1": {
-      "role": "relay",
-      "transport": {"kind": "udp", "host": "0.0.0.0", "port": 4433},
-      "supernode": {
-        "enabled": true,
-        "public_ip": "203.0.113.10",
-        "advertise_relay": true,
-        "register_directory": true,
-        "accept_inbound_mix": true
-      }
-    }
-  }
-}
+```
+por/                 Client, expert, and relay runtime (the product)
+por/daemon/          Node entry points
+tests/               Test suite (durable harness in tests/harness.py)
+scripts/             Demos and the release-binary builder
+docs/                Full technical detail
+examples/            Ready-to-run config pairs
 ```
 
-Run shape for the promoted relay/supernode and home client:
+## Building a release binary
+
+A node ships as a single self-contained executable — download one file and run
+it. Binaries are built per-platform with PyInstaller:
 
 ```bash
-python3 -m por run --config examples/home-client-supernode.config.json --node-id bootstrap-1
-python3 -m por run --config examples/home-client-supernode.config.json --node-id client-home
+python3 scripts/build_binary.py        # writes dist/por-<platform>-<arch>
+./dist/por-macos-arm64 --help
 ```
 
-Test groups
------------
+CI (`.github/workflows/build-binaries.yml`) builds binaries for Windows, macOS,
+and Linux x86-64; an experimental Android job tracks the mobile target.
 
-The test suite uses pytest markers so crypto regressions and product paths do
-not blur together:
+## Status
+
+tenet is pre-1.0. The expert-routing, directory, encrypted-path, and
+reachability-relay layers work and are tested. The remaining work before the
+`tenet` rename is automatic home-router traversal and persistent connections.
+
+## Testing
 
 ```bash
-# Product/runtime acceptance paths
-pytest -m product
-
-# Packet-crypto and simulator regressions
-pytest -m crypto
-
-# Multi-process or threaded runtime checks
-pytest -m integration
+pytest -m product       # end-to-end acceptance paths
+pytest -m integration   # threaded / multi-process runtime checks
+pytest -m crypto        # low-level packet-format regressions
+pytest --cov=por        # coverage (floor enforced in pytest.ini)
 ```
 
-Product tests cover the unified `por` binary, persistent client session, local
-HTTP/SSE chunk streaming, structured runtime logs, public directory snapshots,
-JSON health/status surfaces, and binary UDP wire integration. Crypto tests
-cover the underlying Outfox / Sphinx-style packet behavior and simulator
-invariants.
+## License
 
-Release binary
---------------
-
-Build one executable per platform with PyInstaller from that platform:
-
-```bash
-python3 scripts/build_binary.py
-```
-
-On Apple Silicon macOS this writes `dist/por-macos-arm64`. The executable
-contains the Python runtime and project dependencies, so the user-facing install
-shape is download one file, make it executable if needed, and run:
-
-```bash
-./por-macos-arm64 --help
-./por-macos-arm64 run --config client.json
-```
-
-Builds are platform-local: run the same script on Linux and Windows runners to
-produce `por-linux-*` and `por-windows-*` release artifacts. macOS release
-publishing still needs normal Developer ID signing and notarization outside this
-script.
-
-References
-----------
-
-- Danezis, Goldberg (2009) "Sphinx: A Compact and Provably Secure Mix Format"
-- Rial, Piotrowska, Halpin (2025) "Outfox: a Postquantum Packet Format for Layered Mixnets" (arXiv:2412.19937v2)
-- Scherer, Weis, Strufe (2023) "Provable Security for the Onion Routing and Mix Network Packet Format Sphinx" (arXiv:2312.08028v1)
-- Lazar, Zeldovich (2019) "Yodel: Strong Metadata Security for Voice Calls"
-- Diaz, Murdoch, Troncoso (2021) "Systematizing Decentralization and Privacy: Lessons from 15 Years of Research and Deployments" (Nym mixnet)
-- Buterin, Feist, Wahrstatter, et al. (2025) "Proof of Complete Knowledge" (arXiv)
-
-Licence
--------
-
-LGPL v3. Based on sphinxmix by Ian Goldberg and George Danezis (UCL).
+LGPL v3. Built on packet-format work by Ian Goldberg and George Danezis (UCL);
+see [`docs/`](docs/) for academic references.
