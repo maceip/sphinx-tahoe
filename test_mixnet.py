@@ -196,6 +196,126 @@ def test_circuit_table():
     print("[PASS] Circuit table: store, lookup, TTL expiry.")
 
 
+def test_exit_node_discovery():
+    """Clients find exit nodes by provider capability."""
+    providers = {
+        3: [{"name": "anthropic", "models": ["claude-sonnet-4-20250514", "claude-haiku-4-5-20251001"]}],
+        5: [{"name": "anthropic", "models": ["claude-sonnet-4-20250514"]},
+            {"name": "openai", "models": ["gpt-4o"]}],
+        7: [{"name": "openai", "models": ["gpt-4o", "gpt-4o-mini"]}],
+    }
+    sim = MixnetSim(num_nodes=8, node_providers=providers)
+    client = sim.create_client(b"alice")
+
+    # Find Anthropic exit nodes
+    anthropic_exits = sim.pki.find_exit_nodes(provider="anthropic")
+    assert len(anthropic_exits) == 2
+    assert sim.node_ids()[3] in anthropic_exits
+    assert sim.node_ids()[5] in anthropic_exits
+
+    # Find OpenAI exit nodes
+    openai_exits = sim.pki.find_exit_nodes(provider="openai")
+    assert len(openai_exits) == 2
+    assert sim.node_ids()[5] in openai_exits
+    assert sim.node_ids()[7] in openai_exits
+
+    # Find by specific model
+    haiku_exits = sim.pki.find_exit_nodes(provider="anthropic", model="claude-haiku-4-5-20251001")
+    assert len(haiku_exits) == 1
+    assert sim.node_ids()[3] in haiku_exits
+
+    # No exit for unknown provider
+    assert sim.pki.find_exit_nodes(provider="deepseek") == []
+
+    print("[PASS] Exit discovery: find nodes by provider and model.")
+
+
+def test_capability_based_routing():
+    """Client auto-selects path based on desired provider."""
+    providers = {
+        4: [{"name": "anthropic", "models": ["claude-sonnet-4-20250514"]}],
+        6: [{"name": "openai", "models": ["gpt-4o"]}],
+    }
+    sim = MixnetSim(num_nodes=8, node_providers=providers)
+    client = sim.create_client(b"alice")
+
+    # Select path for Anthropic — exit must be node 4
+    path = client.select_path(provider="anthropic", num_hops=3)
+    assert path[-1] == sim.node_ids()[4]
+    assert len(path) == 3
+
+    # Select path for OpenAI — exit must be node 6
+    path = client.select_path(provider="openai", num_hops=3)
+    assert path[-1] == sim.node_ids()[6]
+    assert len(path) == 3
+
+    # Route a message through the auto-selected path
+    path = client.select_path(provider="anthropic", num_hops=3)
+    header, payload = client.create_forward(path, b"test prompt")
+    result = sim.route_forward(path, header, payload)
+    assert result is not None
+    _, _, msg, _ = result
+    assert msg == b"test prompt"
+
+    # No provider available
+    try:
+        client.select_path(provider="nonexistent")
+        assert False
+    except ValueError:
+        pass
+
+    print("[PASS] Capability routing: auto-select exit by provider, route works.")
+
+
+def test_exit_with_api_call():
+    """Exit node selected by capability makes the actual LLM call."""
+    providers = {
+        2: [{"name": "anthropic", "models": ["claude-sonnet-4-20250514"],
+             "api_base": "http://127.0.0.1:8000"}],
+    }
+    sim = MixnetSim(num_nodes=6, payload_size=32768, node_providers=providers)
+    client = sim.create_client(b"alice")
+
+    import json
+    from urllib.request import Request, urlopen
+
+    path = client.select_path(provider="anthropic", num_hops=3)
+    request_body = json.dumps({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 16,
+        "messages": [{"role": "user", "content": "say ok"}],
+    }).encode()
+
+    fwd_path = path
+    rply_relays = [nid for nid in sim.node_ids() if nid not in path][:2]
+    header, payload = client.create_repliable(fwd_path, rply_relays, request_body)
+
+    result = sim.route_forward(fwd_path, header, payload)
+    assert result is not None
+    routing, flag, msg, surb_info = result
+    assert msg == request_body
+
+    exit_node = sim.nodes[path[-1]]
+    api_base = exit_node.providers[0]["api_base"]
+    req = Request(api_base + "/v1/messages", data=msg, method="POST", headers={
+        "Content-Type": "application/json",
+        "x-api-key": "none",
+        "anthropic-version": "2023-06-01",
+    })
+    resp = urlopen(req, timeout=30)
+    resp_body = resp.read()
+    assert resp.status == 200
+
+    surb_header, surb_key = surb_info
+    from sphinxmix.OutfoxClient import surb_use
+    reply_header, reply_payload = surb_use(sim.params, (surb_header, surb_key), resp_body)
+    reply_header, reply_payload = sim.route_reply(rply_relays, reply_header, reply_payload)
+    decrypted = client.receive_reply(reply_header, reply_payload)
+    assert decrypted == resp_body
+
+    print(f"[PASS] Exit with API: capability-selected exit called LLM, response verified.")
+
+
 def test_network_stats():
     """Node statistics are tracked correctly."""
     sim = MixnetSim(num_nodes=4)
@@ -226,6 +346,9 @@ if __name__ == "__main__":
     test_tampered_header_rejected()
     test_tagged_payload_rejected()
     test_circuit_table()
+    test_exit_node_discovery()
+    test_capability_based_routing()
+    test_exit_with_api_call()
     test_network_stats()
 
     print()

@@ -33,13 +33,22 @@ from .OutfoxNode import outfox_process, circuit_process, circuit_self_heal
 
 
 class PKI:
-    """In-memory node directory. Maps node_id -> (pk_kem, pk_sign)."""
+    """In-memory node directory with capability advertising.
+
+    Each node registers its KEM public key, optional signing key,
+    and its provider capabilities (which LLM providers/models it
+    can reach via its API token).
+    """
 
     def __init__(self):
         self.nodes = {}
 
-    def register(self, node_id, kem_pk, sign_pk=None):
-        self.nodes[node_id] = {"kem_pk": kem_pk, "sign_pk": sign_pk}
+    def register(self, node_id, kem_pk, sign_pk=None, providers=None):
+        self.nodes[node_id] = {
+            "kem_pk": kem_pk,
+            "sign_pk": sign_pk,
+            "providers": providers or [],
+        }
 
     def get_kem_pk(self, node_id):
         return self.nodes[node_id]["kem_pk"]
@@ -47,8 +56,33 @@ class PKI:
     def get_sign_pk(self, node_id):
         return self.nodes[node_id].get("sign_pk")
 
+    def get_providers(self, node_id):
+        return self.nodes[node_id].get("providers", [])
+
     def all_node_ids(self):
         return list(self.nodes.keys())
+
+    def find_exit_nodes(self, provider=None, model=None):
+        """Find nodes that can serve as exit for a given provider/model.
+
+        A node is a candidate exit if it advertises the requested provider.
+        If model is specified, the node must also list that model.
+        """
+        results = []
+        for node_id, info in self.nodes.items():
+            for p in info.get("providers", []):
+                if provider and p["name"] != provider:
+                    continue
+                if model and model not in p.get("models", []):
+                    continue
+                results.append(node_id)
+                break
+        return results
+
+    def find_relays(self, exclude=None):
+        """Find nodes suitable as guards/middles (any node not excluded)."""
+        exclude = set(exclude or [])
+        return [nid for nid in self.nodes if nid not in exclude]
 
 
 class CircuitTable:
@@ -100,13 +134,18 @@ class ReplayTable:
 
 
 class MixNode:
-    """A mix network node that processes forward and circuit packets."""
+    """A mix network node. Every node has full capability:
+    forward routing, circuit processing, and (if configured) exit to LLM providers.
 
-    def __init__(self, node_id, params, kem_sk, kem_pk):
+    A node becomes an exit node by registering providers with API tokens.
+    """
+
+    def __init__(self, node_id, params, kem_sk, kem_pk, providers=None):
         self.node_id = node_id
         self.params = params
         self.kem_sk = kem_sk
         self.kem_pk = kem_pk
+        self.providers = providers or []
         self.circuits = CircuitTable()
         self.replay = ReplayTable()
         self.stats = {"forward": 0, "circuit": 0, "dummy_dropped": 0, "expired": 0}
@@ -150,6 +189,21 @@ class Client:
 
         pki.register(client_id, self.kem_pk, self.sign_pk)
 
+    def select_path(self, provider=None, model=None, num_hops=3):
+        """Select a forward path: random relays + a capable exit node."""
+        exits = self.pki.find_exit_nodes(provider=provider, model=model)
+        if not exits:
+            raise ValueError(f"No exit node found for provider={provider} model={model}")
+        exit_node = exits[urandom(1)[0] % len(exits)]
+        relays = self.pki.find_relays(exclude={exit_node, self.client_id})
+        guards = []
+        for _ in range(min(num_hops - 1, len(relays))):
+            pick = relays[urandom(1)[0] % len(relays)]
+            while pick in guards:
+                pick = relays[urandom(1)[0] % len(relays)]
+            guards.append(pick)
+        return guards + [exit_node]
+
     def create_forward(self, path, message):
         """Create a non-repliable forward packet."""
         route = [nid for nid in path]
@@ -159,7 +213,7 @@ class Client:
     def create_repliable(self, fwd_path, rply_path, message):
         """Create a repliable forward packet with embedded SURB.
 
-        rply_path must include self.client_id as the last entry.
+        rply_path should be relay nodes only; self.client_id is appended automatically.
         """
         fwd_route = list(fwd_path)
         fwd_keys = [self.pki.get_kem_pk(nid) for nid in fwd_path]
@@ -197,19 +251,30 @@ class Client:
 
 
 class MixnetSim:
-    """Local multi-node simulator. No network — direct function calls."""
+    """Local multi-node simulator. No network — direct function calls.
 
-    def __init__(self, num_nodes=8, payload_size=1024):
+    Nodes are created with optional provider capabilities. A node that
+    advertises providers can serve as an exit node for those providers.
+    """
+
+    def __init__(self, num_nodes=8, payload_size=1024, node_providers=None):
+        """
+        node_providers: optional dict mapping node index to list of provider dicts.
+          e.g. {2: [{"name": "anthropic", "models": ["claude-sonnet-4-20250514"], "api_base": "http://..."}]}
+          Nodes not in this dict are pure relays.
+        """
         self.params = OutfoxParams(payload_size=payload_size)
         self.pki = PKI()
         self.nodes = {}
+        node_providers = node_providers or {}
 
         for i in range(num_nodes):
             nid = struct.pack(">H", i)
             pk, sk = self.params.kem.keygen()
-            node = MixNode(nid, self.params, sk, pk)
+            providers = node_providers.get(i, [])
+            node = MixNode(nid, self.params, sk, pk, providers=providers)
             self.nodes[nid] = node
-            self.pki.register(nid, pk)
+            self.pki.register(nid, pk, providers=providers)
 
     def node_ids(self):
         return list(self.nodes.keys())
