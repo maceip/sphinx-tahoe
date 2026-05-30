@@ -3,7 +3,7 @@
 Status: coordination note for current Python work. This is not a privacy claim
 or release checklist.
 
-**Last updated:** 2026-05-30 (client daemon/send path smoke green)
+**Last updated:** 2026-05-30 (monitoring check-in; 105 pytest green)
 
 ## Live snapshot
 
@@ -21,7 +21,7 @@ or release checklist.
 | Canonical `0x00`/`0x01` on process wire | Not started (JSON/base64 still) | Wire lead (A2) |
 | Only `prepared.envelope` on wire | Partial (`client` uses orchestrator) | Wire lead (A3) |
 
-**Latest local verification:** `python3 -m pytest -q` — 102 passed;
+**Latest local verification:** `python3 -m pytest -q` — 105 passed;
 `python3 scripts/check_ta_claims.py` — TA-3 OK.
 
 ## Conflict zones (coordinate before editing)
