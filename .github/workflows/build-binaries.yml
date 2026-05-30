@@ -60,10 +60,17 @@ jobs:
           if-no-files-found: error
 
   android:
-    # aarch64-Linux build: runs on Android under Termux (Linux userspace).
-    # A native APK additionally needs Android-targeted wheels for the native
-    # crypto dependencies (pynacl, aioquic, pqcrypto), which are not yet
-    # available — tracked separately. This job is intentionally non-blocking.
+    # Android target = full, functional client on the device today, as an
+    # aarch64-Linux binary that runs under Termux (Android's Linux userspace).
+    #
+    # A packaged .apk is the eventual goal and would be built with the NDK via
+    # python-for-android (buildozer) — the NDK is not the blocker. The blocker
+    # is p4a recipes: pynacl/libsodium, cryptography, and msgpack have recipes,
+    # but aioquic and pqcrypto do not, and cryptography also needs the
+    # Rust-for-Android targets. Until those recipes exist + are validated on a
+    # real Android build, an .apk would ship a crippled client (no QUIC
+    # transport, no post-quantum signatures), so we ship the complete aarch64
+    # binary instead. APK milestone tracked separately. Non-blocking.
     name: android-aarch64 (termux)
     needs: test
     runs-on: ubuntu-24.04-arm
