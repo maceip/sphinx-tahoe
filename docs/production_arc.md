@@ -62,6 +62,49 @@ Track in coordination log when items flip to done.
 Runtime **may** prep in parallel: ``por.config.v1`` schema (kem keys), structured
 logging helpers, replay policy **doc only** — no recv/send path changes.
 
+**Exception (parked prep, does not block wire):** continue or finish the
+**Freehold NAT synthesis** in ``docs/por_transport_backlog.md``. That is
+research/design only until wire merges; do not implement dial integration yet.
+
+---
+
+## Parked — Freehold NAT synthesis (do not drop)
+
+**Priority:** after binary wire (A2) + process-wire A5; **before** client dial
+integration. Not current sprint, but **must stay assigned**.
+
+**Source repo:** [maceip/freehold](https://github.com/maceip/freehold) (reviewed
+2026-05-30; see commit list in backlog doc).
+
+**Canonical doc:** [`docs/por_transport_backlog.md`](por_transport_backlog.md)
+
+**Core takeaway (already synthesized):** Freehold’s **reliable path is inline
+relay forwarding**. Direct UDP / hole punch is an **optimization** when NAT
+allows it — not the correctness path. P-OR should be **relay-first** with
+optional direct hints, heartbeats as NAT keepalives, observed-address learning
+from reverse path.
+
+**Code skeleton (landed):** `por/peer_address.py` — register/challenge/confirm,
+`PeerAddressRecord`, `build_dial_plan()`, privacy gates. **Not wired** to client.
+
+**Remaining synthesis / implementation checklist** (assign to transport agent):
+
+| Step | Status | Notes |
+|------|--------|-------|
+| Freehold commit/architecture review | **Done** | Snapshot in `por_transport_backlog.md` |
+| P-OR adaptation spec (`PeerAddressRecord`, contact flow) | **Done** | Same doc |
+| Compare Freehold SNAT/DNAT/XDP vs P-OR user-space constraint | **Open** | Explicit “what we skip” section exists; deepen with 1-page decision |
+| DemuxSocket / shared UDP port pattern for `por` | **Open** | Deferred item #5 in backlog |
+| Local UDP registration heartbeat demo (2 processes) | **Open** | Backlog item #2 |
+| Wire `build_dial_plan()` into `por/client.py` | **Blocked** | After A2 wire |
+| Supernode + `peer_address` in one config | **Blocked** | After dial plan |
+
+**Owner:** unassigned transport/NAT agent (whoever ran Freehold review should
+append findings to backlog doc + coordination log).
+
+**Rule:** NAT/peer-address work stays **below discovery, above Outfox bytes** —
+never parse prompts, expertise, provider metadata, or circuit packets.
+
 ---
 
 ## Terminology (read before assigning work)
@@ -163,6 +206,7 @@ team must wire `por/wire_frame.py` into runtime + client and land tests.
 | `_find_exit_entry` + CI gate | Commit `40be4cf` on branch | Wire lead (E) |
 | Canonical `0x00`/`0x01` on process wire | **Prep only** — `por/wire_frame.py` + tests; runtime/client still JSON | Wire lead (A2) |
 | Unified **`por`** binary CLI | **Done** — `send\|relay\|expert\|directory\|run` | A1 |
+| Freehold NAT synthesis | **Parked** — review landed in `por_transport_backlog.md`; code skeleton in `peer_address.py` | Transport (after A2) |
 | Only `prepared.envelope` on wire | Partial (`client` uses orchestrator) | Wire lead (A3) |
 
 **Latest local verification:** `python3 -m pytest -q` — 124 passed;
@@ -212,7 +256,8 @@ Composer is **not** taking wire-lead items below.
 | **B: TA-2 pacing from envelope** | Wire `PacedCircuitStream` at expert when descriptor requests pacing |
 | **C: HTTP/SSE on same client binary** | Optional local listener; pattern from `sim_mixnet_anthropic_proxy.py` |
 | **Supernode promotion** | Public IP + config → relay (and later expert) duties in same binary |
-| **D: `peer_address` wired** | `por/peer_address.py` → client dial plan |
+| **D: `peer_address` wired** | `por/peer_address.py` → client dial plan; **see Freehold parked track** |
+| **D: Freehold NAT synthesis (finish)** | Deepen `por_transport_backlog.md`; DemuxSocket note; registration demo |
 | **E: Structured logging rollout** | `por/log_events.py` → apply across daemons |
 | **E: Relay restart/replay policy** | Optional `CircuitTable` persistence design |
 
@@ -313,3 +358,12 @@ here before starting work.
 - **Added:** `tests/test_wire_frame.py` (framing prep only).
 - **Runtime gate:** HTTP/SSE + NAT blocked until binary wire merges (see above).
 - **Wire agent next:** integrate `wire_frame` into runtime + client + `test_a5_process_wire`.
+
+### 2026-05-30 — Freehold NAT track parked (owner)
+
+- Agent review of **maceip/freehold** synthesized into `docs/por_transport_backlog.md`
+  (relay-first, inline fallback, heartbeats, observed NAT port, no XDP requirement).
+- **`por/peer_address.py`** skeleton matches that spec; **not** on client dial path.
+- **Not dropped:** pinned under “Parked — Freehold NAT synthesis” in
+  `production_arc.md`. Blocked for **implementation** until binary wire merges;
+  **research/doc** may continue (DemuxSocket comparison, registration demo design).

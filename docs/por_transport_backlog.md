@@ -189,6 +189,11 @@ DATAGRAM fragmentation.
 
 ## Deferred Work Items
 
+**Sequencing:** items 1–5 below are **Milestone D (transport/NAT)**. Blocked on
+binary wire (A2) for anything that touches client dial or daemon UDP loop.
+Research/docs (Freehold synthesis) may continue in parallel — see
+`docs/production_arc.md` → “Parked — Freehold NAT synthesis”.
+
 1. Promote `por.quic_demo` into a long-running daemon with persistent peer
    connections instead of one connection per forwarded frame.
 2. Add a local UDP registration/heartbeat demo between peer processes.
