@@ -52,6 +52,28 @@ registration_ttl     270 seconds
 dns_ttl              810 seconds
 ```
 
+## NAT Traversal Strategy (decided)
+
+Follow libtorrent/qBittorrent. Same sequence, same logic, no novel research:
+
+1. **UPnP/NAT-PMP** — try to get a port mapping from the router (~2 seconds)
+2. If that works, advertise the public endpoint in `PeerAddressRecord`
+3. If not, register with a supernode relay (inline opaque forward)
+4. If relay is unavailable, fail closed (no spray-and-pray, no hole punch as correctness path)
+
+UPnP lease renewal aligns with the heartbeat interval (90s). If renewal
+fails (router rebooted, network changed), the peer address record drops
+the direct endpoint and falls back to relay-only. Clients seamlessly
+switch via `build_dial_plan()` fallbacks.
+
+This is not novel. libtorrent has 15 years of battle-tested NAT traversal
+doing exactly this. Every fancy scheme (ICE, STUN/TURN, WebRTC) converges
+to the same pattern — try the obvious thing, fall back to relay.
+
+Hole punching (BEP 55 equivalent) is explicitly deferred. Most residential
+users are behind symmetric NAT or CGNAT where hole punching is impossible.
+The relay is not a fallback — it is the product.
+
 ## What Not To Borrow As A Requirement
 
 Do not make these P-OR requirements:
@@ -157,6 +179,12 @@ set.
 - `PeerAddressRecord` for short-lived relay/direct peer address metadata.
 - `build_dial_plan()` for relay-first dialing with optional direct hints.
 - Privacy policy gates so direct UDP endpoints are not exposed by default.
+- `por.config` supports `client.trusted_reachability_relays`.
+- `por.directory` can serve signed `peer_address` records beside existing expert
+  manifests and `supernodes[]`.
+- `por.client` verifies peer-address record signatures and rejects untrusted
+  relay IDs before any peer-address route can influence a send. This does not
+  change packet bytes or transport IO.
 
 `por.quic_transport` now implements the first local QUIC/H3 transport slice:
 
@@ -189,10 +217,9 @@ DATAGRAM fragmentation.
 
 ## Deferred Work Items
 
-**Sequencing:** items 1–5 below are **Milestone D (transport/NAT)**. Blocked on
-binary wire (A2) for anything that touches client dial or daemon UDP loop.
-Research/docs (Freehold synthesis) may continue in parallel — see
-`docs/production_arc.md` → “Parked — Freehold NAT synthesis”.
+**Sequencing:** items 1–5 below are **Milestone D (transport/NAT)**. Relay-path
+planning is wired; direct dialing and daemon UDP-loop changes remain deferred
+until a transport owner takes them.
 
 1. Promote `por.quic_demo` into a long-running daemon with persistent peer
    connections instead of one connection per forwarded frame.
