@@ -1,12 +1,8 @@
 """Wire node runtime for P-OR daemons.
 
-**Current wire (Milestone A harness):** JSON/base64 UDP frames
-(``{"kind":"forward",...}``). Used by ``por relay`` / ``por expert`` today.
-
-**Target wire (A2 — wire lead):** canonical binary datagrams via
+**Current wire:** canonical binary datagrams via
 ``por.wire_frame`` (``0x00`` forward, ``0x01`` circuit, ``0x02`` shutdown).
-Integration into ``serve_forever()`` is not landed yet; do not claim binary
-until client + runtime both use ``encode_*`` / ``decode_datagram``.
+JSON/base64 support remains as a compatibility harness path only.
 """
 
 from __future__ import annotations
@@ -26,8 +22,9 @@ from sphinxmix.OutfoxNode import (
 )
 from sphinxmix.OutfoxParams import OutfoxParams, derive_circuit_key
 
-from .config import ClusterConfig
+from .config import ClusterConfig, LoggingConfig
 from .envelope import PromptRequestEnvelope
+from .log_events import PorLogEvent, emit_log_event
 from .provider import ProviderError, expert_reply_chunks
 from .wire_frame import decode_datagram, encode_forward, encode_circuit, encode_shutdown
 
@@ -47,6 +44,7 @@ class WireNodeRuntime:
         node_id: str,
         *,
         role: NodeRole | None = None,
+        logging: LoggingConfig | None = None,
     ):
         self.cluster = cluster
         self.node_id = node_id
@@ -65,6 +63,9 @@ class WireNodeRuntime:
         self.circuits: dict[str, dict[str, object]] = {}
         self._harness = cluster.to_harness_dict()
         self._shutdown = False
+        self.logging = logging or LoggingConfig()
+        self.on_reach_control = None
+        self.on_opaque_forward = None
 
     def install_signal_handlers(self) -> None:
         def _handle(_signum, _frame):
@@ -79,10 +80,12 @@ class WireNodeRuntime:
         sock.bind((self.identity.host, self.identity.port))
         sock.settimeout(0.5)
         wire_mode = "binary" if binary_wire else "json"
-        print(
-            f"node={self.node_id} event=started role={self.role} wire={wire_mode} "
-            f"addr={self.identity.host}:{self.identity.port}",
-            flush=True,
+        self._log(
+            "started",
+            fields={
+                "wire": wire_mode,
+                "addr": f"{self.identity.host}:{self.identity.port}",
+            },
         )
         while not self._shutdown:
             try:
@@ -93,29 +96,78 @@ class WireNodeRuntime:
                 self._dispatch_binary(sock, data, addr)
             else:
                 self._dispatch_json(sock, data)
-        print(f"node={self.node_id} event=stopped signal=yes", flush=True)
+        self._log("stopped", fields={"signal": True})
         return 0
 
+    def _log(
+        self,
+        event: str,
+        *,
+        level: str = "info",
+        link_cid: str | None = None,
+        fields: dict[str, object] | None = None,
+    ) -> None:
+        component = f"por-{self.role}" if self.role in {"relay", "expert"} else "por-node"
+        emit_log_event(
+            PorLogEvent(
+                event=event,
+                component=component,
+                node_id=self.node_id,
+                role=self.role,
+                level=level,
+                link_cid=link_cid,
+                fields=fields or {},
+            ),
+            fmt=self.logging.fmt,
+            redact_fields=frozenset(self.logging.redact_fields),
+        )
+
     def _dispatch_binary(self, sock: socket.socket, data: bytes, addr) -> None:
+        from .reach_wire import is_reach_datagram
+
+        # Demux order (fixed — I2P SSU2 style):
+        # 1. REACH_* control → reachability signaling
+        # 2. Outfox 0x00/0x01/0x02 → mix processing
+        # 3. Opaque forward → registered peer NAT relay
+        # 4. Unknown → drop + log
+
+        if is_reach_datagram(data):
+            if self.on_reach_control is not None:
+                self.on_reach_control(data, addr)
+            else:
+                self._log("reach_no_handler", level="warning",
+                          fields={"bytes": len(data)})
+            return
+
         kind, a, b = decode_datagram(data, self.params.payload_size)
         if kind == "shutdown":
-            print(f"node={self.node_id} event=shutdown wire=binary", flush=True)
+            self._log("shutdown", fields={"wire": "binary"})
             self._shutdown = True
         elif kind == "forward":
             self._handle_forward_binary(sock, a, b)
         elif kind == "circuit":
             self._handle_circuit_binary(sock, a)
+        elif self.on_opaque_forward is not None:
+            self.on_opaque_forward(data, addr)
+        else:
+            self._log(
+                "wire_unknown",
+                level="warning",
+                fields={"wire": "binary", "bytes": len(data)},
+            )
 
     def _dispatch_json(self, sock: socket.socket, data: bytes) -> None:
         frame = json.loads(data.decode("utf-8"))
         kind = frame.get("kind")
         if kind == "shutdown":
-            print(f"node={self.node_id} event=shutdown wire=json", flush=True)
+            self._log("shutdown", fields={"wire": "json"})
             self._shutdown = True
         elif kind == "forward":
             self._handle_forward(sock, frame)
         elif kind == "circuit":
             self._handle_circuit(sock, frame)
+        else:
+            self._log("wire_unknown", level="warning", fields={"wire": "json", "kind": kind})
 
     def _handle_forward_binary(self, sock: socket.socket, header: bytes, payload: bytes) -> None:
         circuit_installed = {}
@@ -138,10 +190,10 @@ class WireNodeRuntime:
                 self.params, self.sk, self.pk, (header, payload),
                 is_last=False, on_circuit=_on_circuit)
         except ValueError as exc:
-            print(f"node={self.node_id} event=forward_rejected reason={exc}", flush=True)
+            self._log("forward_rejected", level="warning", fields={"reason": str(exc)})
             return
         if hop_result is None:
-            print(f"node={self.node_id} event=forward_expired_or_invalid", flush=True)
+            self._log("forward_expired_or_invalid", level="warning")
             return
 
         routing_info, _flag, next_packet = hop_result
@@ -151,23 +203,27 @@ class WireNodeRuntime:
         return_next = circuit_installed.get("return_next", "")
 
         if next_id and next_header:
-            print(
-                f"node={self.node_id} event=forward_hop next={next_id} "
-                f"link_cid={cid_log} return_next={return_next} prompt_visible=no",
-                flush=True,
+            self._log(
+                "forward_hop",
+                link_cid=cid_log,
+                fields={
+                    "next": next_id,
+                    "return_next": return_next,
+                    "prompt_visible": False,
+                },
             )
             self._send_binary(sock, next_id, encode_forward(next_header, next_payload))
             return
 
         if self.role == "relay":
-            print(f"node={self.node_id} event=forward_exit_disallowed role=relay", flush=True)
+            self._log("forward_exit_disallowed", level="warning")
             return
 
         final_result = outfox_process(
             self.params, self.sk, self.pk, (header, payload),
             is_last=True, on_circuit=_on_circuit)
         if final_result is None:
-            print(f"node={self.node_id} event=exit_rejected", flush=True)
+            self._log("exit_rejected", level="warning")
             return
 
         _routing, _flag, msg, _surb_info = final_result
@@ -178,22 +234,31 @@ class WireNodeRuntime:
         exit_cid = circuit_installed.get("inbound_cid", "")
         exit_entry = self.circuits.get(exit_cid)
         if exit_entry is None:
-            print(f"node={self.node_id} event=exit_missing_circuit link_cid={exit_cid[:8]}", flush=True)
+            self._log("exit_missing_circuit", level="warning", link_cid=exit_cid[:8])
             return
         exit_key = bytes.fromhex(exit_entry["key"])
         exit_outbound = bytes.fromhex(exit_entry["outbound_cid"])
         return_next = exit_entry["next_id"]
 
-        print(
-            f"node={self.node_id} event=expert_exit selected=yes prompt_visible=yes "
-            f"expertise={expertise!r} return_next={return_next} link_cid={exit_cid[:8]} "
-            f"degraded={str(degraded).lower()}",
-            flush=True,
+        self._log(
+            "expert_exit",
+            link_cid=exit_cid[:8],
+            fields={
+                "selected": True,
+                "prompt_visible": True,
+                "expertise": expertise,
+                "return_next": return_next,
+                "degraded": degraded,
+            },
         )
         try:
             chunks = expert_reply_chunks(envelope, self.node_id)
         except ProviderError as exc:
-            print(f"node={self.node_id} event=provider_error reason={exc!s}", flush=True)
+            self._log(
+                "provider_error",
+                level="error",
+                fields={"reason": str(exc), "retryable": exc.retryable, "status": exc.status},
+            )
             chunks = [f"[provider_error] peer={self.node_id} message={exc}"]
 
         for seq, chunk in enumerate(chunks):
@@ -211,10 +276,10 @@ class WireNodeRuntime:
         nonce = int.from_bytes(packet[17:25], "big")
         entry = self.circuits.get(inbound_cid)
         if entry is None:
-            print(f"node={self.node_id} event=circuit_missing link_cid={inbound_cid[:8]}", flush=True)
+            self._log("circuit_missing", level="warning", link_cid=inbound_cid[:8])
             return
         if nonce <= int(entry.get("high_watermark", -1)):
-            print(f"node={self.node_id} event=circuit_replay link_cid={inbound_cid[:8]}", flush=True)
+            self._log("circuit_replay", level="warning", link_cid=inbound_cid[:8])
             return
         entry["high_watermark"] = nonce
 
@@ -223,10 +288,14 @@ class WireNodeRuntime:
         next_id = entry["next_id"]
         processed = circuit_packet_process(self.params, key, packet, outbound_link_cid=outbound_cid)
         if processed is None:
-            print(f"node={self.node_id} event=circuit_malformed link_cid={inbound_cid[:8]}", flush=True)
+            self._log("circuit_malformed", level="warning", link_cid=inbound_cid[:8])
             return
         _, _, forwarded = processed
-        print(f"node={self.node_id} event=circuit_hop link_cid={inbound_cid[:8]} next={next_id} payload_visible=no", flush=True)
+        self._log(
+            "circuit_hop",
+            link_cid=inbound_cid[:8],
+            fields={"next": next_id, "payload_visible": False},
+        )
         self._send_binary(sock, next_id, forwarded)
 
     def _send_binary(self, sock: socket.socket, target_id: str, data: bytes) -> None:
@@ -260,11 +329,11 @@ class WireNodeRuntime:
                 self.params, self.sk, self.pk, (header, payload),
                 is_last=False, on_circuit=_on_circuit)
         except ValueError as exc:
-            print(f"node={self.node_id} event=forward_rejected reason={exc}", flush=True)
+            self._log("forward_rejected", level="warning", fields={"reason": str(exc)})
             return
 
         if hop_result is None:
-            print(f"node={self.node_id} event=forward_expired_or_invalid", flush=True)
+            self._log("forward_expired_or_invalid", level="warning")
             return
 
         routing_info, _flag, next_packet = hop_result
@@ -285,10 +354,14 @@ class WireNodeRuntime:
         next_header, next_payload = next_packet
 
         if next_id and next_header:
-            print(
-                f"node={self.node_id} event=forward_hop next={next_id} "
-                f"link_cid={cid_log} return_next={return_next} prompt_visible=no",
-                flush=True,
+            self._log(
+                "forward_hop",
+                link_cid=cid_log,
+                fields={
+                    "next": next_id,
+                    "return_next": return_next,
+                    "prompt_visible": False,
+                },
             )
             _send_frame(sock, self._harness, next_id, {
                 "kind": "forward",
@@ -298,14 +371,14 @@ class WireNodeRuntime:
             return
 
         if self.role == "relay":
-            print(f"node={self.node_id} event=forward_exit_disallowed role=relay", flush=True)
+            self._log("forward_exit_disallowed", level="warning")
             return
 
         final_result = outfox_process(
             self.params, self.sk, self.pk, (header, payload),
             is_last=True, on_circuit=_on_circuit)
         if final_result is None:
-            print(f"node={self.node_id} event=exit_rejected", flush=True)
+            self._log("exit_rejected", level="warning")
             return
 
         _routing, _flag, msg, _surb_info = final_result
@@ -321,34 +394,29 @@ class WireNodeRuntime:
             return_next = circuit_installed.get("return_next", "")
         exit_entry = self.circuits.get(exit_cid)
         if exit_entry is None:
-            print(
-                f"node={self.node_id} event=exit_missing_circuit "
-                f"link_cid={exit_cid[:8]}",
-                flush=True,
-            )
+            self._log("exit_missing_circuit", level="warning", link_cid=exit_cid[:8])
             return
         exit_key = bytes.fromhex(exit_entry["key"])
         exit_outbound = bytes.fromhex(exit_entry["outbound_cid"])
 
-        print(
-            "node={node} event=expert_exit selected=yes prompt_visible=yes "
-            "expertise={expertise!r} return_next={return_next} link_cid={cid} "
-            "degraded={degraded}".format(
-                node=self.node_id,
-                expertise=expertise,
-                return_next=return_next or exit_entry["next_id"],
-                cid=exit_cid[:8],
-                degraded=str(degraded).lower(),
-            ),
-            flush=True,
+        self._log(
+            "expert_exit",
+            link_cid=exit_cid[:8],
+            fields={
+                "selected": True,
+                "prompt_visible": True,
+                "expertise": expertise,
+                "return_next": return_next or exit_entry["next_id"],
+                "degraded": degraded,
+            },
         )
         try:
             chunks = expert_reply_chunks(envelope, self.node_id)
         except ProviderError as exc:
-            print(
-                f"node={self.node_id} event=provider_error retryable={str(exc.retryable).lower()} "
-                f"reason={exc!s}",
-                flush=True,
+            self._log(
+                "provider_error",
+                level="error",
+                fields={"reason": str(exc), "retryable": exc.retryable, "status": exc.status},
             )
             chunks = [
                 f"[provider_error] peer={self.node_id} status={exc.status} message={exc}"
@@ -389,15 +457,19 @@ class WireNodeRuntime:
         seq = frame.get("seq", -1)
 
         if entry is None:
-            print(
-                f"node={self.node_id} event=circuit_missing link_cid={inbound_cid[:8]} seq={seq}",
-                flush=True,
+            self._log(
+                "circuit_missing",
+                level="warning",
+                link_cid=inbound_cid[:8],
+                fields={"seq": seq},
             )
             return
         if nonce <= int(entry.get("high_watermark", -1)):
-            print(
-                f"node={self.node_id} event=circuit_replay link_cid={inbound_cid[:8]} seq={seq}",
-                flush=True,
+            self._log(
+                "circuit_replay",
+                level="warning",
+                link_cid=inbound_cid[:8],
+                fields={"seq": seq},
             )
             return
         entry["high_watermark"] = nonce
@@ -409,16 +481,18 @@ class WireNodeRuntime:
             self.params, key, packet, outbound_link_cid=outbound_cid
         )
         if processed is None:
-            print(
-                f"node={self.node_id} event=circuit_malformed link_cid={inbound_cid[:8]} seq={seq}",
-                flush=True,
+            self._log(
+                "circuit_malformed",
+                level="warning",
+                link_cid=inbound_cid[:8],
+                fields={"seq": seq},
             )
             return
         _inbound, _nonce, forwarded = processed
-        print(
-            f"node={self.node_id} event=circuit_hop link_cid={inbound_cid[:8]} seq={seq} "
-            f"next={next_id} payload_visible=no",
-            flush=True,
+        self._log(
+            "circuit_hop",
+            link_cid=inbound_cid[:8],
+            fields={"seq": seq, "next": next_id, "payload_visible": False},
         )
         _send_frame(sock, self._harness, next_id, {
             "kind": "circuit",
