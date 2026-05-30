@@ -195,11 +195,23 @@ class _DatagramProtocol(QuicConnectionProtocol):
         *args,
         receive_queue: asyncio.Queue[bytes] | None = None,
         datagram_handler: DatagramHandler | None = None,
+        connection_tracker: "ConnectionTracker | None" = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         self.receive_queue = receive_queue
         self.datagram_handler = datagram_handler
+        self._connection_tracker = connection_tracker
+
+    def connection_made(self, transport) -> None:
+        super().connection_made(transport)
+        if self._connection_tracker is not None:
+            self._connection_tracker.add(self)
+
+    def connection_lost(self, exc) -> None:
+        if self._connection_tracker is not None:
+            self._connection_tracker.remove(self)
+        super().connection_lost(exc)
 
     def quic_event_received(self, event: "QuicEvent") -> None:
         super().quic_event_received(event)
@@ -221,6 +233,49 @@ class _DatagramProtocol(QuicConnectionProtocol):
     def send_datagram(self, data: bytes) -> None:
         self._quic.send_datagram_frame(data)
         self.transmit()
+
+
+class ConnectionTracker:
+    """Track connected QUIC clients for server-push (bidirectional datagrams).
+
+    The server can push datagrams to any connected client — not just respond
+    to incoming datagrams. This enables circuit streaming where the exit
+    pushes tokens back through the QUIC connection.
+    """
+
+    def __init__(self) -> None:
+        self._protocols: set[_DatagramProtocol] = set()
+
+    def add(self, protocol: _DatagramProtocol) -> None:
+        self._protocols.add(protocol)
+
+    def remove(self, protocol: _DatagramProtocol) -> None:
+        self._protocols.discard(protocol)
+
+    def broadcast(self, data: bytes) -> int:
+        """Send a datagram to all connected clients. Returns count sent."""
+        sent = 0
+        for proto in list(self._protocols):
+            try:
+                proto.send_datagram(data)
+                sent += 1
+            except Exception:
+                self._protocols.discard(proto)
+        return sent
+
+    def send_to_any(self, data: bytes) -> bool:
+        """Send to one connected client (first available)."""
+        for proto in list(self._protocols):
+            try:
+                proto.send_datagram(data)
+                return True
+            except Exception:
+                self._protocols.discard(proto)
+        return False
+
+    @property
+    def count(self) -> int:
+        return len(self._protocols)
 
 
 class QuicDatagramServer:
@@ -250,6 +305,7 @@ class QuicDatagramServer:
         self.endpoint = endpoint
         self.configuration = configuration
         self.session_ticket_store = session_ticket_store
+        self.connections = ConnectionTracker()
         self._server: QuicServer | None = None
 
         if on_reach_datagram or on_mix_datagram or on_opaque_datagram:
@@ -289,6 +345,7 @@ class QuicDatagramServer:
         return _DatagramProtocol(
             *args,
             datagram_handler=self.datagram_handler,
+            connection_tracker=self.connections,
             **kwargs,
         )
 

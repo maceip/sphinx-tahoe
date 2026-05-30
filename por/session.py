@@ -5,12 +5,18 @@ established circuit for follow-up messages. The first prompt does the
 full KEM + AEAD + circuit setup. Subsequent prompts on the same session
 send through the existing circuit — one AES-CTR op per hop, no KEM.
 
+The QUIC session ticket store persists across close/reopen so that
+reconnection uses 0-RTT resumption when the server supports it.
+
 Usage:
     session = ClientSession(cluster, forward_path, discovery_provider)
-    session.connect(first_envelope)  # full Outfox forward, installs circuits
+    session.connect()
     response1 = session.send(first_envelope)
     response2 = session.send(second_envelope)  # reuses circuit
     session.close()
+    # Reconnect later — 0-RTT if server supports session tickets
+    session.connect()
+    response3 = session.send(third_envelope)  # new circuit, but TLS is 0-RTT
 """
 
 from __future__ import annotations
