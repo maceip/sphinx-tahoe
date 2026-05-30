@@ -7,6 +7,7 @@ Extended with P-OR additions: per-layer timestamps, dummy flag,
 ML-DSA-65 signatures, and return-path circuit setup material.
 """
 
+import hmac as _hmac
 import struct
 from os import urandom
 from collections import namedtuple
@@ -24,9 +25,9 @@ pki_entry = namedtuple("pki_entry", ["id", "x", "y"])
 
 def pad_body(total_size, body):
     body = body + b"\x7f"
-    body = body + (b"\xff" * (total_size - len(body)))
-    if total_size - len(body) < 0:
+    if len(body) > total_size:
         raise ValueError("Insufficient space for body")
+    body = body + (b"\xff" * (total_size - len(body)))
     return body
 
 
@@ -159,7 +160,7 @@ def surb_recover(params, packet_payload, sksurb):
         payload = params.se_enc(sksurb[i], payload)
     payload = params.se_dec(sksurb[-1], payload)
 
-    if payload[:params.k] != b'\x00' * params.k:
+    if not _hmac.compare_digest(payload[:params.k], b'\x00' * params.k):
         raise ValueError("Modified reply payload")
 
     msg_start = params.k + 2 + params.surb_size

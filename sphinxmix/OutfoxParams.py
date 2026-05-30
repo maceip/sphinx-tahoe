@@ -198,7 +198,7 @@ class OutfoxParams:
         """Compute header byte size at each layer.
 
         Each layer's AEAD plaintext: routing + timestamp + flag [+ circuit_fields] + inner_header.
-        Circuit fields add 16 (cid) + 16 (seed) + routing_size (next_hop) + 2 (ttl) per hop.
+        Circuit fields: 16 (inbound_cid) + 16 (seed) + routing_size (next_hop) + 16 (outbound_cid) + 2 (ttl).
         """
         ct = self.kem.CIPHERTEXT_SIZE
         r = self.routing_size
