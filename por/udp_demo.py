@@ -45,7 +45,7 @@ class DemoResult:
     client_logs: str
 
 
-def run_demo(node_count: int = 4, timeout: float = 8.0, *, circuit_wire: str = "native") -> DemoResult:
+def run_demo(node_count: int = 4, timeout: float = 8.0) -> DemoResult:
     if node_count < 3 or node_count > 5:
         raise ValueError("demo supports 3-5 local node processes")
 
@@ -111,7 +111,6 @@ def run_demo(node_count: int = 4, timeout: float = 8.0, *, circuit_wire: str = "
                 timeout=timeout,
                 expert_mode_config=ExpertModeConfig(min_pool_size=3, allow_degraded_pool=True),
                 random_seed=3,
-                circuit_wire=circuit_wire,
             )
             response_text = client_result.response_text
             client_logs = client_result.client_logs

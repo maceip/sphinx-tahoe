@@ -4,21 +4,44 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from por.config import ClusterConfig, DaemonConfig
+from por.config import ClusterConfig, DaemonConfig, PorConfig
+from por.log_events import PorLogEvent, emit_log_event
 from por.node_runtime import WireNodeRuntime
 
 
 def run_relay(*, config_path: str, node_id: str) -> int:
     cluster = ClusterConfig.load(config_path)
     runtime = WireNodeRuntime(cluster, node_id, role="relay")
+    return runtime.serve_forever(binary_wire=True)
+
+
+def run_relay_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
+    _emit_node_log(
+        daemon,
+        "daemon_start",
+        fields={"supernode_enabled": daemon.supernode.enabled},
+    )
+    cluster = por_config.to_cluster_config()
+    runtime = WireNodeRuntime(cluster, daemon.node_id, role="relay")
     return runtime.serve_forever()
 
 
-def run_relay_cluster(daemon: DaemonConfig) -> int:
-    raise SystemExit(
-        "por run: relay from por.config.v1 alone is not wired yet (no kem keys in "
-        "daemon schema). Use cluster harness: `por relay --config cluster.json "
-        f"--node-id {daemon.node_id}` — tracked in production_arc convergence checklist."
+def _emit_node_log(
+    daemon: DaemonConfig,
+    event: str,
+    *,
+    fields: dict[str, object] | None = None,
+) -> None:
+    emit_log_event(
+        PorLogEvent(
+            event=event,
+            component="por-relay",
+            node_id=daemon.node_id,
+            role="relay",
+            fields=fields or {},
+        ),
+        fmt=daemon.logging.fmt,
+        redact_fields=frozenset(daemon.logging.redact_fields),
     )
 
 
