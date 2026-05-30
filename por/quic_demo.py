@@ -1,8 +1,13 @@
 """Local QUIC demo for P-OR Expert Mode.
 
-This runs the same forward and hybrid return frames as ``por.udp_demo``, but
-the frames are carried over HTTP/3 Extended CONNECT on real QUIC sockets.
-Each relay/expert runs as its own process.
+**HARNESS ONLY — not production wire.**
+
+Uses JSON/base64 frames over H3 WebSocket for orchestration convenience.
+Production daemons use canonical binary wire (``por.wire_frame``) via
+``por relay`` / ``por expert`` / ``por run``.
+
+This module proves QUIC/H3 plumbing and Expert Mode trace shape.
+Do not build production features on top of this module.
 """
 
 from __future__ import annotations

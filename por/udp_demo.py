@@ -1,11 +1,13 @@
 """Local UDP demo for P-OR Expert Mode.
 
-This is a demo harness, not the production transport. It uses real localhost UDP
-datagrams and separate node processes so traces are grounded in process and
-socket boundaries instead of direct function calls.
+**HARNESS ONLY — not production wire.**
 
-Production-shaped relay and expert processes live in ``por.daemon.relay`` and
-``por.daemon.expert``. This module orchestrates them for local smoke tests.
+This module uses JSON/base64 UDP frames for orchestration convenience.
+Production daemons use canonical binary wire (``por.wire_frame``) via
+``por relay`` / ``por expert`` / ``por run``.
+
+Use this for local smoke tests and trace inspection. Do not build
+production features on top of this module.
 """
 
 from __future__ import annotations

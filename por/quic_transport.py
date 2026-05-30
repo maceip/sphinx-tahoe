@@ -56,6 +56,38 @@ DEFAULT_MAX_H3_MESSAGE_SIZE = 1_048_576
 DatagramHandler = Callable[[bytes], bytes | None]
 WebSocketHandler = Callable[[bytes], bytes | None]
 
+# Demux callbacks — same order as UDP (I2P SSU2 style):
+#   1. REACH_* → on_reach_datagram
+#   2. Outfox 0x00/0x01/0x02 → on_mix_datagram
+#   3. Unknown → on_opaque_datagram (or drop)
+ReachDatagramHandler = Callable[[bytes], None]
+MixDatagramHandler = Callable[[bytes], None]
+OpaqueDatagramHandler = Callable[[bytes], None]
+
+
+def demux_datagram(
+    data: bytes,
+    *,
+    on_reach: ReachDatagramHandler | None = None,
+    on_mix: MixDatagramHandler | None = None,
+    on_opaque: OpaqueDatagramHandler | None = None,
+) -> None:
+    """Classify and dispatch a QUIC DATAGRAM frame (same order as UDP demux)."""
+    from .reach_wire import is_reach_datagram
+
+    if is_reach_datagram(data):
+        if on_reach is not None:
+            on_reach(data)
+        return
+
+    if data and data[0:1] in (b'\x00', b'\x01', b'\x02'):
+        if on_mix is not None:
+            on_mix(data)
+        return
+
+    if on_opaque is not None:
+        on_opaque(data)
+
 
 class QuicTransportUnavailable(RuntimeError):
     """Raised when the optional QUIC dependency is not installed."""

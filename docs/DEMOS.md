@@ -1,21 +1,20 @@
 # Demo And Harness Inventory
 
-This repository has several demo surfaces. They are not equivalent.
-None of them is a production P-OR daemon.
+This repository has several demo surfaces. They are **not equivalent** and
+**none of them is the production wire path**.
 
-| Entry point | What it is | Network boundary | Provider/LLM |
+**Production wire:** `por relay` / `por expert` / `por run` using canonical
+binary datagrams (`por.wire_frame`: `0x00` forward, `0x01` circuit, `0x02`
+shutdown). See `por/daemon/` and `por/node_runtime.py`.
+
+| Entry point | What it is | Wire | Provider |
 | --- | --- | --- | --- |
-| `demo.py` | Terminal UX simulation for Expert Mode planning and envelope flow | No sockets; `MixnetSim` direct calls | No real provider; harness reply |
-| `python3 -m por.udp_demo demo` | Local UDP wire harness for Expert Mode | Localhost UDP datagrams, separate node processes | No real provider; harness reply |
-| `python3 -m por.quic_demo demo` | Local QUIC wire harness for Expert Mode | Localhost QUIC/H3, separate node processes | No real provider; harness reply |
-| `sim_mixnet_llm_roundtrip.py` | In-process simulator plus optional local LLM server | No sockets between relays; `MixnetSim` direct calls | Local Anthropic-compatible server |
-| `sim_mixnet_anthropic_proxy.py` | HTTP proxy to Anthropic wrapped by `MixnetSim` | HTTP proxy socket only; relays are direct calls | Real Anthropic if configured |
+| `scripts/demo.py` | Terminal UX simulation | No sockets; `MixnetSim` | Harness reply |
+| `python3 -m por.udp_demo demo` | Local UDP harness | JSON/base64 UDP (harness-only) | Harness or real (`POR_PROVIDER`) |
+| `python3 -m por.quic_demo demo` | Local QUIC harness | JSON/base64 over H3 (harness-only) | Harness reply |
+| `scripts/sim_mixnet_*.py` | In-process simulator | No sockets; `MixnetSim` | Optional real LLM |
+| `por relay --config` | **Production** relay daemon | Binary `0x00`/`0x01`/`0x02` | N/A (relay) |
+| `por expert --config` | **Production** expert daemon | Binary `0x00`/`0x01`/`0x02` | `POR_PROVIDER` |
 
-Use "wire demo" only for `por.udp_demo` and `por.quic_demo`.
-Use "sim" or "harness" for `demo.py`, `sim_mixnet_llm_roundtrip.py`, and
-`sim_mixnet_anthropic_proxy.py`.
-
-The UDP/QUIC demos prove local process/socket plumbing and trace shape. Their
-responses are harness text, and their return path still needs the final per-hop
-link-CID migration. Use `HYBRID_RETURN_PATH_SPEC.txt` and
-`docs/por_wire_protocol.md` for the target wire.
+**Rule:** new features target `por/daemon/` + binary wire. Demos are for
+trace inspection and smoke tests only.
