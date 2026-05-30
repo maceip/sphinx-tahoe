@@ -25,6 +25,7 @@ from sphinxmix.OutfoxNode import (
 from sphinxmix.OutfoxParams import derive_circuit_key, CIRCUIT_MAGIC
 from os import urandom
 import struct
+import time
 
 
 def make_pki(params, n=10):
@@ -67,7 +68,13 @@ def test_timestamps():
     old_ts = struct.pack(">Q", 0)
     assert not check_timestamp(old_ts, max_age_sec=5)
 
-    print("[PASS] Timestamps: fresh accepted, expired rejected.")
+    future_ts = struct.pack(">Q", int((time.time() + 1) * 1000))
+    assert check_timestamp(future_ts, max_age_sec=5)
+
+    far_future_ts = struct.pack(">Q", int((time.time() + 10) * 1000))
+    assert not check_timestamp(far_future_ts, max_age_sec=5)
+
+    print("[PASS] Timestamps: fresh accepted, skew tolerated, expired rejected.")
 
 
 def test_dilithium_signatures():

@@ -82,6 +82,7 @@ AEAD_NONCE = b'\x00' * 12
 TIMESTAMP_SIZE = 8
 FLAG_SIZE = 1
 CIRCUIT_TTL_SECONDS = 120
+MAX_FUTURE_SKEW_SECONDS = 2
 # Exit-side streaming cadence (traffic-analysis mitigation v1). During an active
 # session the exit emits at most one circuit packet per interval; empty ticks
 # send keepalives so gaps between SSE tokens are not visibly idle on the wire.
@@ -139,12 +140,16 @@ def make_timestamp():
     return struct.pack(">Q", int(_time.time() * 1000))
 
 
-def check_timestamp(ts_bytes, max_age_sec=CIRCUIT_TTL_SECONDS):
-    """Reject timestamps older than max_age_sec."""
+def check_timestamp(
+    ts_bytes,
+    max_age_sec=CIRCUIT_TTL_SECONDS,
+    max_future_skew_sec=MAX_FUTURE_SKEW_SECONDS,
+):
+    """Reject stale timestamps, allowing small cross-host clock skew."""
     ts_ms = struct.unpack(">Q", ts_bytes)[0]
     now_ms = int(_time.time() * 1000)
     age_sec = (now_ms - ts_ms) / 1000.0
-    return 0 <= age_sec <= max_age_sec
+    return -max_future_skew_sec <= age_sec <= max_age_sec
 
 
 def sign_payload(sk, payload):
