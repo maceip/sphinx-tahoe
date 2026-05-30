@@ -1,54 +1,76 @@
-The Sphinxmix python package
-============================
-[![PyPI](https://img.shields.io/pypi/v/sphinxmix.svg)]()
-[![Documentation Status](https://readthedocs.org/projects/sphinxmix/badge/?version=latest)](http://sphinxmix.readthedocs.io/en/latest/?badge=latest)
-[![Build Status](https://travis-ci.org/UCL-InfoSec/sphinx.svg?branch=master)](https://travis-ci.org/UCL-InfoSec/sphinx)
-[![Coverage Status](https://coveralls.io/repos/github/UCL-InfoSec/sphinx/badge.svg?branch=master)](https://coveralls.io/github/UCL-InfoSec/sphinx?branch=master)
+P-OR: Private Prompt Routing Network
+=====================================
 
-The ``sphinxmix`` package implements the Sphinx mix packet format core cryptographic functions.
+A mixnet-based prompt routing protocol for LLM inference. Forward path uses
+Outfox (per-hop KEM + AEAD + LIONESS PRP). Return path uses symmetric circuit
+streaming for low-latency token delivery.
 
-The paper describing sphinx may be found here:
+Status
+------
 
-George Danezis and Ian Goldberg. Sphinx: A Compact and Provably Secure Mix Format. IEEE Symposium on Security and Privacy 2009. 
-http://www.cypherpunks.ca/~iang/pubs/Sphinx_Oakland09.pdf
+**Research prototype.** Crypto and packet format are complete. Production
+runtime is in progress.
 
-Beyond the original proposal it allows for clients to communicate additional information to mix servers to implement arbitrary mixing strategies.
+### What works
 
-More information
-----------------
+- **Outfox forward path**: per-hop KEM, AEAD headers, HKDF key derivation,
+  LIONESS PRP payload, ML-DSA-65 signatures, timestamps, dummy traffic
+- **Hybrid return path**: per-hop link CIDs (unlinkable), AES-CTR circuit
+  streaming, nonce monotonicity, magic corruption detection, keepalive,
+  auto-chunking, paced emission (TA mitigation)
+- **SURB + circuit coexistence**: single-shot replies and streaming in same session
+- **Expert Mode**: memory-fit discovery, route planning, envelope pipeline
+- **Security proofs**: GDH, service model, nymserver elimination (Scherer 2023)
+- **Daemons**: por-relay, por-expert with config, signal handling, provider calls
+- **Provider calls**: Anthropic, OpenAI, harness mode (`POR_PROVIDER` env var)
+- **Transport**: UDP demo (real sockets, separate processes), QUIC skeleton
 
-The sphinxmix python package may be installed from pypi using pip: https://pypi.python.org/pypi/sphinxmix/
+### What doesn't exist yet
 
-The documentation for sphinxmix may be found on Read the Docs: http://sphinxmix.readthedocs.io/en/latest/
+- Production persistent connections and NAT traversal
+- HTTP/SSE gateway (`por-gateway`)
+- Prompt hiding / proof-of-execution extensions
+- Canonical binary wire framing (JSON frames still used in demos)
 
-The Git repository for sphinxmix may be found at the UCL Information Security repository at: https://github.com/UCL-InfoSec/sphinx
+Architecture
+------------
 
+```
+sphinxmix/           Packet crypto (Outfox, SURB, circuits, MixnetSim)
+por/                 Application layer (envelopes, expert mode, daemons, transport)
+por/daemon/          Production entry points (relay.py, expert.py)
+docs/                Specs and architecture notes
+```
+
+Quick start
+-----------
+
+```bash
+pip install -r requirements.txt
+
+# Run tests
+pytest test_outfox.py test_mixnet.py test_scherer2023_fixes.py test_a5_exit.py
+
+# Run Expert Mode demo (no network, simulated)
+python3 demo.py
+
+# Run UDP wire demo (real sockets, separate processes)
+python3 -m por.udp_demo demo
+
+# Run with real LLM provider at exit
+POR_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... python3 -m por.udp_demo demo
+```
+
+See `DEMOS.md` for the full demo inventory and what each one proves.
+
+References
+----------
+
+- Rial, Piotrowska, Halpin (2025) "Outfox" (arXiv:2412.19937v2)
+- Scherer, Weis, Strufe (2023) "Provable Security for Sphinx" (arXiv:2312.08028v1)
+- Lazar et al. "Yodel" (constant-rate mixing)
 
 Licence
 -------
 
-Sphinx v0.8-UCL README
-2016-11-12
-George Danezis <g.danezis@ucl.ac.uk>
-
-```
-# Copyright 2011 Ian Goldberg
-# Copyright 2016 George Danezis (UCL InfoSec Group)
-#
-# This file is part of Sphinx.
-# 
-# Sphinx is free software: you can redistribute it and/or modify
-# it under the terms of version 3 of the GNU Lesser General Public
-# License as published by the Free Software Foundation.
-# 
-# Sphinx is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Lesser General Public License for more details.
-# 
-# You should have received a copy of the GNU Lesser General Public
-# License along with Sphinx.  If not, see
-# <http://www.gnu.org/licenses/>.
-```
-
-This is a UCL branch and port of the original Sphinx software to using modern python libraries, including petlib for cryptography and msgpack for binary formats. It also decouples the message processing from other concerns to allow sphix to be embedded into other applications. It is based on the original software by Ian Goldberg (U. Waterloo) and retains both his copyright and the original LGPL licence.
+LGPL v3. Based on sphinxmix by Ian Goldberg and George Danezis (UCL).
