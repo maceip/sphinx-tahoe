@@ -52,7 +52,8 @@ def _b64e(data: bytes) -> str:
 
 def _b64d(data: str) -> bytes:
     return _base64.b64decode(data.encode("ascii"))
-from .provider import ProviderError, expert_reply_chunks
+from .attestation import stream_done_payload
+from .provider import ProviderError, expert_reply_with_attestation
 from .udp_demo import (
     DemoResult,
     _collect_node_logs,
@@ -316,20 +317,26 @@ async def _handle_forward(config, params, node_id, sk, pk, circuits, frame):
         flush=True,
     )
     try:
-        chunks = expert_reply_chunks(envelope, node_id)
+        text, attestation = expert_reply_with_attestation(envelope, node_id)
+        chunk_size = 256
+        chunks = [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)] if text else [""]
     except ProviderError as exc:
         print(
             f"node={node_id} event=provider_error retryable={str(exc.retryable).lower()} reason={exc!s}",
             flush=True,
         )
         chunks = [f"[provider_error] peer={node_id} status={exc.status} message={exc}"]
+        attestation = None
     for seq, chunk in enumerate(chunks):
         plain = json.dumps({"seq": seq, "data": chunk, "done": False}).encode("utf-8")
         await _stream_return_chunk(config, params, exit_entry["next_id"], exit_outbound, seq, plain, exit_key)
         await asyncio.sleep(0.05)
 
     done_seq = len(chunks)
-    done = json.dumps({"seq": done_seq, "data": "", "done": True}).encode("utf-8")
+    done = json.dumps(
+        stream_done_payload(done_seq, attestation=attestation),
+        separators=(",", ":"),
+    ).encode("utf-8")
     await _stream_return_chunk(config, params, exit_entry["next_id"], exit_outbound, done_seq, done, exit_key)
 
 

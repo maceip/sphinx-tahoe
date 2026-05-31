@@ -24,7 +24,8 @@ from sphinxmix.OutfoxParams import OutfoxParams, derive_circuit_key
 from .config import ClusterConfig, LoggingConfig, ProviderConfig
 from .envelope import PromptRequestEnvelope
 from .log_events import PorLogEvent, emit_log_event
-from .provider import ProviderError, expert_reply_chunks
+from .attestation import stream_done_payload
+from .provider import ProviderError, expert_reply_with_attestation
 from .wire_frame import decode_datagram, encode_forward
 
 
@@ -275,25 +276,16 @@ class WireNodeRuntime:
                 "degraded": degraded,
             },
         )
-        try:
-            chunks = expert_reply_chunks(envelope, self.node_id, provider_config=self.provider)
-        except ProviderError as exc:
-            self._log(
-                "provider_error",
-                level="error",
-                fields={"reason": str(exc), "retryable": exc.retryable, "status": exc.status},
-            )
-            chunks = [f"[provider_error] peer={self.node_id} message={exc}"]
-
-        for seq, chunk in enumerate(chunks):
-            plain = json.dumps({"seq": seq, "data": chunk, "done": False}).encode("utf-8")
-            pkt = circuit_packet_create(self.params, exit_outbound, seq, plain, [exit_key])
-            self._send_binary(sock, return_next, pkt, src_addr=src_addr)
-            time.sleep(0.05)
-
-        done = json.dumps({"seq": len(chunks), "data": "", "done": True}).encode("utf-8")
-        pkt = circuit_packet_create(self.params, exit_outbound, len(chunks), done, [exit_key])
-        self._send_binary(sock, return_next, pkt, src_addr=src_addr)
+        chunks, attestation = self._expert_reply_stream(envelope)
+        self._send_expert_chunks(
+            sock,
+            chunks,
+            attestation,
+            exit_key=exit_key,
+            exit_outbound=exit_outbound,
+            return_next=return_next,
+            src_addr=src_addr,
+        )
 
     def _handle_circuit_binary(
         self,
@@ -351,21 +343,62 @@ class WireNodeRuntime:
     def _handle_circuit_prompt(self, sock, envelope, exit_key, exit_outbound_bytes,
                                 return_next, *, src_addr=None):
         """Process a follow-up prompt received via circuit reuse."""
-        try:
-            chunks = expert_reply_chunks(envelope, self.node_id, provider_config=self.provider)
-        except ProviderError as exc:
-            self._log("provider_error", level="error",
-                      fields={"reason": str(exc), "retryable": exc.retryable})
-            chunks = [f"[provider_error] peer={self.node_id} message={exc}"]
+        chunks, attestation = self._expert_reply_stream(envelope)
+        self._send_expert_chunks(
+            sock,
+            chunks,
+            attestation,
+            exit_key=exit_key,
+            exit_outbound=exit_outbound_bytes,
+            return_next=return_next,
+            src_addr=src_addr,
+        )
 
+    def _expert_reply_stream(
+        self,
+        envelope: PromptRequestEnvelope,
+    ) -> tuple[Sequence[str], dict[str, object] | None]:
+        try:
+            text, attestation = expert_reply_with_attestation(
+                envelope,
+                self.node_id,
+                provider_config=self.provider,
+            )
+        except ProviderError as exc:
+            self._log(
+                "provider_error",
+                level="error",
+                fields={"reason": str(exc), "retryable": exc.retryable, "status": exc.status},
+            )
+            return [f"[provider_error] peer={self.node_id} message={exc}"], None
+        chunk_size = 256
+        if not text:
+            return [""], attestation
+        chunks = [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
+        return chunks, attestation
+
+    def _send_expert_chunks(
+        self,
+        sock: socket.socket,
+        chunks: Sequence[str],
+        attestation: dict[str, object] | None,
+        *,
+        exit_key: bytes,
+        exit_outbound: bytes,
+        return_next: str,
+        src_addr: tuple[str, int] | None,
+    ) -> None:
         for seq, chunk in enumerate(chunks):
             plain = json.dumps({"seq": seq, "data": chunk, "done": False}).encode("utf-8")
-            pkt = circuit_packet_create(self.params, exit_outbound_bytes, seq, plain, [exit_key])
+            pkt = circuit_packet_create(self.params, exit_outbound, seq, plain, [exit_key])
             self._send_binary(sock, return_next, pkt, src_addr=src_addr)
             time.sleep(0.05)
 
-        done = json.dumps({"seq": len(chunks), "data": "", "done": True}).encode("utf-8")
-        pkt = circuit_packet_create(self.params, exit_outbound_bytes, len(chunks), done, [exit_key])
+        done = json.dumps(
+            stream_done_payload(len(chunks), attestation=attestation),
+            separators=(",", ":"),
+        ).encode("utf-8")
+        pkt = circuit_packet_create(self.params, exit_outbound, len(chunks), done, [exit_key])
         self._send_binary(sock, return_next, pkt, src_addr=src_addr)
 
     def _send_binary(

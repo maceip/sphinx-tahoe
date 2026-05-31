@@ -80,7 +80,7 @@ por.app.v1
   memory_selector?           cache/session/topic selector
   prompt_payload             plaintext in base mode; encrypted in extension mode
   return_descriptor          SURB or circuit setup reference
-  proof_requirements?        none | tls_transcript | future variants
+  proof_requirements?        none | tls_execution (see docs/por_attestation_v0.md)
   payment_terms?             optional settlement policy
   client_extensions          supported extension identifiers
 ```
