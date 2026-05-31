@@ -134,3 +134,41 @@ an emulator (`android.py test --managed`).
 - [cibuildwheel — platforms (Android/iOS)](https://cibuildwheel.pypa.io/en/latest/platforms/)
 - [cibuildwheel #1960 — Add support for Android and iOS](https://github.com/pypa/cibuildwheel/issues/1960)
 - [PyPI now supports iOS and Android wheels](https://socket.dev/blog/pypi-now-supports-ios-and-android-wheels-for-mobile-python-development)
+
+## Build status — verified on a real arm64 emulator (2026-05-31)
+
+The full pipeline works end-to-end: cross-compile wheels → Briefcase → APK →
+install + run on an `arm64-v8a` emulator under **Python 3.13**.
+
+**Native wheels (cp313, arm64-v8a, API 21), all cross-compiled here:**
+
+| dep | wheel builds | loads + runs on device |
+|-----|--------------|------------------------|
+| msgpack | ✅ | ✅ |
+| pynacl (libsodium) | ✅ (libsodium built inside the toolchain) | ✅ X25519 verified on device |
+| cffi (libffi) | ✅ (libffi built inside the toolchain) | ✅ |
+| pyaes (pure-Python AES-CTR) | ✅ | ✅ AES-CTR verified on device |
+| pqcrypto 0.4.0 (ml_dsa_65) | ⚠️ builds, but **wrong binary** | ❌ |
+
+`pycryptodome` was dropped on Android: its bespoke `ctypes` `.so` loader is
+broken by Chaquopy. The runtime falls back to `pyaes` (byte-identical AES-CTR).
+
+**The one remaining blocker — pqcrypto cffi cross-compile.** pqcrypto compiles
+its PQClean bindings with cffi's `ffi.compile()` inside a Hatchling build hook
+(`compile.py`). That call does **not** honor cibuildwheel's Android cross-env —
+it emits **Mach-O (host macOS)** `.so` files (`*.cpython-313-darwin.so`) inside
+an Android-tagged wheel, so `import pqcrypto._sign.ml_dsa_65` fails on device.
+Forcing `CC=<ndk>/aarch64-linux-android21-clang` via `CIBW_ENVIRONMENT` makes
+the clang run but distutils still injects host (`-arch`/macOS-sysroot) flags the
+Android clang rejects.
+
+Next options to close it:
+1. Make cffi's `ffi.compile()` use the cross sysconfig (e.g. set
+   `_PYTHON_SYSCONFIGDATA_NAME`/`_PYTHON_HOST_PLATFORM` so distutils emits the
+   Android EXT_SUFFIX + toolchain, the same mechanism that cross-compiles the
+   setuptools-based wheels correctly), or
+2. Patch `compile.py` to build the extensions with an explicit cross
+   `distutils`/`setuptools` `Extension` (clear host `CFLAGS`, set the NDK
+   `CC`/`AR`/sysroot), or
+3. Compile the cffi-generated `.c` for each algorithm directly with the NDK
+   clang into correctly-named Android `.so`.
