@@ -31,28 +31,66 @@ from nacl.bindings import (
     crypto_aead_chacha20poly1305_ietf_decrypt,
 )
 
-# AES-CTR backend. `cryptography` (Rust+OpenSSL) is preferred where available;
-# `pycryptodome` (plain C, no Rust) is a byte-identical fallback used on targets
-# where the Rust toolchain is impractical (e.g. Android). Both implement the
-# same AES-CTR with the full 128-bit IV as the initial counter, so the wire
-# format is unchanged regardless of which is active (see test_aes_ctr_backends).
-try:
+# AES-CTR backend selection. All three implement the *same* AES-CTR with the
+# full 128-bit IV as the initial counter, so the wire format is identical
+# regardless of which is active (proven in test_aes_ctr_backends). Each backend
+# is smoke-tested before selection, so a backend that imports but can't actually
+# run (e.g. pycryptodome's ctypes .so loader breaks under Android/Chaquopy) is
+# skipped in favour of the next:
+#   1. cryptography  (Rust+OpenSSL)  — desktop default
+#   2. pycryptodome  (plain C)       — C target without Rust
+#   3. pyaes         (pure Python)   — last resort (Android/Chaquopy); slower
+
+
+def _make_cryptography_aes_ctr():
     from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
     def _aes_ctr(key, iv, data):
         enc = Cipher(algorithms.AES(key), modes.CTR(iv)).encryptor()
         return enc.update(data) + enc.finalize()
 
-    AES_CTR_BACKEND = "cryptography"
-except ImportError:  # pragma: no cover - exercised on the pycryptodome target
-    from Crypto.Cipher import AES as _PyAES
-    from Crypto.Util import Counter as _PyCounter
+    return _aes_ctr
+
+
+def _make_pycryptodome_aes_ctr():
+    from Crypto.Cipher import AES
+    from Crypto.Util import Counter
 
     def _aes_ctr(key, iv, data):
-        ctr = _PyCounter.new(128, initial_value=int.from_bytes(iv, "big"))
-        return _PyAES.new(key, _PyAES.MODE_CTR, counter=ctr).encrypt(data)
+        ctr = Counter.new(128, initial_value=int.from_bytes(iv, "big"))
+        return AES.new(key, AES.MODE_CTR, counter=ctr).encrypt(data)
 
-    AES_CTR_BACKEND = "pycryptodome"
+    return _aes_ctr
+
+
+def _make_pyaes_aes_ctr():
+    import pyaes
+
+    def _aes_ctr(key, iv, data):
+        ctr = pyaes.Counter(initial_value=int.from_bytes(iv, "big"))
+        return pyaes.AESModeOfOperationCTR(key, counter=ctr).encrypt(data)
+
+    return _aes_ctr
+
+
+def _select_aes_ctr():
+    probe_key = b"\x00" * 16
+    probe_iv = b"\x00" * 16
+    for name, factory in (
+        ("cryptography", _make_cryptography_aes_ctr),
+        ("pycryptodome", _make_pycryptodome_aes_ctr),
+        ("pyaes", _make_pyaes_aes_ctr),
+    ):
+        try:
+            fn = factory()
+            if len(fn(probe_key, probe_iv, b"abc")) == 3:  # smoke test
+                return fn, name
+        except Exception:
+            continue
+    raise RuntimeError("no working AES-CTR backend available")
+
+
+_aes_ctr, AES_CTR_BACKEND = _select_aes_ctr()
 
 from pqcrypto.sign.ml_dsa_65 import (
     generate_keypair as dilithium_generate_keypair,

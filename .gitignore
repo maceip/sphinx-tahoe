@@ -117,3 +117,8 @@ venv.bak/
 /dist/
 *.apk
 *.aab
+
+# Briefcase build output
+android/build/
+android/logs/
+android/dist/

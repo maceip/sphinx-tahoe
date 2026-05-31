@@ -10,6 +10,6 @@
 pynacl
 msgpack
 pqcrypto
-# AES-CTR payload cipher without the Rust/OpenSSL of `cryptography`. The runtime
-# auto-selects this when `cryptography` is absent; output is byte-identical.
-pycryptodome
+# Pure-Python AES-CTR (byte-identical). Used on Android: pycryptodome's
+# ctypes .so loader is broken by Chaquopy, so the runtime falls through to this.
+pyaes
