@@ -10,8 +10,10 @@
   "quality_signals": {
     "completed_requests": 24,
     "evaluator_score": 0.91,
+    "feedback_count": 18,
     "median_user_rating": 0.88,
-    "success_rate": 0.96
+    "success_rate": 0.96,
+    "unique_client_count": 12
   },
   "signature": "ed25519-signature-placeholder",
   "summary": "Compiled Claude Code expert session for topic X with curated papers, repository context, tools, and answer policy.",

@@ -376,6 +376,11 @@ def make_client_http_handler(
                 body = json.loads(raw.decode("utf-8"))
                 prompt = str(body["prompt"])
                 expertise = body.get("expertise")
+                client_peer_id_hash = (
+                    str(body["client_peer_id_hash"])
+                    if body.get("client_peer_id_hash") is not None
+                    else None
+                )
             except (KeyError, ValueError, json.JSONDecodeError) as exc:
                 self.send_error(400, f"bad request: {exc}")
                 return
@@ -452,6 +457,7 @@ def make_client_http_handler(
                             result.response_text.encode("utf-8")
                         ).hexdigest(),
                         timestamp=datetime.now(timezone.utc).isoformat(),
+                        client_peer_id_hash=client_peer_id_hash,
                     )
                 )
             self._write_sse(

@@ -43,6 +43,8 @@ TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_'-]{2,}")
 @dataclass(frozen=True)
 class ExpertQualitySignals:
     completed_requests: int = 0
+    feedback_count: int = 0
+    unique_client_count: int = 0
     success_rate: float | None = None
     median_user_rating: float | None = None
     evaluator_score: float | None = None
@@ -52,6 +54,8 @@ class ExpertQualitySignals:
         raw = raw or {}
         return cls(
             completed_requests=int(raw.get("completed_requests", 0)),
+            feedback_count=int(raw.get("feedback_count", 0)),
+            unique_client_count=int(raw.get("unique_client_count", 0)),
             success_rate=_optional_float(raw.get("success_rate")),
             median_user_rating=_optional_float(raw.get("median_user_rating")),
             evaluator_score=_optional_float(raw.get("evaluator_score")),
@@ -60,6 +64,10 @@ class ExpertQualitySignals:
     def validate(self) -> "ExpertQualitySignals":
         if self.completed_requests < 0:
             raise ValueError("completed_requests must be non-negative")
+        if self.feedback_count < 0:
+            raise ValueError("feedback_count must be non-negative")
+        if self.unique_client_count < 0:
+            raise ValueError("unique_client_count must be non-negative")
         for name, value in (
             ("success_rate", self.success_rate),
             ("median_user_rating", self.median_user_rating),
@@ -79,7 +87,14 @@ class ExpertQualitySignals:
             self.evaluator_score if self.evaluator_score is not None else prior,
         ]
         observed = sum(parts) / len(parts)
-        confidence = self.completed_requests / (self.completed_requests + 10.0)
+        sample_confidence = self.completed_requests / (self.completed_requests + 10.0)
+        diversity_confidence = 1.0
+        if self.feedback_count:
+            # Cheap boost-resistance: many ratings from one colluding client
+            # should not move routing much until feedback comes from a small
+            # crowd of distinct validated clients.
+            diversity_confidence = min(1.0, self.unique_client_count / 5.0)
+        confidence = sample_confidence * diversity_confidence
         estimate = (confidence * observed) + ((1.0 - confidence) * prior)
         return max(0.10, min(1.10, estimate))
 
@@ -207,6 +222,7 @@ class VerifiedQualityEvent:
     latency_ms: int
     answer_digest: str
     timestamp: str
+    client_peer_id_hash: str | None = None
     rating: str | None = None
     complaint_reason: str | None = None
     judge_score: float | None = None
@@ -225,6 +241,7 @@ class VerifiedQualityEvent:
         latency_ms: int,
         answer_digest: str,
         timestamp: str,
+        client_peer_id_hash: str | None = None,
         rating: str | None = None,
         complaint_reason: str | None = None,
         judge_score: float | None = None,
@@ -241,6 +258,7 @@ class VerifiedQualityEvent:
             latency_ms=latency_ms,
             answer_digest=answer_digest,
             timestamp=timestamp,
+            client_peer_id_hash=client_peer_id_hash,
             rating=rating,
             complaint_reason=complaint_reason,
             judge_score=judge_score,
@@ -260,6 +278,7 @@ class VerifiedQualityEvent:
             latency_ms=int(raw.get("latency_ms", 0)),
             answer_digest=str(raw.get("answer_digest", "")),
             timestamp=str(raw.get("timestamp", "")),
+            client_peer_id_hash=_optional_str(raw.get("client_peer_id_hash")),
             rating=_optional_str(raw.get("rating")),
             complaint_reason=_optional_str(raw.get("complaint_reason")),
             judge_score=_optional_float(raw.get("judge_score")),

@@ -63,8 +63,8 @@ class QualityEventStore:
                 """
                 insert into request_events (
                   request_id, expert_peer_id, manifest_id, topic, status,
-                  latency_ms, answer_digest, timestamp, signature
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  latency_ms, answer_digest, timestamp, client_peer_id_hash, signature
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(request_id) do update set
                   expert_peer_id=excluded.expert_peer_id,
                   manifest_id=excluded.manifest_id,
@@ -73,6 +73,7 @@ class QualityEventStore:
                   latency_ms=excluded.latency_ms,
                   answer_digest=excluded.answer_digest,
                   timestamp=excluded.timestamp,
+                  client_peer_id_hash=excluded.client_peer_id_hash,
                   signature=excluded.signature
                 """,
                 (
@@ -84,6 +85,7 @@ class QualityEventStore:
                     event.latency_ms,
                     event.answer_digest,
                     event.timestamp,
+                    event.client_peer_id_hash,
                     event.signature,
                 ),
             )
@@ -105,7 +107,7 @@ class QualityEventStore:
             row = db.execute(
                 """
                 select request_id, expert_peer_id, manifest_id, topic, status,
-                       latency_ms, answer_digest, timestamp, signature
+                       latency_ms, answer_digest, timestamp, client_peer_id_hash, signature
                 from request_events where request_id = ?
                 """,
                 (request_id,),
@@ -124,6 +126,7 @@ class QualityEventStore:
                 latency_ms=int(row["latency_ms"]),
                 answer_digest=row["answer_digest"],
                 timestamp=timestamp,
+                client_peer_id_hash=row["client_peer_id_hash"],
                 rating=rating,
                 complaint_reason=complaint_reason,
                 judge_score=judge_score,
@@ -165,7 +168,8 @@ class QualityEventStore:
             total = len(rows)
             review_rows = db.execute(
                 """
-                select r.rating, r.judge_score
+                select r.rating, r.judge_score,
+                       coalesce(e.client_peer_id_hash, '__unknown__') as client_key
                 from reviews r
                 join request_events e on e.request_id = r.request_id
                 where e.manifest_id = ?
@@ -173,18 +177,21 @@ class QualityEventStore:
                 (manifest_id,),
             ).fetchall()
 
-        rating_scores = [
-            RATING_SCORES[row["rating"]]
-            for row in review_rows
-            if row["rating"] in RATING_SCORES
-        ]
-        judge_scores = [
-            float(row["judge_score"])
-            for row in review_rows
-            if row["judge_score"] is not None
-        ]
+        unique_clients = {row["client_key"] for row in review_rows}
+        rating_by_client: dict[str, list[float]] = {}
+        judge_by_client: dict[str, list[float]] = {}
+        for row in review_rows:
+            client_key = row["client_key"]
+            if row["rating"] in RATING_SCORES:
+                rating_by_client.setdefault(client_key, []).append(RATING_SCORES[row["rating"]])
+            if row["judge_score"] is not None:
+                judge_by_client.setdefault(client_key, []).append(float(row["judge_score"]))
+        rating_scores = [sum(values) / len(values) for values in rating_by_client.values()]
+        judge_scores = [sum(values) / len(values) for values in judge_by_client.values()]
         return ExpertQualitySignals(
             completed_requests=completed,
+            feedback_count=len(review_rows),
+            unique_client_count=len(unique_clients),
             success_rate=(completed / total) if total else None,
             median_user_rating=median(rating_scores) if rating_scores else None,
             evaluator_score=(sum(judge_scores) / len(judge_scores)) if judge_scores else None,
@@ -208,10 +215,12 @@ class QualityEventStore:
                   latency_ms integer not null,
                   answer_digest text not null,
                   timestamp text not null,
+                  client_peer_id_hash text,
                   signature text
                 )
                 """
             )
+            _ensure_column(db, "request_events", "client_peer_id_hash", "text")
             db.execute(
                 """
                 create table if not exists reviews (
@@ -225,6 +234,12 @@ class QualityEventStore:
                 )
                 """
             )
+
+
+def _ensure_column(db: sqlite3.Connection, table: str, column: str, ddl_type: str) -> None:
+    columns = {row["name"] for row in db.execute(f"pragma table_info({table})").fetchall()}
+    if column not in columns:
+        db.execute(f"alter table {table} add column {column} {ddl_type}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -1,5 +1,6 @@
 {
   "answer_digest": "sha256:9d6209c94b13f24a8f6e3d9f7f2ccfc59a2e5e9f2fd2f0b5ff6e8f7fd74193a1",
+  "client_peer_id_hash": "client-hash-alpha",
   "expert_peer_id": "peer-topic-x",
   "judge_score": 0.86,
   "latency_ms": 18420,

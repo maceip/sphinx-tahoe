@@ -40,6 +40,27 @@ def test_quality_store_enforces_completed_request_before_review(tmp_path):
         store.submit_feedback(request_id="req-timeout", rating="wrong")
 
 
+def test_quality_aggregation_dampens_single_client_boosting(tmp_path):
+    one_client_store = QualityEventStore(tmp_path / "one-client.sqlite")
+    diverse_store = QualityEventStore(tmp_path / "diverse.sqlite")
+    for idx in range(10):
+        one_client_store.record_request(_event(f"req-one-{idx}", client_hash="client-colluder"))
+        one_client_store.submit_feedback(request_id=f"req-one-{idx}", rating="great", judge_score=1.0)
+        diverse_store.record_request(_event(f"req-diverse-{idx}", client_hash=f"client-{idx}"))
+        diverse_store.submit_feedback(request_id=f"req-diverse-{idx}", rating="great", judge_score=1.0)
+
+    one_client = one_client_store.aggregate_manifest("manifest-topic-x")
+    diverse = diverse_store.aggregate_manifest("manifest-topic-x")
+
+    assert one_client.feedback_count == 10
+    assert one_client.unique_client_count == 1
+    assert diverse.unique_client_count == 10
+    assert one_client.median_user_rating == 1.0
+    assert diverse.median_user_rating == 1.0
+    assert one_client.reputation_weight() < diverse.reputation_weight()
+    assert one_client.reputation_weight() < 0.85
+
+
 def test_quality_cli_records_feedback_and_aggregates(tmp_path):
     store_path = tmp_path / "quality.sqlite"
     event_path = tmp_path / "event.json"
@@ -165,7 +186,7 @@ def test_local_http_feedback_endpoint_requires_recorded_completed_request(tmp_pa
         base = f"http://127.0.0.1:{server.server_address[1]}"
         req = Request(
             f"{base}/v1/expert",
-            data=json.dumps({"prompt": "hi"}).encode("utf-8"),
+            data=json.dumps({"prompt": "hi", "client_peer_id_hash": "client-http"}).encode("utf-8"),
             headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
             method="POST",
         )
@@ -183,10 +204,12 @@ def test_local_http_feedback_endpoint_requires_recorded_completed_request(tmp_pa
 
     assert payload["ok"] is True
     assert payload["quality_event"]["request_id"] == request_id
+    assert payload["quality_event"]["client_peer_id_hash"] == "client-http"
     assert payload["quality_signals"]["completed_requests"] == 1
+    assert payload["quality_signals"]["unique_client_count"] == 1
 
 
-def _event(request_id, *, status=STATUS_COMPLETED):
+def _event(request_id, *, status=STATUS_COMPLETED, client_hash="client-alpha"):
     return VerifiedQualityEvent.v0(
         request_id=request_id,
         expert_peer_id="peer-topic-x",
@@ -196,6 +219,7 @@ def _event(request_id, *, status=STATUS_COMPLETED):
         latency_ms=120,
         answer_digest="sha256:" + "ab" * 32,
         timestamp="2026-05-31T07:01:00+00:00",
+        client_peer_id_hash=client_hash,
     )
 
 
