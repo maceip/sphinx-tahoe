@@ -36,6 +36,12 @@ from .envelope import PromptRequestEnvelope
 from .node_runtime import build_native_forward_plan
 from .wire_frame import encode_forward, decode_datagram
 
+try:
+    from .quic_transport import InMemorySessionTicketStore
+    _HAS_QUIC = True
+except ImportError:
+    _HAS_QUIC = False
+
 
 class ClientSession:
     """Persistent circuit session across multiple prompts.
@@ -73,6 +79,7 @@ class ClientSession:
         self._circuit_nonce = 0
         self._established = False
         self._prompts_sent = 0
+        self._ticket_store = InMemorySessionTicketStore() if _HAS_QUIC else None
 
     @property
     def established(self) -> bool:
@@ -110,7 +117,7 @@ class ClientSession:
         return self._send_reuse(envelope, on_chunk=on_chunk)
 
     def close(self) -> None:
-        """Release sockets and circuit state."""
+        """Release sockets and circuit state. Ticket store persists for 0-RTT reconnect."""
         if self._sock:
             self._sock.close()
             self._sock = None
@@ -119,6 +126,8 @@ class ClientSession:
             self._send_sock = None
         self._circuit_keys = None
         self._established = False
+        # _ticket_store intentionally NOT cleared — survives close/reopen
+        # for 0-RTT QUIC session resumption
 
     def _send_first(self, envelope, *, on_chunk=None) -> str:
         """Full Outfox forward — establishes circuit state at relays."""

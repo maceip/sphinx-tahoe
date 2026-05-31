@@ -16,9 +16,14 @@ def run_expert(*, config_path: str, node_id: str) -> int:
 
 
 def run_expert_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
+    upnp_mapping = _try_upnp_on_startup(daemon)
     _emit_node_log(
         daemon, "daemon_start",
-        fields={"supernode_enabled": daemon.supernode.enabled},
+        fields={
+            "supernode_enabled": daemon.supernode.enabled,
+            "upnp": upnp_mapping.method if upnp_mapping else "none",
+            "upnp_port": upnp_mapping.external_port if upnp_mapping else None,
+        },
     )
     cluster = por_config.to_cluster_config()
     runtime = WireNodeRuntime(
@@ -28,6 +33,7 @@ def run_expert_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
         logging=daemon.logging,
         provider=daemon.provider,
     )
+    runtime.upnp_mapping = upnp_mapping
     tls = daemon.transport
     if tls.certfile and tls.keyfile:
         from por.quic_runtime import serve_quic_forever
@@ -38,10 +44,33 @@ def run_expert_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
     return runtime.serve_forever()
 
 
+def _try_upnp_on_startup(daemon: DaemonConfig):
+    """Try UPnP/NAT-PMP port mapping on expert startup. Returns mapping or None."""
+    try:
+        from por.upnp import try_port_mapping
+        bind_port = daemon.transport.bind.port if daemon.transport.bind else 4433
+        result = try_port_mapping(bind_port, lease_seconds=7200, description="P-OR Expert")
+        if result.success:
+            _emit_node_log(daemon, "upnp_mapped", fields={
+                "method": result.mapping.method,
+                "external_port": result.mapping.external_port,
+                "external_ip": result.mapping.external_ip,
+                "lease_seconds": result.mapping.lease_seconds,
+            })
+            return result.mapping
+        _emit_node_log(daemon, "upnp_failed", level="info",
+                       fields={"error": result.error})
+    except Exception as e:
+        _emit_node_log(daemon, "upnp_error", level="warning",
+                       fields={"error": str(e)})
+    return None
+
+
 def _emit_node_log(
     daemon: DaemonConfig,
     event: str,
     *,
+    level: str = "info",
     fields: dict[str, object] | None = None,
 ) -> None:
     emit_log_event(
@@ -50,6 +79,7 @@ def _emit_node_log(
             component="por-expert",
             node_id=daemon.node_id,
             role="expert",
+            level=level,
             fields=fields or {},
         ),
         fmt=daemon.logging.fmt,

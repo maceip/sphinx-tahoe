@@ -71,12 +71,36 @@ async def _serve_quic_async(runtime, *, certfile, keyfile, dev_localhost):
         max_datagram_frame_size=runtime.params.payload_size + 512,
     )
 
-    # The QUIC handler dispatches through the runtime's binary handlers.
-    # For forward packets, the runtime sends to next hop via UDP (sock).
-    # For circuit packets going back to the client, the handler returns
-    # the response datagram which the QUIC protocol sends back on the
-    # same connection.
+    # For forward processing, the runtime sends to next hops via UDP.
+    # For circuit return packets that should go back to the QUIC client,
+    # we intercept _send_binary when target is "client" and push through
+    # the QUIC connection tracker instead of UDP.
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    tickets = InMemorySessionTicketStore()
+
+    server = QuicDatagramServer(
+        endpoint,
+        configuration=config,
+        session_ticket_store=tickets,
+    )
+
+    # Patch _send_binary to route "client" responses through QUIC
+    _orig_send = runtime._send_binary.__func__ if hasattr(runtime._send_binary, '__func__') else None
+
+    def _quic_send_binary(sock, target_id, data, *, src_addr=None):
+        if target_id == "client" and server.connections.count > 0:
+            server.connections.send_to_any(data)
+        else:
+            # Forward to next relay via UDP
+            if target_id == "client":
+                target = runtime.cluster.client
+            elif target_id in runtime.cluster.nodes:
+                target = runtime.cluster.node(target_id)
+            else:
+                return
+            sock.sendto(data, (target.host, target.port))
+
+    runtime._send_binary = lambda sock, target_id, data, **kw: _quic_send_binary(sock, target_id, data, **kw)
 
     def _handler(data: bytes) -> bytes | None:
         from .reach_wire import is_reach_datagram
@@ -100,13 +124,7 @@ async def _serve_quic_async(runtime, *, certfile, keyfile, dev_localhost):
             return None
         return None
 
-    tickets = InMemorySessionTicketStore()
-    server = QuicDatagramServer(
-        endpoint,
-        configuration=config,
-        datagram_handler=_handler,
-        session_ticket_store=tickets,
-    )
+    server.datagram_handler = _handler
     await server.start()
     runtime._log("started", fields={
         "wire": "quic",

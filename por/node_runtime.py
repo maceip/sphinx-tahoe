@@ -21,7 +21,7 @@ from sphinxmix.OutfoxNode import (
 )
 from sphinxmix.OutfoxParams import OutfoxParams, derive_circuit_key
 
-from .config import ClusterConfig, LoggingConfig
+from .config import ClusterConfig, LoggingConfig, ProviderConfig
 from .envelope import PromptRequestEnvelope
 from .log_events import PorLogEvent, emit_log_event
 from .provider import ProviderError, expert_reply_chunks
@@ -42,6 +42,7 @@ class WireNodeRuntime:
         *,
         role: NodeRole | None = None,
         logging: LoggingConfig | None = None,
+        provider: ProviderConfig | None = None,
     ):
         self.cluster = cluster
         self.node_id = node_id
@@ -61,6 +62,7 @@ class WireNodeRuntime:
         self._harness = cluster.to_harness_dict()
         self._shutdown = False
         self.logging = logging or LoggingConfig()
+        self.provider = provider
         self.on_reach_control = None
         self.on_opaque_forward = None
         self.supernode_daemon = None
@@ -274,7 +276,7 @@ class WireNodeRuntime:
             },
         )
         try:
-            chunks = expert_reply_chunks(envelope, self.node_id)
+            chunks = expert_reply_chunks(envelope, self.node_id, provider_config=self.provider)
         except ProviderError as exc:
             self._log(
                 "provider_error",
@@ -318,12 +320,53 @@ class WireNodeRuntime:
             self._log("circuit_malformed", level="warning", link_cid=inbound_cid[:8])
             return
         _, _, forwarded = processed
+
+        # If this is the exit (no next_id or next_id is empty) and we get a
+        # circuit packet, check if the decrypted content is a new prompt envelope
+        # for circuit reuse (multi-turn conversation).
+        if self.role == "expert" and (not next_id or next_id == "client"):
+            from sphinxmix.OutfoxNode import circuit_packet_decrypt
+            plain = circuit_packet_decrypt(self.params, key, packet)
+            if plain is not None:
+                try:
+                    envelope = PromptRequestEnvelope.from_json(plain)
+                    self._log("circuit_reuse_prompt", link_cid=inbound_cid[:8],
+                              fields={"prompt_visible": True})
+                    exit_key = key
+                    exit_outbound = outbound_cid
+                    self._handle_circuit_prompt(
+                        sock, envelope, exit_key, exit_outbound, next_id or "client",
+                        src_addr=src_addr)
+                    return
+                except (ValueError, KeyError):
+                    pass
+
         self._log(
             "circuit_hop",
             link_cid=inbound_cid[:8],
             fields={"next": next_id, "payload_visible": False},
         )
         self._send_binary(sock, next_id, forwarded, src_addr=src_addr)
+
+    def _handle_circuit_prompt(self, sock, envelope, exit_key, exit_outbound_bytes,
+                                return_next, *, src_addr=None):
+        """Process a follow-up prompt received via circuit reuse."""
+        try:
+            chunks = expert_reply_chunks(envelope, self.node_id, provider_config=self.provider)
+        except ProviderError as exc:
+            self._log("provider_error", level="error",
+                      fields={"reason": str(exc), "retryable": exc.retryable})
+            chunks = [f"[provider_error] peer={self.node_id} message={exc}"]
+
+        for seq, chunk in enumerate(chunks):
+            plain = json.dumps({"seq": seq, "data": chunk, "done": False}).encode("utf-8")
+            pkt = circuit_packet_create(self.params, exit_outbound_bytes, seq, plain, [exit_key])
+            self._send_binary(sock, return_next, pkt, src_addr=src_addr)
+            time.sleep(0.05)
+
+        done = json.dumps({"seq": len(chunks), "data": "", "done": True}).encode("utf-8")
+        pkt = circuit_packet_create(self.params, exit_outbound_bytes, len(chunks), done, [exit_key])
+        self._send_binary(sock, return_next, pkt, src_addr=src_addr)
 
     def _send_binary(
         self,
