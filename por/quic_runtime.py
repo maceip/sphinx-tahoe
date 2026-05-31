@@ -1,50 +1,59 @@
-"""QUIC-based runtime and client for production P-OR daemons.
+"""QUIC-based runtime for production P-OR daemons.
 
 Wraps WireNodeRuntime's binary dispatch over QUIC DATAGRAM frames
-(RFC 9221) instead of raw UDP. TLS 1.3 is mandatory — all P-OR wire
-traffic is encrypted at the transport layer.
+(RFC 9221). TLS 1.3 is mandatory — all P-OR wire traffic is encrypted.
 
-For dev/localhost, auto-generated self-signed certs are used.
-For production, operators provide real certs via config.
+The QUIC server receives datagrams, dispatches through the same demux
+as UDP (REACH → Outfox → opaque), and sends responses back through
+the QUIC connection. Forward hops to next relays use the UDP send path
+for now (QUIC client-to-relay connections are a future optimization).
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
+import socket
 import tempfile
 from pathlib import Path
-from typing import Sequence
 
 from .quic_transport import (
     AIOQUIC_AVAILABLE,
-    QuicDatagramClient,
     QuicDatagramServer,
     QuicEndpoint,
     InMemorySessionTicketStore,
     make_server_config,
-    make_client_config,
     write_localhost_self_signed_cert,
     POR_QUIC_ALPN,
 )
-from .wire_frame import encode_forward, encode_shutdown, decode_datagram
+from .wire_frame import decode_datagram, encode_forward
 
 
-async def serve_quic_runtime(
+def serve_quic_forever(
     runtime,
     *,
     certfile: str | Path | None = None,
     keyfile: str | Path | None = None,
     dev_localhost: bool = False,
-) -> None:
-    """Run a WireNodeRuntime over QUIC datagrams with TLS.
+) -> int:
+    """Run a WireNodeRuntime over QUIC datagrams with TLS. Blocking.
 
-    If certfile/keyfile are not provided and dev_localhost=True,
-    generates a temporary self-signed localhost cert.
+    Replaces serve_forever() for QUIC transport. Same demux, same
+    handlers, but incoming datagrams arrive via QUIC with TLS 1.3
+    instead of raw UDP.
+
+    Responses to clients are pushed back through the QUIC connection.
+    Forward hops to next relays still use UDP sendto (relay-to-relay
+    QUIC is a future optimization — TLS on the ingress is the security
+    boundary that matters now).
     """
     if not AIOQUIC_AVAILABLE:
         raise RuntimeError("aioquic is required for QUIC runtime")
 
+    return asyncio.run(_serve_quic_async(
+        runtime, certfile=certfile, keyfile=keyfile, dev_localhost=dev_localhost))
+
+
+async def _serve_quic_async(runtime, *, certfile, keyfile, dev_localhost):
     if certfile is None or keyfile is None:
         if not dev_localhost:
             raise ValueError(
@@ -53,9 +62,7 @@ async def serve_quic_runtime(
             )
         tmpdir = tempfile.mkdtemp(prefix="por-quic-cert-")
         certfile, keyfile = write_localhost_self_signed_cert(
-            Path(tmpdir) / "cert.pem",
-            Path(tmpdir) / "key.pem",
-        )
+            Path(tmpdir) / "cert.pem", Path(tmpdir) / "key.pem")
 
     endpoint = QuicEndpoint(runtime.identity.host, runtime.identity.port)
     config = make_server_config(
@@ -63,6 +70,13 @@ async def serve_quic_runtime(
         alpn=POR_QUIC_ALPN,
         max_datagram_frame_size=runtime.params.payload_size + 512,
     )
+
+    # The QUIC handler dispatches through the runtime's binary handlers.
+    # For forward packets, the runtime sends to next hop via UDP (sock).
+    # For circuit packets going back to the client, the handler returns
+    # the response datagram which the QUIC protocol sends back on the
+    # same connection.
+    udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def _handler(data: bytes) -> bytes | None:
         from .reach_wire import is_reach_datagram
@@ -77,11 +91,13 @@ async def serve_quic_runtime(
             runtime._shutdown = True
             return None
         if kind == "forward":
-            result = _process_forward_sync(runtime, a, b)
-            return result
+            runtime._handle_forward_binary(udp_sock, a, b,
+                                            src_addr=(endpoint.host, endpoint.port))
+            return None
         if kind == "circuit":
-            result = _process_circuit_sync(runtime, a)
-            return result
+            runtime._handle_circuit_binary(udp_sock, a,
+                                            src_addr=(endpoint.host, endpoint.port))
+            return None
         return None
 
     tickets = InMemorySessionTicketStore()
@@ -102,64 +118,8 @@ async def serve_quic_runtime(
         while not runtime._shutdown:
             await asyncio.sleep(0.1)
     finally:
+        udp_sock.close()
         server.close()
         runtime._log("stopped", fields={"wire": "quic"})
 
-
-def _process_forward_sync(runtime, header, payload):
-    """Process a forward packet and return the response to send, if any."""
-    import socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        runtime._handle_forward_binary(sock, header, payload, src_addr=None)
-    finally:
-        sock.close()
-    return None
-
-
-def _process_circuit_sync(runtime, packet):
-    """Process a circuit packet."""
-    import socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        runtime._handle_circuit_binary(sock, packet, src_addr=None)
-    finally:
-        sock.close()
-    return None
-
-
-async def send_via_quic(
-    endpoint: QuicEndpoint,
-    data: bytes,
-    *,
-    verify_tls: bool = True,
-    dev_allow_insecure_tls: bool = False,
-    timeout: float = 5.0,
-) -> list[bytes]:
-    """Send a datagram via QUIC and collect responses."""
-    if not AIOQUIC_AVAILABLE:
-        raise RuntimeError("aioquic is required")
-
-    config = make_client_config(
-        alpn=POR_QUIC_ALPN,
-        verify_tls=verify_tls,
-        dev_allow_insecure_tls=dev_allow_insecure_tls,
-    )
-    tickets = InMemorySessionTicketStore()
-    responses = []
-
-    async with QuicDatagramClient(
-        endpoint, configuration=config, session_ticket_store=tickets,
-    ) as client:
-        client.send(data)
-        deadline = asyncio.get_event_loop().time() + timeout
-        while asyncio.get_event_loop().time() < deadline:
-            try:
-                resp = await client.receive(timeout=0.5)
-                responses.append(resp)
-            except asyncio.TimeoutError:
-                if responses:
-                    break
-                continue
-
-    return responses
+    return 0

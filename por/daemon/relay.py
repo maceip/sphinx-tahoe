@@ -10,23 +10,35 @@ from por.node_runtime import WireNodeRuntime
 
 
 def run_relay(*, config_path: str, node_id: str) -> int:
+    """Cluster-config relay — raw UDP (harness/test path)."""
     cluster = ClusterConfig.load(config_path)
     runtime = WireNodeRuntime(cluster, node_id, role="relay")
     return runtime.serve_forever()
 
 
 def run_relay_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
+    """Production relay — uses QUIC+TLS when certs are configured."""
     if daemon.supernode.enabled:
         from por.daemon.supernode import run_supernode_cluster
-
         return run_supernode_cluster(daemon, por_config)
-    _emit_node_log(
-        daemon,
-        "daemon_start",
-        fields={"supernode_enabled": False},
-    )
+
+    _emit_node_log(daemon, "daemon_start",
+                   fields={"supernode_enabled": False})
     cluster = por_config.to_cluster_config()
-    runtime = WireNodeRuntime(cluster, daemon.node_id, role="relay", logging=daemon.logging)
+    runtime = WireNodeRuntime(cluster, daemon.node_id, role="relay",
+                              logging=daemon.logging)
+    return _serve_with_tls(runtime, daemon)
+
+
+def _serve_with_tls(runtime: WireNodeRuntime, daemon: DaemonConfig) -> int:
+    """Serve via QUIC+TLS if certs configured, fall back to raw UDP."""
+    tls = daemon.transport
+    if tls.certfile and tls.keyfile:
+        from por.quic_runtime import serve_quic_forever
+        return serve_quic_forever(runtime, certfile=tls.certfile, keyfile=tls.keyfile)
+    if tls.dev_allow_insecure_tls:
+        from por.quic_runtime import serve_quic_forever
+        return serve_quic_forever(runtime, dev_localhost=True)
     return runtime.serve_forever()
 
 

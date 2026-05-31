@@ -77,7 +77,7 @@ def test_tls_required_no_insecure_by_default():
 
 def test_production_quic_runtime_requires_cert():
     """QUIC runtime without cert and dev_localhost=False raises."""
-    from por.quic_runtime import serve_quic_runtime
+    import por.quic_runtime
 
     class FakeRuntime:
         identity = type("I", (), {"host": "127.0.0.1", "port": 0})()
@@ -88,6 +88,7 @@ def test_production_quic_runtime_requires_cert():
 
     async def run():
         with pytest.raises(ValueError, match="certfile"):
-            await serve_quic_runtime(FakeRuntime(), dev_localhost=False)
+            await por.quic_runtime._serve_quic_async(
+                FakeRuntime(), certfile=None, keyfile=None, dev_localhost=False)
 
     asyncio.run(run())

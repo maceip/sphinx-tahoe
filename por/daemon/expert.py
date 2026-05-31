@@ -17,12 +17,24 @@ def run_expert(*, config_path: str, node_id: str) -> int:
 
 def run_expert_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
     _emit_node_log(
-        daemon,
-        "daemon_start",
+        daemon, "daemon_start",
         fields={"supernode_enabled": daemon.supernode.enabled},
     )
     cluster = por_config.to_cluster_config()
-    runtime = WireNodeRuntime(cluster, daemon.node_id, role="expert", logging=daemon.logging)
+    runtime = WireNodeRuntime(
+        cluster,
+        daemon.node_id,
+        role="expert",
+        logging=daemon.logging,
+        provider=daemon.provider,
+    )
+    tls = daemon.transport
+    if tls.certfile and tls.keyfile:
+        from por.quic_runtime import serve_quic_forever
+        return serve_quic_forever(runtime, certfile=tls.certfile, keyfile=tls.keyfile)
+    if tls.dev_allow_insecure_tls:
+        from por.quic_runtime import serve_quic_forever
+        return serve_quic_forever(runtime, dev_localhost=True)
     return runtime.serve_forever()
 
 
