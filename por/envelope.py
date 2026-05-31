@@ -19,7 +19,6 @@ VISIBLE_PROMPT_V1 = "visible_prompt_v1"
 CONFIDENTIAL_PROMPT_V1 = "confidential_prompt_v1"
 HYBRID_RETURN_PATH_V2 = "hybrid_return_path_v2"
 PROOF_NONE = "none"
-PROOF_TLS_EXECUTION = "tls_execution"
 
 
 def _default_streaming_return_descriptor() -> dict[str, object]:

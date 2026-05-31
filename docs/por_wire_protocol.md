@@ -678,4 +678,8 @@ them before a production daemon is treated as stable:
    transport-daemon work.
 5. Prompt hiding and provider-call proof are extension slots only. They do not
    change relay packet bytes unless a future extension explicitly negotiates a
-   new envelope mode.
+   new envelope mode. TLSNotary-style execution proof is planned as
+   `tlsnotary_execution_v1` in `client_extensions` (see
+   `docs/por_layer7_architecture.md`); the MVP wire leaves
+   `proof_requirements` at `["none"]` and does not attach proof payloads to
+   streaming return frames.

@@ -8,7 +8,6 @@ from typing import Iterator, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .attestation import maybe_build_attestation
 from .config import ProviderConfig
 from .envelope import PromptRequestEnvelope
 
@@ -80,35 +79,6 @@ def expert_reply_chunks(
     if not text:
         return [""]
     return [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
-
-
-def expert_reply_with_attestation(
-    envelope: PromptRequestEnvelope,
-    peer_id: str,
-    *,
-    provider_config: ProviderConfig | None = None,
-) -> tuple[str, dict[str, object] | None]:
-    mode = provider_mode(provider_config)
-    text = "".join(stream_expert_reply(envelope, peer_id, provider_config=provider_config))
-    llm_called = mode not in {"harness", "frontier"}
-    host = _upstream_host(mode)
-    attestation = maybe_build_attestation(
-        envelope,
-        peer_id=peer_id,
-        response_text=text,
-        provider_mode=mode,
-        llm_called=llm_called,
-        upstream_host=host,
-    )
-    return text, attestation
-
-
-def _upstream_host(mode: str) -> str | None:
-    if mode == "anthropic":
-        return "api.anthropic.com"
-    if mode == "openai":
-        return "api.openai.com"
-    return None
 
 
 def _harness_expert_reply(peer_id: str, prompt: str, expertise: str) -> str:
