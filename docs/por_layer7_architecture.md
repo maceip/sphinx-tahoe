@@ -80,7 +80,7 @@ por.app.v1
   memory_selector?           cache/session/topic selector
   prompt_payload             plaintext in base mode; encrypted in extension mode
   return_descriptor          SURB or circuit setup reference
-  proof_requirements?        none | tls_transcript | future variants
+  proof_requirements?        none until an extension is negotiated (see Extensions)
   payment_terms?             optional settlement policy
   client_extensions          supported extension identifiers
 ```
@@ -135,11 +135,25 @@ feature. Candidate mechanisms include mpTLS/MPC authorization, split request
 construction, or a future confidential-fetch protocol. Relays should only carry
 opaque bytes.
 
-### Proof Of Execution
+### Proof Of Execution (TLSNotary extension — not shipped)
 
-Proof that a servicing peer called an upstream LLM provider is also an endpoint
-extension. Candidate mechanisms include TLS transcript proofs or zkTLS-style
-receipts. The proof should be returned in the Layer 7 response envelope.
+Proof that a servicing peer called an upstream LLM provider is an **endpoint
+extension**, not base `por.app.v1` behavior. The wire protocol already reserves
+`proof_requirements` and `client_extensions`, but the MVP path leaves both at
+`none` / directory+return modes only.
+
+Planned extension identifier: **`tlsnotary_execution_v1`** (negotiated in
+`client_extensions` by both client and expert before any proof is requested or
+returned). Implementation belongs in a separate extension module and spec — not
+in relay or supernode code paths.
+
+Candidate evidence: TLSNotary / exportable TLS attestations, with optional
+mapping to EIP-8004 **Validation Registry** off-chain URIs and hashes. That
+registry alignment is design intent for later; it must not appear on streaming
+`done` frames until the extension is implemented end-to-end.
+
+Until then, experts answer in visible-prompt mode with no execution proof on the
+wire.
 
 ### Expertise And Memory Claims
 
