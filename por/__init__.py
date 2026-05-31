@@ -24,7 +24,9 @@ __all__ = (
     "DiscoveryProvider",
     "DiscoveryResult",
     "EndpointConfig",
+    "ExpertQualitySignals",
     "ExpertRoutingConfig",
+    "ExpertSessionManifest",
     "ExpertModeConfig",
     "ExpertModePreparedRequest",
     "ExpertModeTrace",
@@ -68,12 +70,14 @@ __all__ = (
     "SupernodeConfig",
     "TrustedReachabilityRelayConfig",
     "UdpEndpoint",
+    "VerifiedQualityEvent",
     "build_dial_plan",
     "build_memory_index",
     "emit_log_event",
     "format_log_event",
     "load_config",
     "load_directory_snapshot",
+    "load_expert_session_manifest",
     "load_public_snapshot_directory",
     "load_records_from_snapshot_file",
     "plan_expert_route",
@@ -84,6 +88,7 @@ __all__ = (
     "send_prepared_envelope",
     "send_prepared_envelope_via_plan",
     "score_manifest",
+    "score_expert_session_manifest",
     "verify_chunk_proof",
     "verify_record_signature",
     "write_config",
@@ -112,6 +117,7 @@ def __getattr__(name):
             "PeerCandidate",
             "PeerObservation",
             "RouteIntent",
+            "load_expert_session_manifest",
             "plan_expert_route",
         }:
             from . import expert_route
@@ -141,6 +147,15 @@ def __getattr__(name):
             from . import config
 
             return getattr(config, name)
+        if name in {
+            "ExpertQualitySignals",
+            "ExpertSessionManifest",
+            "VerifiedQualityEvent",
+            "score_expert_session_manifest",
+        }:
+            from . import expert_manifest
+
+            return getattr(expert_manifest, name)
         if name in {
             "DiscoveryRequest",
             "DiscoveryProvider",

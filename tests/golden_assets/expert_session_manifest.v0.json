@@ -1,0 +1,24 @@
+{
+  "answer_policy": "grounded",
+  "capability_type": "expert_session",
+  "engine": "claude_code",
+  "fork_per_request": true,
+  "freshness": "2026-05-31T07:00:00+00:00",
+  "manifest_id": "manifest-topic-x-001",
+  "max_concurrency": 1,
+  "peer_id": "peer-topic-x",
+  "quality_signals": {
+    "completed_requests": 24,
+    "evaluator_score": 0.91,
+    "median_user_rating": 0.88,
+    "success_rate": 0.96
+  },
+  "signature": "ed25519-signature-placeholder",
+  "summary": "Compiled Claude Code expert session for topic X with curated papers, repository context, tools, and answer policy.",
+  "topics": [
+    "topic X",
+    "expert session routing",
+    "codex claude session orchestration"
+  ],
+  "version": "tenet.expert_manifest.v0"
+}

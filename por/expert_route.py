@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Sequence
 
+from .expert_manifest import ExpertSessionManifest, score_expert_session_manifest
 from .memory_index import MemoryManifest, score_manifest
 
 
@@ -40,6 +41,7 @@ class PeerObservation:
 class PeerCandidate:
     manifest: MemoryManifest
     observation: PeerObservation | None = None
+    expert_manifest: ExpertSessionManifest | None = None
 
 
 @dataclass(frozen=True)
@@ -63,10 +65,14 @@ class CandidateScore:
     peer_id: str
     total_score: float
     memory_score: float
+    session_score: float
     operational_score: float
+    reputation_weight: float
     price_penalty: float
     p50_latency_ms: float
     price_units: float
+    capability_type: str
+    engine: str | None
     reasons: tuple[str, ...]
 
 
@@ -91,6 +97,8 @@ class CandidatePool:
 class ExpertRoutePlan:
     use_expert: bool
     selected_peer_id: str | None
+    selected_capability_type: str | None
+    selected_engine: str | None
     fallback_provider: str
     pool: CandidatePool
     reason: str
@@ -116,7 +124,7 @@ def plan_expert_route(
             degraded_anonymity=False,
             reason="no candidate had measurable memory fit",
         )
-        return ExpertRoutePlan(False, None, intent.fallback_provider, pool, pool.reason)
+        return ExpertRoutePlan(False, None, None, None, intent.fallback_provider, pool, pool.reason)
 
     degraded = len(scored) < intent.min_pool_size
     if degraded and not intent.allow_degraded_pool:
@@ -128,7 +136,7 @@ def plan_expert_route(
             degraded_anonymity=True,
             reason="candidate pool below minimum privacy threshold",
         )
-        return ExpertRoutePlan(False, None, intent.fallback_provider, pool, pool.reason)
+        return ExpertRoutePlan(False, None, None, None, intent.fallback_provider, pool, pool.reason)
 
     pool_tier = _pool_tier(scored, intent.min_pool_size)
     pool = CandidatePool(
@@ -140,7 +148,15 @@ def plan_expert_route(
         reason=_pool_reason(pool_tier),
     )
     selected = _weighted_choice(scored, intent.random_seed)
-    return ExpertRoutePlan(True, selected.peer_id, intent.fallback_provider, pool, pool.reason)
+    return ExpertRoutePlan(
+        True,
+        selected.peer_id,
+        selected.capability_type,
+        selected.engine,
+        intent.fallback_provider,
+        pool,
+        pool.reason,
+    )
 
 
 def _score_candidates(
@@ -157,18 +173,41 @@ def _score_candidates(
             continue
 
         memory = score_manifest(candidate.manifest, query)
-        if memory <= 0:
+        session = (
+            score_expert_session_manifest(candidate.expert_manifest, query)
+            if candidate.expert_manifest is not None
+            else 0.0
+        )
+        routing_fit = max(memory, session)
+        if routing_fit <= 0:
             continue
 
         operational = _operational_score(observation)
+        reputation = (
+            candidate.expert_manifest.quality_signals.reputation_weight()
+            if candidate.expert_manifest is not None
+            else 1.0
+        )
         price_penalty = min(0.4, price / 100.0)
-        total = max(0.0, memory * (0.7 + 0.3 * operational) - price_penalty)
+        total = max(0.0, routing_fit * (0.7 + 0.3 * operational) * reputation - price_penalty)
         if total <= 0:
             continue
 
+        capability_type = (
+            candidate.expert_manifest.capability_type
+            if candidate.expert_manifest is not None and session >= memory
+            else "memory_manifest"
+        )
+        engine = (
+            candidate.expert_manifest.engine
+            if candidate.expert_manifest is not None and session >= memory
+            else None
+        )
         reasons = (
             f"memory_score={memory:.3f}",
+            f"session_score={session:.3f}",
             f"operational_score={operational:.3f}",
+            f"reputation_weight={reputation:.3f}",
             f"p50_latency_ms={observation.p50_latency_ms:.0f}",
             f"price_units={price:.3f}",
         )
@@ -177,10 +216,14 @@ def _score_candidates(
                 peer_id=candidate.manifest.peer_id,
                 total_score=total,
                 memory_score=memory,
+                session_score=session,
                 operational_score=operational,
+                reputation_weight=reputation,
                 price_penalty=price_penalty,
                 p50_latency_ms=observation.p50_latency_ms,
                 price_units=price,
+                capability_type=capability_type,
+                engine=engine,
                 reasons=reasons,
             )
         )
@@ -239,11 +282,21 @@ def load_manifest(path: str | Path) -> MemoryManifest:
     return MemoryManifest.from_json(Path(path).read_text(encoding="utf-8"))
 
 
+def load_expert_session_manifest(path: str | Path) -> ExpertSessionManifest:
+    return ExpertSessionManifest.from_json(Path(path).read_text(encoding="utf-8"))
+
+
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Plan an Expert Mode route from memory manifests.")
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--expertise")
     parser.add_argument("--manifest", action="append", required=True, help="Manifest JSON file. Can be repeated.")
+    parser.add_argument(
+        "--expert-manifest",
+        action="append",
+        default=[],
+        help="Expert session manifest JSON file. Can be repeated.",
+    )
     parser.add_argument("--min-pool-size", type=int, default=3)
     parser.add_argument("--strict-pool", action="store_true", help="Fallback if pool is below min-pool-size.")
     parser.add_argument("--fallback-provider", default="frontier")
@@ -254,6 +307,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     manifests = [load_manifest(path) for path in args.manifest]
+    expert_by_peer = {
+        manifest.peer_id: manifest
+        for manifest in (load_expert_session_manifest(path) for path in args.expert_manifest)
+    }
     intent = RouteIntent(
         prompt=args.prompt,
         requested_expertise=args.expertise,
@@ -262,7 +319,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         fallback_provider=args.fallback_provider,
         random_seed=args.seed,
     )
-    plan = plan_expert_route(intent, [PeerCandidate(manifest) for manifest in manifests])
+    plan = plan_expert_route(
+        intent,
+        [
+            PeerCandidate(manifest, expert_manifest=expert_by_peer.get(manifest.peer_id))
+            for manifest in manifests
+        ],
+    )
     print(plan.to_json())
     return 0
 

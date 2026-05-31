@@ -1,0 +1,14 @@
+{
+  "answer_digest": "sha256:9d6209c94b13f24a8f6e3d9f7f2ccfc59a2e5e9f2fd2f0b5ff6e8f7fd74193a1",
+  "expert_peer_id": "peer-topic-x",
+  "judge_score": 0.86,
+  "latency_ms": 18420,
+  "manifest_id": "manifest-topic-x-001",
+  "rating": "great",
+  "request_id": "req-20260531-topic-x-001",
+  "signature": "ed25519-signature-placeholder",
+  "status": "completed",
+  "timestamp": "2026-05-31T07:01:00+00:00",
+  "topic": "topic X",
+  "version": "tenet.quality_event.v0"
+}

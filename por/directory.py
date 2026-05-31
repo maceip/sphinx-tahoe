@@ -17,6 +17,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from .expert_manifest import ExpertSessionManifest
 from .expert_route import PeerCandidate, PeerObservation, RouteIntent
 from .memory_index import MemoryManifest
 
@@ -47,6 +48,7 @@ class PeerRecord:
     manifest: MemoryManifest
     observation: PeerObservation | None = None
     descriptor: dict[str, object] | None = None
+    expert_manifest: ExpertSessionManifest | None = None
     peer_address: dict[str, object] | None = None
 
     @property
@@ -56,7 +58,9 @@ class PeerRecord:
     def candidate(self) -> PeerCandidate:
         if self.observation and self.observation.peer_id != self.peer_id:
             raise ValueError("observation peer_id must match manifest peer_id")
-        return PeerCandidate(self.manifest, self.observation)
+        if self.expert_manifest and self.expert_manifest.peer_id != self.peer_id:
+            raise ValueError("expert_manifest peer_id must match manifest peer_id")
+        return PeerCandidate(self.manifest, self.observation, self.expert_manifest)
 
 
 @dataclass(frozen=True)
@@ -211,6 +215,7 @@ class DirectorySnapshot:
                     manifest=record.manifest,
                     observation=record.observation,
                     descriptor=record.descriptor,
+                    expert_manifest=record.expert_manifest,
                     peer_address=dict(peer_address) if peer_address is not None else None,
                 )
             )
@@ -235,12 +240,18 @@ class PublicManifestDirectory:
         cls,
         manifests: Sequence[MemoryManifest],
         observations: Sequence[PeerObservation] | None = None,
+        expert_manifests: Sequence[ExpertSessionManifest] | None = None,
         source: str = "local",
     ) -> "PublicManifestDirectory":
         obs_by_peer = {obs.peer_id: obs for obs in observations or ()}
+        expert_by_peer = {manifest.peer_id: manifest for manifest in expert_manifests or ()}
         return cls(
             records=tuple(
-                PeerRecord(manifest=manifest, observation=obs_by_peer.get(manifest.peer_id))
+                PeerRecord(
+                    manifest=manifest,
+                    observation=obs_by_peer.get(manifest.peer_id),
+                    expert_manifest=expert_by_peer.get(manifest.peer_id),
+                )
                 for manifest in manifests
             ),
             source=source,
@@ -369,6 +380,8 @@ def _peer_record_to_dict(record: PeerRecord) -> dict[str, Any]:
         data["observation"] = asdict(record.observation)
     if record.descriptor is not None:
         data["descriptor"] = record.descriptor
+    if record.expert_manifest is not None:
+        data["expert_manifest"] = record.expert_manifest.to_dict()
     if record.peer_address is not None:
         data["peer_address"] = record.peer_address
     return data
@@ -396,6 +409,15 @@ def _peer_record_from_dict(raw: object) -> PeerRecord:
     descriptor = raw.get("descriptor")
     if descriptor is not None and not isinstance(descriptor, dict):
         raise DirectorySnapshotFormatError("record descriptor must be an object")
+    expert_manifest = None
+    expert_manifest_raw = raw.get("expert_manifest")
+    if expert_manifest_raw is not None:
+        if not isinstance(expert_manifest_raw, dict):
+            raise DirectorySnapshotFormatError("record expert_manifest must be an object")
+        try:
+            expert_manifest = ExpertSessionManifest.from_dict(expert_manifest_raw)
+        except (TypeError, ValueError) as exc:
+            raise DirectorySnapshotFormatError("record expert_manifest is invalid") from exc
     peer_address = raw.get("peer_address")
     if peer_address is not None and not isinstance(peer_address, dict):
         raise DirectorySnapshotFormatError("record peer_address must be an object")
@@ -404,6 +426,7 @@ def _peer_record_from_dict(raw: object) -> PeerRecord:
         manifest=manifest,
         observation=observation,
         descriptor=descriptor,
+        expert_manifest=expert_manifest,
         peer_address=peer_address,
     )
     try:

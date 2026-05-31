@@ -158,12 +158,16 @@ def _default_return_descriptor() -> dict[str, object]:
 
 
 def _default_expert_provider_request(plan: ExpertRoutePlan, fallback_provider: str) -> dict[str, object]:
-    return {
+    request: dict[str, object] = {
         "provider": "expert_peer",
         "selected_peer_id": plan.selected_peer_id,
+        "capability_type": plan.selected_capability_type or "memory_manifest",
         "fallback_provider": fallback_provider,
         "stream": True,
     }
+    if plan.selected_engine is not None:
+        request["engine"] = plan.selected_engine
+    return request
 
 
 def _negotiated_extensions(

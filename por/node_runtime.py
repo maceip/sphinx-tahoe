@@ -42,6 +42,7 @@ class WireNodeRuntime:
         *,
         role: NodeRole | None = None,
         logging: LoggingConfig | None = None,
+        provider: object | None = None,
     ):
         self.cluster = cluster
         self.node_id = node_id
@@ -61,6 +62,7 @@ class WireNodeRuntime:
         self._harness = cluster.to_harness_dict()
         self._shutdown = False
         self.logging = logging or LoggingConfig()
+        self.provider = provider
         self.on_reach_control = None
         self.on_opaque_forward = None
         self.supernode_daemon = None
