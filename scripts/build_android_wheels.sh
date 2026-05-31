@@ -36,14 +36,42 @@ build_pqcrypto_from_source() {  # 0.4.0 is wheel-only on PyPI; build from git
       && "$CW" --platform android --output-dir "$OUT" )
 }
 
+HERE="$(cd "$(dirname "$0")" && pwd)"
+PREFIX="${PREFIX:-/tmp/android-prefix}"   # libffi/libsodium install here
+
+build_cffi() {            # needs libffi; build it inside cibuildwheel's toolchain
+  local src; src="$(mktemp -d)"
+  pip download cffi --no-binary :all: --no-deps -d "$src"
+  tar xzf "$src"/*.tar.gz -C "$src"
+  local d; d="$(find "$src" -maxdepth 1 -type d -name 'cffi*')"
+  ( cd "$d" && \
+    CIBW_BEFORE_BUILD="bash $HERE/android/build_libffi.sh" \
+    CIBW_ENVIRONMENT="CPATH=$PREFIX/include LIBRARY_PATH=$PREFIX/lib" \
+    "$CW" --platform android --output-dir "$OUT" )
+}
+
+build_pynacl() {          # needs libsodium; SODIUM_INSTALL=system links the prebuilt
+  local src; src="$(mktemp -d)"
+  pip download pynacl --no-binary :all: --no-deps -d "$src"
+  tar xzf "$src"/*.tar.gz -C "$src"
+  local d; d="$(find "$src" -maxdepth 1 -type d -iname 'pynacl*')"
+  ( cd "$d" && \
+    CIBW_BEFORE_BUILD="bash $HERE/android/build_libsodium.sh" \
+    CIBW_ENVIRONMENT="SODIUM_INSTALL=system CPATH=$PREFIX/include LIBRARY_PATH=$PREFIX/lib" \
+    "$CW" --platform android --output-dir "$OUT" )
+}
+
 build_from_pypi_sdist msgpack
 build_from_pypi_sdist pycryptodome
 build_pqcrypto_from_source
+build_cffi
+build_pynacl
 
-# TODO cffi / pynacl: build libffi / libsodium inside cibuildwheel's toolchain
-#   via CIBW_BEFORE_BUILD (configure --host=aarch64-linux-android + $CC from the
-#   cibuildwheel android env), then CIBW_ENVIRONMENT to point the wheel build at
-#   the prefix (CPPFLAGS/LDFLAGS for cffi; SODIUM_INSTALL=system for pynacl).
+# The cross-compile fix that unblocked cffi/pynacl: build the autotools C lib
+# (libffi/libsodium) INSIDE cibuildwheel's android env with --host (skips the
+# run-tests that fail under cross-compile), then expose it to the wheel build
+# via CPATH + LIBRARY_PATH (clang reads these directly; setuptools LDFLAGS did
+# not propagate to the extension link).
 
 echo "Built wheels in $OUT:"
 ls -1 "$OUT"
