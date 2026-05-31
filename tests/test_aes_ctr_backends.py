@@ -19,7 +19,7 @@ def test_active_backend_aes_ctr_roundtrips_via_lioness():
     key = os.urandom(p.k)
     msg = os.urandom(256)
     assert p.se_dec(key, p.se_enc(key, msg)) == msg
-    assert AES_CTR_BACKEND in {"cryptography", "pycryptodome"}
+    assert AES_CTR_BACKEND in {"cryptography", "pycryptodome", "pyaes"}
 
 
 def test_cryptography_and_pycryptodome_aes_ctr_are_byte_identical():
