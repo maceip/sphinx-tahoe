@@ -31,7 +31,29 @@ from nacl.bindings import (
     crypto_aead_chacha20poly1305_ietf_decrypt,
 )
 
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+# AES-CTR backend. `cryptography` (Rust+OpenSSL) is preferred where available;
+# `pycryptodome` (plain C, no Rust) is a byte-identical fallback used on targets
+# where the Rust toolchain is impractical (e.g. Android). Both implement the
+# same AES-CTR with the full 128-bit IV as the initial counter, so the wire
+# format is unchanged regardless of which is active (see test_aes_ctr_backends).
+try:
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    def _aes_ctr(key, iv, data):
+        enc = Cipher(algorithms.AES(key), modes.CTR(iv)).encryptor()
+        return enc.update(data) + enc.finalize()
+
+    AES_CTR_BACKEND = "cryptography"
+except ImportError:  # pragma: no cover - exercised on the pycryptodome target
+    from Crypto.Cipher import AES as _PyAES
+    from Crypto.Util import Counter as _PyCounter
+
+    def _aes_ctr(key, iv, data):
+        ctr = _PyCounter.new(128, initial_value=int.from_bytes(iv, "big"))
+        return _PyAES.new(key, _PyAES.MODE_CTR, counter=ctr).encrypt(data)
+
+    AES_CTR_BACKEND = "pycryptodome"
+
 from pqcrypto.sign.ml_dsa_65 import (
     generate_keypair as dilithium_generate_keypair,
     sign as dilithium_sign,
@@ -218,8 +240,7 @@ class OutfoxParams:
     def aes_ctr(self, k, m, iv=None):
         if iv is None:
             iv = self.zero_iv
-        encryptor = Cipher(algorithms.AES(k), modes.CTR(iv)).encryptor()
-        return encryptor.update(m) + encryptor.finalize()
+        return _aes_ctr(k, iv, m)
 
     def lioness_enc(self, key, message):
         assert len(key) == self.k

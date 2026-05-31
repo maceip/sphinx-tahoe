@@ -9,5 +9,7 @@
 # these four installed (no aioquic, no pylsqpack).
 pynacl
 msgpack
-cryptography
 pqcrypto
+# AES-CTR payload cipher without the Rust/OpenSSL of `cryptography`. The runtime
+# auto-selects this when `cryptography` is absent; output is byte-identical.
+pycryptodome
