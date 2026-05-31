@@ -32,6 +32,11 @@ __all__ = (
     "ExpertModeConfig",
     "ExpertModePreparedRequest",
     "ExpertModeTrace",
+    "ExpertAdvertisement",
+    "ExpertMatcherIndex",
+    "ExpertPoolCommitment",
+    "ExpertPoolMember",
+    "ExpertPoolMemberProof",
     "ExpertRoutePlan",
     "H3WebSocketClient",
     "H3WebSocketServer",
@@ -59,6 +64,7 @@ __all__ = (
     "QuicEndpoint",
     "QuicTransportUnavailable",
     "QualityEventStore",
+    "PoolSimulationResult",
     "write_localhost_self_signed_cert",
     "AddressChallenge",
     "AddressExposurePolicy",
@@ -94,6 +100,8 @@ __all__ = (
     "send_prepared_envelope_via_plan",
     "score_manifest",
     "score_expert_session_manifest",
+    "select_pool_index",
+    "simulate_expert_pool_routing",
     "verify_chunk_proof",
     "verify_record_signature",
     "write_config",
@@ -174,6 +182,19 @@ def __getattr__(name):
             from . import quality
 
             return getattr(quality, name)
+        if name in {
+            "ExpertAdvertisement",
+            "ExpertMatcherIndex",
+            "ExpertPoolCommitment",
+            "ExpertPoolMember",
+            "ExpertPoolMemberProof",
+            "PoolSimulationResult",
+            "select_pool_index",
+            "simulate_expert_pool_routing",
+        }:
+            from . import expert_pool
+
+            return getattr(expert_pool, name)
         if name in {
             "DiscoveryRequest",
             "DiscoveryProvider",
