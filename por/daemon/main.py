@@ -58,15 +58,19 @@ def build_parser() -> argparse.ArgumentParser:
     quality_record = quality_sub.add_parser("record", help="Record a request event.")
     quality_record.add_argument("--store", required=True)
     quality_record.add_argument("--event", required=True)
-    quality_review = quality_sub.add_parser("review", help="Submit a review for a completed request.")
-    quality_review.add_argument("--store", required=True)
-    quality_review.add_argument("--request-id", required=True)
-    quality_review.add_argument("--rating", required=True)
-    quality_review.add_argument("--complaint-reason")
-    quality_review.add_argument("--judge-score", type=float)
-    quality_review.add_argument("--probe-id")
-    quality_review.add_argument("--timestamp")
-    quality_review.add_argument("--signature")
+    for feedback_name in ("feedback", "review"):
+        quality_feedback = quality_sub.add_parser(
+            feedback_name,
+            help="Submit feedback for a validated completed job." if feedback_name == "feedback" else "Alias for feedback.",
+        )
+        quality_feedback.add_argument("--store", required=True)
+        quality_feedback.add_argument("--request-id", required=True)
+        quality_feedback.add_argument("--rating", required=True)
+        quality_feedback.add_argument("--complaint-reason")
+        quality_feedback.add_argument("--judge-score", type=float)
+        quality_feedback.add_argument("--probe-id")
+        quality_feedback.add_argument("--timestamp")
+        quality_feedback.add_argument("--signature")
     quality_aggregate = quality_sub.add_parser("aggregate", help="Aggregate manifest quality signals.")
     quality_aggregate.add_argument("--store", required=True)
     quality_aggregate.add_argument("--manifest-id", required=True)
@@ -120,7 +124,7 @@ def dispatch(args: argparse.Namespace) -> int:
         argv = [args.quality_command, "--store", args.store]
         if args.quality_command == "record":
             argv.extend(["--event", args.event])
-        elif args.quality_command == "review":
+        elif args.quality_command in {"feedback", "review"}:
             argv.extend(["--request-id", args.request_id, "--rating", args.rating])
             for name in ("complaint_reason", "judge_score", "probe_id", "timestamp", "signature"):
                 value = getattr(args, name)

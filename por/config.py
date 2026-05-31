@@ -527,7 +527,7 @@ class LocalHttpConfig:
     bind: EndpointConfig = field(default_factory=lambda: EndpointConfig(DEFAULT_HOST, 8766))
     path: str = "/v1/expert"
     status_path: str = "/v1/status"
-    review_path: str = "/v1/review"
+    feedback_path: str = "/v1/feedback"
     quality_store_path: str | None = None
 
     def __post_init__(self) -> None:
@@ -544,7 +544,7 @@ class LocalHttpConfig:
             bind=EndpointConfig.from_dict(_mapping_or_none(bind_raw)),
             path=str(raw.get("path", "/v1/expert")),
             status_path=str(raw.get("status_path", "/v1/status")),
-            review_path=str(raw.get("review_path", "/v1/review")),
+            feedback_path=str(raw.get("feedback_path", raw.get("review_path", "/v1/feedback"))),
             quality_store_path=_optional_str(raw.get("quality_store_path")),
         ).validate()
 
@@ -554,12 +554,12 @@ class LocalHttpConfig:
             raise ValueError("local_http.path must start with /")
         if not self.status_path.startswith("/"):
             raise ValueError("local_http.status_path must start with /")
-        if not self.review_path.startswith("/"):
-            raise ValueError("local_http.review_path must start with /")
+        if not self.feedback_path.startswith("/"):
+            raise ValueError("local_http.feedback_path must start with /")
         if self.status_path == self.path:
             raise ValueError("local_http.status_path must differ from local_http.path")
-        if self.review_path in {self.path, self.status_path}:
-            raise ValueError("local_http.review_path must differ from local_http.path/status_path")
+        if self.feedback_path in {self.path, self.status_path}:
+            raise ValueError("local_http.feedback_path must differ from local_http.path/status_path")
         return self
 
 

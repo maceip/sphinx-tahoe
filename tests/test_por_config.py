@@ -252,7 +252,7 @@ def test_local_http_status_path_is_validated():
         )
 
 
-def test_local_http_review_path_and_quality_store_parse(tmp_path):
+def test_local_http_feedback_path_and_quality_store_parse(tmp_path):
     config = DaemonConfig.from_dict(
         {
             "node_id": "client-a",
@@ -262,14 +262,14 @@ def test_local_http_review_path_and_quality_store_parse(tmp_path):
                     "enabled": True,
                     "path": "/v1/expert",
                     "status_path": "/v1/status",
-                    "review_path": "/v1/review",
+                    "feedback_path": "/v1/feedback",
                     "quality_store_path": str(tmp_path / "quality.sqlite"),
                 }
             },
         }
     )
 
-    assert config.client.local_http.review_path == "/v1/review"
+    assert config.client.local_http.feedback_path == "/v1/feedback"
     assert config.client.local_http.quality_store_path.endswith("quality.sqlite")
 
 

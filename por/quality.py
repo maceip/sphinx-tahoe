@@ -1,4 +1,4 @@
-"""Durable v0 quality-event store for completed expert requests and reviews."""
+"""Durable v0 feedback store for validated expert jobs."""
 
 from __future__ import annotations
 
@@ -43,8 +43,11 @@ class RequestNotCompletedError(QualityStoreError):
     pass
 
 
-class DuplicateReviewError(QualityStoreError):
+class DuplicateFeedbackError(QualityStoreError):
     pass
+
+
+DuplicateReviewError = DuplicateFeedbackError
 
 
 class QualityEventStore:
@@ -86,7 +89,7 @@ class QualityEventStore:
             )
         return event
 
-    def submit_review(
+    def submit_feedback(
         self,
         *,
         request_id: str,
@@ -146,8 +149,11 @@ class QualityEventStore:
                     ),
                 )
             except sqlite3.IntegrityError as exc:
-                raise DuplicateReviewError(f"request_id already reviewed: {request_id}") from exc
+                raise DuplicateFeedbackError(f"request_id already has feedback: {request_id}") from exc
         return event
+
+    def submit_review(self, **kwargs) -> VerifiedQualityEvent:
+        return self.submit_feedback(**kwargs)
 
     def aggregate_manifest(self, manifest_id: str) -> ExpertQualitySignals:
         with self._connect() as db:
@@ -229,7 +235,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     record.add_argument("--store", required=True)
     record.add_argument("--event", required=True, help="VerifiedQualityEvent JSON file")
 
-    review = sub.add_parser("review", help="Submit one review for a completed request.")
+    feedback = sub.add_parser("feedback", help="Submit feedback for a validated completed job.")
+    feedback.add_argument("--store", required=True)
+    feedback.add_argument("--request-id", required=True)
+    feedback.add_argument("--rating", required=True)
+    feedback.add_argument("--complaint-reason")
+    feedback.add_argument("--judge-score", type=float)
+    feedback.add_argument("--probe-id")
+    feedback.add_argument("--timestamp")
+    feedback.add_argument("--signature")
+    review = sub.add_parser("review", help="Alias for feedback.")
     review.add_argument("--store", required=True)
     review.add_argument("--request-id", required=True)
     review.add_argument("--rating", required=True)
@@ -249,8 +264,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         event = VerifiedQualityEvent.from_json(Path(args.event).read_text(encoding="utf-8"))
         print(store.record_request(event).to_json())
         return 0
-    if args.command == "review":
-        event = store.submit_review(
+    if args.command in {"feedback", "review"}:
+        event = store.submit_feedback(
             request_id=args.request_id,
             rating=args.rating,
             complaint_reason=args.complaint_reason,

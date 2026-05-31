@@ -19,7 +19,7 @@ from por.directory import load_public_snapshot_directory
 from por.expert_manifest import STATUS_COMPLETED, VerifiedQualityEvent
 from por.log_events import PorLogEvent, emit_log_event
 from por.quality import (
-    DuplicateReviewError,
+    DuplicateFeedbackError,
     QualityEventStore,
     RequestNotCompletedError,
     UnknownRequestError,
@@ -335,7 +335,7 @@ def make_client_http_handler(
 
     path = daemon.client.local_http.path
     status_path = daemon.client.local_http.status_path
-    review_path = daemon.client.local_http.review_path
+    feedback_path = daemon.client.local_http.feedback_path
     quality_store = (
         QualityEventStore(daemon.client.local_http.quality_store_path)
         if daemon.client.local_http.quality_store_path
@@ -364,8 +364,8 @@ def make_client_http_handler(
             self.send_error(404, "not found")
 
         def do_POST(self) -> None:
-            if self.path == review_path:
-                self._handle_review()
+            if self.path == feedback_path:
+                self._handle_feedback()
                 return
             if self.path != path:
                 self.send_error(404, "not found")
@@ -475,7 +475,7 @@ def make_client_http_handler(
                 },
             )
 
-        def _handle_review(self) -> None:
+        def _handle_feedback(self) -> None:
             if quality_store is None:
                 self.send_error(404, "quality store is not configured")
                 return
@@ -483,7 +483,7 @@ def make_client_http_handler(
                 length = int(self.headers.get("Content-Length", "0"))
                 raw = self.rfile.read(length)
                 body = json.loads(raw.decode("utf-8"))
-                event = quality_store.submit_review(
+                event = quality_store.submit_feedback(
                     request_id=str(body["request_id"]),
                     rating=str(body["rating"]),
                     complaint_reason=(
@@ -510,7 +510,7 @@ def make_client_http_handler(
             except RequestNotCompletedError as exc:
                 self.send_error(409, str(exc))
                 return
-            except DuplicateReviewError as exc:
+            except DuplicateFeedbackError as exc:
                 self.send_error(409, str(exc))
                 return
             self._send_json(
@@ -578,7 +578,7 @@ def _status_payload(daemon: DaemonConfig, session: PersistentClientSession) -> d
         "local_http": {
             "path": daemon.client.local_http.path,
             "status_path": daemon.client.local_http.status_path,
-                "review_path": daemon.client.local_http.review_path,
+                "feedback_path": daemon.client.local_http.feedback_path,
                 "quality_store_configured": daemon.client.local_http.quality_store_path is not None,
         },
         "limits": {

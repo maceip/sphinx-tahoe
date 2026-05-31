@@ -11,7 +11,7 @@ from por.daemon.client import make_client_http_handler
 from por.directory import PublicManifestDirectory
 from por.expert_manifest import STATUS_COMPLETED, STATUS_TIMEOUT, VerifiedQualityEvent
 from por.quality import (
-    DuplicateReviewError,
+    DuplicateFeedbackError,
     QualityEventStore,
     RequestNotCompletedError,
 )
@@ -25,22 +25,22 @@ def test_quality_store_enforces_completed_request_before_review(tmp_path):
 
     store.record_request(completed)
     store.record_request(timed_out)
-    review = store.submit_review(request_id="req-ok", rating="great", judge_score=0.9)
+    feedback = store.submit_feedback(request_id="req-ok", rating="great", judge_score=0.9)
 
-    assert review.rating == "great"
+    assert feedback.rating == "great"
     signals = store.aggregate_manifest("manifest-topic-x")
     assert signals.completed_requests == 1
     assert signals.success_rate == 0.5
     assert signals.median_user_rating == 1.0
     assert signals.evaluator_score == 0.9
 
-    with pytest.raises(DuplicateReviewError):
-        store.submit_review(request_id="req-ok", rating="great")
+    with pytest.raises(DuplicateFeedbackError):
+        store.submit_feedback(request_id="req-ok", rating="great")
     with pytest.raises(RequestNotCompletedError):
-        store.submit_review(request_id="req-timeout", rating="wrong")
+        store.submit_feedback(request_id="req-timeout", rating="wrong")
 
 
-def test_quality_cli_records_reviews_and_aggregates(tmp_path):
+def test_quality_cli_records_feedback_and_aggregates(tmp_path):
     store_path = tmp_path / "quality.sqlite"
     event_path = tmp_path / "event.json"
     event_path.write_text(_event("req-cli").to_json(), encoding="utf-8")
@@ -64,13 +64,13 @@ def test_quality_cli_records_reviews_and_aggregates(tmp_path):
     )
     assert record.returncode == 0, record.stdout
 
-    review = subprocess.run(
+    feedback = subprocess.run(
         [
             sys.executable,
             "-m",
             "por",
             "quality",
-            "review",
+            "feedback",
             "--store",
             str(store_path),
             "--request-id",
@@ -85,7 +85,7 @@ def test_quality_cli_records_reviews_and_aggregates(tmp_path):
         stderr=subprocess.STDOUT,
         check=False,
     )
-    assert review.returncode == 0, review.stdout
+    assert feedback.returncode == 0, feedback.stdout
 
     aggregate = subprocess.run(
         [
@@ -110,7 +110,7 @@ def test_quality_cli_records_reviews_and_aggregates(tmp_path):
     assert payload["median_user_rating"] == 1.0
 
 
-def test_local_http_review_endpoint_requires_recorded_completed_request(tmp_path):
+def test_local_http_feedback_endpoint_requires_recorded_completed_request(tmp_path):
     store_path = tmp_path / "quality.sqlite"
     daemon = DaemonConfig.from_dict(
         {
@@ -122,7 +122,7 @@ def test_local_http_review_endpoint_requires_recorded_completed_request(tmp_path
                     "host": "127.0.0.1",
                     "port": 0,
                     "path": "/v1/expert",
-                    "review_path": "/v1/review",
+                    "feedback_path": "/v1/feedback",
                     "quality_store_path": str(store_path),
                 }
             },
@@ -172,13 +172,13 @@ def test_local_http_review_endpoint_requires_recorded_completed_request(tmp_path
         with urlopen(req, timeout=2.0) as response:
             request_id = _request_id_from_sse(response.read().decode("utf-8"))
 
-        review_req = Request(
-            f"{base}/v1/review",
+        feedback_req = Request(
+            f"{base}/v1/feedback",
             data=json.dumps({"request_id": request_id, "rating": "great"}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urlopen(review_req, timeout=2.0) as response:
+        with urlopen(feedback_req, timeout=2.0) as response:
             payload = json.loads(response.read().decode("utf-8"))
 
     assert payload["ok"] is True
