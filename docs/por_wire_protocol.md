@@ -677,14 +677,13 @@ them before a production daemon is treated as stable:
    HTTP/3 Extended CONNECT on QUIC. Persistent peer connections, daemon
    authentication, and cross-hop flow-control policy are still
    transport-daemon work.
-5. Prompt hiding and provider-call proof are extension slots only. They do not
-   change relay packet bytes unless a future extension explicitly negotiates a
-   new envelope mode. TLSNotary-style execution proof is planned as
-   `tlsnotary_execution_v1` in `client_extensions` (see
-   `docs/por_layer7_architecture.md`); the MVP wire leaves
-   `proof_requirements` at `["none"]` and does not attach proof payloads to
-   streaming return frames.
-6. **`payment_terms`** is part of the base envelope (not an extension). When set,
+5. **Prompt hiding** remains a future extension (confidential prompt mode). It
+   does not change relay packet bytes unless a future envelope mode is negotiated.
+6. **Proof of execution** is base endpoint behavior: the final `done` stream
+   frame may include `execution_trace` and `proof_obligation` (zkTLS / TLSNotary
+   prover behind `por/prover.py`). See `docs/por_execution_proof.md`.
+   `proof_requirements` on the request is reserved; proof rides on the response.
+7. **`payment_terms`** is part of the base envelope. When set,
    the expert verifies pay-in before upstream execution and may attach
    `payment_settlement` on the final `done` stream frame. See
    `docs/por_payment_zktls.md`.

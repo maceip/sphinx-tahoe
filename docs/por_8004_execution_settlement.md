@@ -1,14 +1,17 @@
 # Execution + settlement plan (8004-aligned)
 
-Target: **two server-side HTTPS tools** only — `api.anthropic.com`, `api.openai.com` — on the expert path. No browser TLSNotary extension.
+Target: **two server-side HTTPS tools** — `api.anthropic.com`, `api.openai.com`.
+Proof: **TLSNotary** (or compatible prover) behind `por/prover.py`; wire front end
+is `execution_trace`. See `docs/por_execution_proof.md`.
 
 ## Execution (VET + Şen)
 
 | Layer | Choice |
 |-------|--------|
-| Composition | [VET](https://arxiv.org/abs/2512.15892) — one `execution_trace` per job on the final `done` frame |
-| Per-tool proof | [Şen et al. 2026/277](https://eprint.iacr.org/2026/277) — `dx_dctls_export.v0`, threshold policy in `proof_obligation` |
-| Code | `por/execution.py`, `por/settlement.py` |
+| Composition | [VET](https://arxiv.org/abs/2512.15892) — `execution_trace` on final `done` frame |
+| Per-tool proof | [Şen et al. 2026/277](https://eprint.iacr.org/2026/277) — `dx_dctls_export.v0` + threshold validators |
+| Prover | **TLSNotary** via `por/prover.py` (`POR_TLS_PROVER=tlsnotary`) |
+| Code | `por/execution.py`, `por/prover.py`, `por/settlement.py` |
 
 Flow: expert executes → `execution_trace` (AID fragment + step + PGP slot) → coordinator / validators release payout when exportable proof matches `release`.
 
@@ -63,7 +66,7 @@ Aligns with Magicians “validation registry as evidence layer” without overlo
 1. **Now (code)** — trace + terms builders + harness `done` payloads ✓  
 2. **Sponsor service** — off-chain API: approve `request_binding` → set `verified` (unblocks experts without stake)  
 3. **Stake reader** — read Assay / 8004 stake registry → `stake_sufficient`  
-4. **PGP** — integrate dx-DCTLS prover for anthropic/openai server-side calls  
+4. **PGP** — wire TLSNotary session capture into `por/prover.py` for anthropic/openai  
 5. **On-chain** — validation registry `validationRequest` / `validationResponse` + optional 8183 evaluator hook
 
 ## Client example

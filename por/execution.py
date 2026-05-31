@@ -1,13 +1,15 @@
 """Verifiable execution traces for server-side LLM upstream calls (VET + Şen).
 
-Tenet experts call exactly two black-box HTTPS tools today (not browser TLS):
+Tenet experts call exactly two black-box HTTPS tools today:
 
 - ``api.anthropic.com`` (Claude)
 - ``api.openai.com`` (Codex / OpenAI API)
 
-Proof obligation follows collusion-minimized exportable TLS (dx-DCTLS) with
-threshold validation (Şen et al., ePrint 2026/277). Composition follows VET
-(Grigor et al., arXiv:2512.15892): one trace step per upstream tool call.
+Proof uses exportable TLS attestation (dx-DCTLS / zkTLS family; TLSNotary is the
+default pluggable prover via ``por.prover``) with threshold validation (Şen et
+al., ePrint 2026/277). Composition follows VET (Grigor et al., arXiv:2512.15892):
+``execution_trace`` on the final stream frame is the front end; provers plug in
+behind ``proof_obligation.exportable_tls``.
 """
 
 from __future__ import annotations
@@ -127,29 +129,35 @@ def build_proof_obligation(
     provider_mode: str,
     response_text: str,
     harness: bool,
+    session_material: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    """Şen-style PGP slot: exportable attestation + threshold verifiers."""
+    """Şen-style PGP slot: pluggable prover fills ``exportable_tls``."""
+    from .prover import generate_exportable_proof, proof_obligation_status_for_backend
+
     profile = upstream_profile(provider_mode)
     response_sha = sha256(response_text.encode("utf-8")).hexdigest()
+    host = profile.host if profile else None
+    exportable = generate_exportable_proof(
+        request_id=envelope.request_id,
+        upstream_host=host,
+        response_sha256=response_sha,
+        session_material=session_material,
+    )
     obligation: dict[str, object] = {
         "type": PROOF_DX_DCTLS_EXPORT_V0,
-        "status": "pending",
+        "status": proof_obligation_status_for_backend(harness_mode=harness or profile is None),
         "request_id": envelope.request_id,
-        "upstream_host": profile.host if profile else None,
+        "upstream_host": host,
         "response_sha256": response_sha,
-        "exportable_tls": None,
+        "exportable_tls": exportable,
+        "prover": exportable.get("prover"),
         "threshold_policy": dict(DEFAULT_THRESHOLD_POLICY),
         "validation_registry": _validation_registry_hint(envelope),
         "pgp_notes": (
-            "Proof generation phase: expert or coordinator emits exportable "
-            "dx-DCTLS attestation; threshold validators release payout."
+            "PGP: exportable TLS proof from configured prover (default TLSNotary); "
+            "threshold validators release payout per Şen coll-min framework."
         ),
     }
-    if harness or profile is None:
-        obligation["status"] = "harness_stub"
-        obligation["pgp_notes"] = (
-            "Harness: no TLS session captured; bind response_sha256 only."
-        )
     return obligation
 
 

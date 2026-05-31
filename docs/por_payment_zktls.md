@@ -1,6 +1,8 @@
 # Conditional payments on the base envelope (zkTLS / Şen-style)
 
-Payments ride on **`payment_terms`** in `por.app.v1`. No TLSNotary extension negotiation is required. Relays and supernodes treat the forward payload as opaque JSON.
+Payments ride on **`payment_terms`** in `por.app.v1`. Execution proof (zkTLS /
+TLSNotary prover) is separate: see **`docs/por_execution_proof.md`**. Relays stay
+opaque to both.
 
 ## Paper mapping (Şen et al., ePrint 2026/277)
 
@@ -61,7 +63,8 @@ See `docs/por_8004_execution_settlement.md` for the full plan.
 1. Parse `payment_terms`; if absent, behave as today.
 2. If present, verify pay-in (`POR_PAYMENT_VERIFY`: `harness` | `trust` | `strict`).
 3. Call upstream only after pay-in passes.
-4. On final stream frame, attach `payment_settlement` with `status: proof_due` and empty `proof_obligation` until zkTLS is wired.
+4. On final stream frame, attach `payment_settlement` and `execution_trace`; prover
+   fills `proof_obligation` (`POR_TLS_PROVER=tlsnotary`).
 
 ## Client helper
 
@@ -85,5 +88,6 @@ env = PromptRequestEnvelope.visible_prompt(
 ## Not in scope yet
 
 - On-chain escrow / x402 facilitator integration
-- Live TLSNotary prover in the expert process
-- Threshold verifier network (DVRF/TSS) — belongs with settlement coordinator
+- Threshold verifier network (DVRF/TSS) — settlement coordinator
+
+Execution prover: **`docs/por_execution_proof.md`** (`por/prover.py`).

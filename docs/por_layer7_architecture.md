@@ -80,7 +80,7 @@ por.app.v1
   memory_selector?           cache/session/topic selector
   prompt_payload             plaintext in base mode; encrypted in extension mode
   return_descriptor          SURB or circuit setup reference
-  proof_requirements?        none until an extension is negotiated (see Extensions)
+  proof_requirements?        reserved (execution proof on response; see por_execution_proof.md)
   payment_terms?             optional settlement policy
   client_extensions          supported extension identifiers
 ```
@@ -135,33 +135,27 @@ feature. Candidate mechanisms include mpTLS/MPC authorization, split request
 construction, or a future confidential-fetch protocol. Relays should only carry
 opaque bytes.
 
-### Proof Of Execution (TLSNotary extension — not shipped)
+### Proof of execution (base envelope — zkTLS / TLSNotary prover)
 
-Proof that a servicing peer called an upstream LLM provider is an **endpoint
-extension**, not base `por.app.v1` behavior. The wire protocol already reserves
-`proof_requirements` and `client_extensions`, but the MVP path leaves both at
-`none` / directory+return modes only.
+Proof that a servicing peer called an upstream LLM API is **base endpoint
+behavior**, delivered on the **final streaming `done` frame** as
+`execution_trace` (VET composition) with a **`proof_obligation`** filled by a
+**pluggable prover** (`por/prover.py`; default production target: **TLSNotary**).
 
-Planned extension identifier: **`tlsnotary_execution_v1`** (negotiated in
-`client_extensions` by both client and expert before any proof is requested or
-returned). Implementation belongs in a separate extension module and spec — not
-in relay or supernode code paths.
+Allowed upstream hosts today: `api.anthropic.com`, `api.openai.com` (server-side
+HTTP from the expert, not browser TLS). Cryptographic profile:
+`dx_dctls_export.v0` (exportable TLS / zkTLS family; Şen PGP + threshold
+validators for payout). See **`docs/por_execution_proof.md`**.
 
-Candidate evidence: TLSNotary / exportable TLS attestations, with optional
-mapping to EIP-8004 **Validation Registry** off-chain URIs and hashes. That
-registry alignment is design intent for later; it must not appear on streaming
-`done` frames until the extension is implemented end-to-end.
+Relays and supernodes do not parse proofs. Enable with `POR_TLS_PROVER=tlsnotary`.
 
-Until then, experts answer in visible-prompt mode with no execution proof on the
-wire.
+### Conditional payments (base envelope)
 
-### Conditional payments (base envelope — shipped)
-
-`payment_terms` on `por.app.v1` implements pay-in → execute → zkTLS proof (PGP) →
-payout without a separate extension id. See `docs/por_payment_zktls.md`. The final
-streaming frame may include `payment_settlement` when terms were present on the
-request. This is orthogonal to ERC-8004 reputation and to the future TLSNotary
-execution-proof extension.
+`payment_terms` implements pay-in → execute → PGP → payout. See
+`docs/por_8004_execution_settlement.md` and `docs/por_payment_zktls.md`. The
+`done` frame may include `payment_settlement` when terms were set on the request.
+Orthogonal to ERC-8004 identity/reputation; composes with the **validation
+registry** as the evidence layer.
 
 ### Expertise And Memory Claims
 
@@ -327,7 +321,8 @@ Still missing or incomplete:
 - Production daemon wiring with persistent peer connections.
 - Migration of process demos to the final per-hop link-CID return wire.
 - Real provider/LLM integration in the UDP/QUIC harnesses.
-- Prompt hiding and proof-of-execution extensions.
+- Prompt hiding extension.
+- TLSNotary prover wired to expert HTTP session capture (`POR_TLS_PROVER=tlsnotary`).
 - A gateway that maps HTTP/SSE provider traffic into envelopes and back.
 
 The existing `sphinxmix` package should remain the lower-level packet/routing
