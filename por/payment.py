@@ -1,26 +1,40 @@
 """Conditional settlement via base ``payment_terms`` on ``por.app.v1`` envelopes.
 
-Maps the pay-in → execute → proof-generation (PGP) → payout pattern from
-collusion-minimized / exportable TLS attestation work (Şen et al., ePrint
-2026/277) onto the existing expert path. This is **not** a wire extension:
-relays stay ignorant; only client and expert interpret ``payment_terms``.
-
-zkTLS / dx-DCTLS + threshold verifiers are **off-envelope** obligations referenced
-by hash and URI. The mixnet carries the job terms; settlement coordinators verify
-pay-in and release payout when an exportable proof satisfies ``release``.
+Pay-in → execute → proof generation (PGP) → payout (Şen et al., ePrint 2026/277).
+Supports ERC-8004-aligned stake collateral and network-sponsored service fees
+(gas + expert fee) without user-mounted escrow per job.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any, Mapping
 
 from .envelope import PromptRequestEnvelope
+from .execution import release_predicate_for_provider
 
 PAYMENT_TERMS_V0 = "por.payment_terms.v0"
+
+# Legacy / strict escrow path
 SCHEME_ZKTLS_CONDITIONAL = "zktls_conditional_v0"
+# Network (tenet) sponsors gas + expert fee — custom service paymaster pattern
+SCHEME_SPONSORED_SERVICE = "sponsored_service_v0"
+# Expert ERC-8004 agent stake covers job (Assay-style collateral)
+SCHEME_ERC8004_STAKE = "erc8004_stake_v0"
+# 8183 job id in pay_in.ref — optional composition
+SCHEME_ERC8183_JOB = "erc8183_job_v0"
+
+SUPPORTED_SCHEMES = frozenset(
+    {
+        SCHEME_ZKTLS_CONDITIONAL,
+        SCHEME_SPONSORED_SERVICE,
+        SCHEME_ERC8004_STAKE,
+        SCHEME_ERC8183_JOB,
+    }
+)
 
 STATUS_PAY_IN_REQUIRED = "pay_in_required"
 STATUS_PAY_IN_VERIFIED = "pay_in_verified"
@@ -30,11 +44,11 @@ STATUS_PAYOUT_PENDING = "payout_pending"
 STATUS_PAYOUT_RELEASED = "payout_released"
 STATUS_FAILED = "failed"
 
+DEFAULT_SPONSOR_COVERS = ("gas", "expert_fee")
+
 
 @dataclass(frozen=True)
 class PaymentTerms:
-    """Client-declared conditional payment for one expert execution."""
-
     type: str
     scheme: str
     request_binding: str
@@ -49,7 +63,7 @@ class PaymentTerms:
         if raw.get("type") != PAYMENT_TERMS_V0:
             raise ValueError(f"unsupported payment_terms type: {raw.get('type')!r}")
         scheme = str(raw.get("scheme", ""))
-        if scheme != SCHEME_ZKTLS_CONDITIONAL:
+        if scheme not in SUPPORTED_SCHEMES:
             raise ValueError(f"unsupported payment scheme: {scheme!r}")
         binding = raw.get("request_binding")
         if not isinstance(binding, str) or not binding:
@@ -96,7 +110,6 @@ class PaymentTerms:
 
 
 def request_binding_hash(envelope: PromptRequestEnvelope) -> str:
-    """Commitment over stable request fields (pay-in locks this job)."""
     material = {
         "version": envelope.version,
         "request_id": envelope.request_id,
@@ -121,41 +134,163 @@ def payment_terms_from_envelope(envelope: PromptRequestEnvelope) -> PaymentTerms
 def build_payment_terms(
     envelope: PromptRequestEnvelope,
     *,
+    scheme: str,
     pay_in: dict[str, object],
     payout: dict[str, object],
-    release: dict[str, object],
+    release: dict[str, object] | None = None,
     not_after: int | None = None,
 ) -> dict[str, object]:
-    """Helper for clients attaching conditional settlement to a request."""
     binding = request_binding_hash(envelope)
-    terms = PaymentTerms(
+    if release is None:
+        mode = str(envelope.provider_request.get("provider", "harness"))
+        provider_mode = mode if mode in {"anthropic", "openai", "harness"} else "harness"
+        release = release_predicate_for_provider(provider_mode)
+    return PaymentTerms(
         type=PAYMENT_TERMS_V0,
-        scheme=SCHEME_ZKTLS_CONDITIONAL,
+        scheme=scheme,
         request_binding=binding,
         pay_in=pay_in,
         payout=payout,
         release=release,
         not_after=not_after,
+    ).to_dict()
+
+
+def build_sponsored_service_terms(
+    envelope: PromptRequestEnvelope,
+    *,
+    sponsor_id: str,
+    sponsor_address: str | None = None,
+    expert_fee_atomic: str = "0",
+    asset: str = "USDC",
+    verified: bool = True,
+) -> dict[str, object]:
+    """Network sponsor covers gas (4337 paymaster) + expert fee (service paymaster)."""
+    pay_in: dict[str, object] = {
+        "sponsor": {
+            "id": sponsor_id,
+            "address": sponsor_address,
+            "covers": list(DEFAULT_SPONSOR_COVERS),
+            "gas_paymaster": "erc4337",
+            "service_paymaster": "tenet_sponsor_v0",
+        },
+        "verified": verified,
+        "expert_fee": {"amount": expert_fee_atomic, "asset": asset},
+    }
+    return build_payment_terms(
+        envelope,
+        scheme=SCHEME_SPONSORED_SERVICE,
+        pay_in=pay_in,
+        payout={
+            "payee": envelope.selected_peer_id,
+            "amount": expert_fee_atomic,
+            "asset": asset,
+        },
     )
-    return terms.to_dict()
+
+
+def build_erc8004_stake_terms(
+    envelope: PromptRequestEnvelope,
+    *,
+    agent_registry: str,
+    agent_id: str,
+    stake_wei: str,
+    min_stake_wei: str | None = None,
+    stake_sufficient: bool = True,
+    expert_fee_atomic: str = "0",
+    asset: str = "USDC",
+) -> dict[str, object]:
+    """Provider collateral via ERC-8004 identity + stake (Assay-style path)."""
+    pay_in: dict[str, object] = {
+        "stake": {
+            "agent_registry": agent_registry,
+            "agent_id": agent_id,
+            "stake_wei": stake_wei,
+            "min_stake_wei": min_stake_wei or stake_wei,
+            "stake_sufficient": stake_sufficient,
+        },
+        "verified": stake_sufficient,
+    }
+    intent_extra = {
+        "agent_registry": agent_registry,
+        "agent_id": agent_id,
+    }
+    return build_payment_terms(
+        envelope,
+        scheme=SCHEME_ERC8004_STAKE,
+        pay_in=pay_in,
+        payout={
+            "payee": envelope.selected_peer_id,
+            "amount": expert_fee_atomic,
+            "asset": asset,
+        },
+    )
+
+
+def build_default_tenet_payment_terms(
+    envelope: PromptRequestEnvelope,
+    *,
+    prefer_stake: bool = True,
+) -> dict[str, object]:
+    """Prefer 8004 stake when agent_id present; else network-sponsored path."""
+    intent = envelope.intent_descriptor
+    registry = intent.get("agent_registry")
+    agent_id = intent.get("agent_id")
+    if prefer_stake and registry and agent_id:
+        return build_erc8004_stake_terms(
+            envelope,
+            agent_registry=str(registry),
+            agent_id=str(agent_id),
+            stake_wei=str(intent.get("stake_wei") or "0"),
+            stake_sufficient=bool(intent.get("stake_sufficient", True)),
+        )
+    sponsor = str(intent.get("sponsor_id") or os.environ.get("TENET_SPONSOR_ID", "tenet-network"))
+    return build_sponsored_service_terms(
+        envelope,
+        sponsor_id=sponsor,
+        sponsor_address=os.environ.get("TENET_SPONSOR_ADDRESS"),
+        verified=True,
+    )
 
 
 def verify_pay_in(terms: PaymentTerms, *, mode: str) -> bool:
-    """Return whether pay-in is satisfied before the expert calls upstream.
-
-    ``harness`` and ``trust`` accept any well-formed pay_in block for dev.
-    ``strict`` requires ``pay_in.verified == true`` (set by client/coordinator).
-    """
     if mode in {"harness", "trust"}:
-        return bool(terms.pay_in)
-    if mode == "strict":
+        return _scheme_pay_in_present(terms)
+    if mode != "strict":
+        return False
+
+    if terms.scheme == SCHEME_SPONSORED_SERVICE:
+        sponsor = terms.pay_in.get("sponsor")
+        return (
+            isinstance(sponsor, dict)
+            and terms.pay_in.get("verified") is True
+            and bool(sponsor.get("covers"))
+        )
+    if terms.scheme == SCHEME_ERC8004_STAKE:
+        stake = terms.pay_in.get("stake")
+        return (
+            isinstance(stake, dict)
+            and stake.get("stake_sufficient") is True
+            and terms.pay_in.get("verified") is True
+        )
+    if terms.scheme == SCHEME_ERC8183_JOB:
+        return terms.pay_in.get("job_funded") is True
+    if terms.scheme == SCHEME_ZKTLS_CONDITIONAL:
         return terms.pay_in.get("verified") is True
     return False
 
 
-def payment_verify_mode() -> str:
-    import os
+def _scheme_pay_in_present(terms: PaymentTerms) -> bool:
+    if terms.scheme == SCHEME_SPONSORED_SERVICE:
+        return isinstance(terms.pay_in.get("sponsor"), dict)
+    if terms.scheme == SCHEME_ERC8004_STAKE:
+        return isinstance(terms.pay_in.get("stake"), dict)
+    if terms.scheme == SCHEME_ERC8183_JOB:
+        return bool(terms.pay_in.get("job_id") or terms.pay_in.get("ref"))
+    return bool(terms.pay_in)
 
+
+def payment_verify_mode() -> str:
     return os.environ.get("POR_PAYMENT_VERIFY", "harness").strip().lower() or "harness"
 
 
@@ -165,15 +300,13 @@ def require_pay_in_before_execution(envelope: PromptRequestEnvelope) -> PaymentT
         return None
     if not verify_pay_in(terms, mode=payment_verify_mode()):
         raise PaymentRequiredError(
-            "pay_in not verified; expert will not call upstream until premium is locked",
+            "pay_in not verified; expert will not call upstream until funding path is satisfied",
             terms=terms.to_dict(),
         )
     return terms
 
 
 class PaymentRequiredError(RuntimeError):
-    """Raised when execution proceeds without satisfied pay-in."""
-
     def __init__(self, message: str, *, terms: dict[str, object]):
         super().__init__(message)
         self.terms = terms
@@ -188,29 +321,10 @@ def build_settlement_receipt(
     terms: PaymentTerms,
     pay_in_verified: bool,
 ) -> dict[str, object]:
-    """Post-execution settlement state returned on the final stream frame."""
-    response_sha = sha256(response_text.encode("utf-8")).hexdigest()
-    upstream = _upstream_host(provider_mode)
-    proof_slot = {
-        "type": "exportable_tls.v0",
-        "status": "pending",
-        "proof_uri": None,
-        "proof_hash": None,
-        "notes": (
-            "Submit dx-DCTLS / zkTLS exportable attestation in PGP; "
-            "threshold verifiers release payout per payment_terms.release"
-        ),
-    }
-    if provider_mode == "harness":
-        proof_slot["status"] = "harness_stub"
-        proof_slot["notes"] = "Harness: no TLS transcript; payout remains off-chain/manual"
+    from .execution import upstream_host
 
-    if not pay_in_verified:
-        status = STATUS_PAY_IN_REQUIRED
-    elif provider_mode == "harness":
-        status = STATUS_PROOF_DUE
-    else:
-        status = STATUS_PROOF_DUE
+    response_sha = sha256(response_text.encode("utf-8")).hexdigest()
+    status = STATUS_PAY_IN_REQUIRED if not pay_in_verified else STATUS_PROOF_DUE
 
     return {
         "type": "por.payment_settlement.v0",
@@ -218,15 +332,18 @@ def build_settlement_receipt(
         "request_binding": terms.request_binding,
         "scheme": terms.scheme,
         "status": status,
-        "pay_in": {"verified": pay_in_verified, "ref": terms.pay_in.get("ref")},
+        "pay_in": {
+            "verified": pay_in_verified,
+            "ref": terms.pay_in.get("ref") or terms.pay_in.get("job_id"),
+            "path": terms.scheme,
+        },
         "execution": {
             "peer_id": peer_id,
             "provider_mode": provider_mode,
             "response_sha256": response_sha,
-            "upstream_host": upstream,
+            "upstream_host": upstream_host(provider_mode),
             "llm_called": provider_mode not in {"harness", "frontier"},
         },
-        "proof_obligation": proof_slot,
         "payout": {
             "status": STATUS_PAYOUT_PENDING if pay_in_verified else STATUS_FAILED,
             "payee": terms.payout.get("payee"),
@@ -246,14 +363,6 @@ def stream_done_payload(
     if settlement is not None:
         payload["payment_settlement"] = settlement
     return payload
-
-
-def _upstream_host(provider_mode: str) -> str | None:
-    if provider_mode == "anthropic":
-        return "api.anthropic.com"
-    if provider_mode == "openai":
-        return "api.openai.com"
-    return None
 
 
 def _canonical_json(obj: Mapping[str, Any]) -> str:

@@ -10,14 +10,8 @@ from urllib.request import Request, urlopen
 
 from .config import ProviderConfig
 from .envelope import PromptRequestEnvelope
-from .payment import (
-    PaymentRequiredError,
-    build_settlement_receipt,
-    payment_terms_from_envelope,
-    payment_verify_mode,
-    require_pay_in_before_execution,
-    verify_pay_in,
-)
+from .payment import PaymentRequiredError, require_pay_in_before_execution
+from .settlement import build_verifiable_completion, pay_in_verified_for_envelope
 
 
 class ProviderError(RuntimeError):
@@ -108,18 +102,16 @@ def expert_reply_with_settlement(
     *,
     provider_config: ProviderConfig | None = None,
 ) -> tuple[str, dict[str, object] | None]:
+    """Return reply text and optional ``done``-frame completion (trace + settlement)."""
     mode = provider_mode(provider_config)
-    terms = payment_terms_from_envelope(envelope)
-    pay_ok = terms is not None and verify_pay_in(terms, mode=payment_verify_mode())
+    terms, pay_ok = pay_in_verified_for_envelope(envelope)
     if terms is not None:
         try:
             require_pay_in_before_execution(envelope)
         except PaymentRequiredError as exc:
             raise PayInRequiredError(str(exc), terms=exc.terms) from exc
     text = "".join(stream_expert_reply(envelope, peer_id, provider_config=provider_config))
-    if terms is None:
-        return text, None
-    return text, build_settlement_receipt(
+    completion = build_verifiable_completion(
         envelope,
         peer_id=peer_id,
         response_text=text,
@@ -127,6 +119,7 @@ def expert_reply_with_settlement(
         terms=terms,
         pay_in_verified=pay_ok,
     )
+    return text, completion
 
 
 def _harness_expert_reply(peer_id: str, prompt: str, expertise: str) -> str:

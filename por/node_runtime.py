@@ -24,7 +24,7 @@ from sphinxmix.OutfoxParams import OutfoxParams, derive_circuit_key
 from .config import ClusterConfig, LoggingConfig, ProviderConfig
 from .envelope import PromptRequestEnvelope
 from .log_events import PorLogEvent, emit_log_event
-from .payment import stream_done_payload
+from .settlement import stream_done_with_verification
 from .provider import PayInRequiredError, ProviderError, expert_reply_with_settlement
 from .wire_frame import decode_datagram, encode_forward
 
@@ -360,9 +360,9 @@ class WireNodeRuntime:
         return_next: str,
         src_addr: tuple[str, int] | None,
     ) -> None:
-        settlement: dict[str, object] | None = None
+        completion: dict[str, object] | None = None
         try:
-            text, settlement = expert_reply_with_settlement(
+            text, completion = expert_reply_with_settlement(
                 envelope, self.node_id, provider_config=self.provider
             )
         except PayInRequiredError as exc:
@@ -390,7 +390,7 @@ class WireNodeRuntime:
             time.sleep(0.05)
 
         done = json.dumps(
-            stream_done_payload(len(chunks), settlement=settlement),
+            stream_done_with_verification(len(chunks), completion=completion),
             separators=(",", ":"),
         ).encode("utf-8")
         pkt = circuit_packet_create(self.params, exit_outbound, len(chunks), done, [exit_key])

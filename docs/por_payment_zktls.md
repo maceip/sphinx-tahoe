@@ -17,12 +17,23 @@ The paper’s point for decentralized settings: **one O(1) prover session** plus
 
 x402 is **pay → retry HTTP** on the same URL. Tenet is **pay → route through mixnet → expert executes → prove → payout**. The receipt on the return stream is `payment_settlement`, not `PAYMENT-RESPONSE` headers.
 
+## Payment schemes
+
+| `scheme` | Use |
+|----------|-----|
+| `sponsored_service_v0` | Network pays gas + expert fee (default without stake) |
+| `erc8004_stake_v0` | Provider stake / 8004 identity (preferred when `agent_id` set) |
+| `erc8183_job_v0` | Optional 8183 job escrow |
+| `zktls_conditional_v0` | User escrow (legacy) |
+
+See `docs/por_8004_execution_settlement.md` for the full plan.
+
 ## `payment_terms` shape (`por.payment_terms.v0`)
 
 ```json
 {
   "type": "por.payment_terms.v0",
-  "scheme": "zktls_conditional_v0",
+  "scheme": "sponsored_service_v0",
   "request_binding": "0x…",
   "pay_in": {
     "ref": "escrow-or-channel-id",
