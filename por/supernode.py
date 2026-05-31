@@ -1,7 +1,8 @@
-"""Supernode inline forward — user-space UDP relay for NAT'd peers.
+"""Relay inline forward — user-space UDP relay for NAT'd peers.
 
-A supernode is a regular P-OR node (same binary) with a public IP that also
-forwards packets for registered peers who can't accept inbound connections.
+Any relay with a public IP can forward packets for registered peers who
+can't accept inbound connections. There is no special "supernode" role —
+this is just a relay that opted into the REACH forwarding table.
 
 Flow:
   1. Expert registers with supernode via PeerAddressRelay (challenge/confirm)

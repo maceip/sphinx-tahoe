@@ -1,4 +1,7 @@
-"""Supernode daemon — reachability relay + mix node on one UDP bind.
+"""Relay with REACH forwarding — reachability relay + mix node on one UDP bind.
+
+Any relay with a public IP can enable REACH forwarding. There is no special
+"supernode" role — this is relay behavior activated by config.
 
 Demux order (per docs/supernode_threat_model.md):
   1. REACH_* control → PeerAddressRelay (register/challenge/confirm/heartbeat)
