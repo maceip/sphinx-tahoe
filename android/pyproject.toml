@@ -14,11 +14,11 @@ long_description = "On-device self-test of the tenet native crypto stack."
 console_app = true
 sources = ["src/tenet", "por", "sphinxmix"]
 requires = [
-    "/Users/mac/tenet-android/dist/android-wheels/cffi-2.0.0-cp313-cp313-android_21_arm64_v8a.whl",
-    "/Users/mac/tenet-android/dist/android-wheels/msgpack-1.1.2-cp313-cp313-android_21_arm64_v8a.whl",
-    "/Users/mac/tenet-android/dist/android-wheels/pynacl-1.6.2-cp313-cp313-android_21_arm64_v8a.whl",
-    "/Users/mac/tenet-android/dist/android-wheels/pyaes-1.6.1-py3-none-any.whl",
-    "/Users/mac/tenet-android/dist/android-wheels/dilithium_py-1.4.0-py3-none-any.whl"
+    "../dist/android-wheels/cffi-2.0.0-cp313-cp313-android_21_arm64_v8a.whl",
+    "../dist/android-wheels/msgpack-1.1.2-cp313-cp313-android_21_arm64_v8a.whl",
+    "../dist/android-wheels/pynacl-1.6.2-cp313-cp313-android_21_arm64_v8a.whl",
+    "../dist/android-wheels/pyaes-1.6.1-py3-none-any.whl",
+    "../dist/android-wheels/dilithium_py-1.4.0-py3-none-any.whl"
 ]
 
 [tool.briefcase.app.tenet.android]
