@@ -182,11 +182,11 @@ class ClusterNodeConfig:
 
 @dataclass(frozen=True)
 class ClusterConfig:
-    """Compatibility config for the legacy cluster JSON shape.
+    """Local cluster config for coordinated node startup.
 
-    The product path is ``por.config.v1`` through ``por run``. This shape is
-    still accepted by ``por send`` / ``por relay`` / ``por expert`` for process
-    tests and explicit low-level runs.
+    Used when multiple nodes share a config file (e.g. local development,
+    integration tests). Relay addresses here are transport endpoints, not
+    expert identities — experts are discovered via directory + REACH.
     """
 
     params: PacketConfig

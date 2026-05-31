@@ -389,8 +389,19 @@ class WireNodeRuntime:
                 else:
                     sock.sendto(data, peer_addr)
                 return
-        target = self.cluster.node(target_id)
-        sock.sendto(data, (target.host, target.port))
+        # Relay must discover next hop via REACH forwarding table, not static config.
+        # Fall back to cluster config ONLY for the client return address (which the
+        # relay legitimately knows from the forward packet's source).
+        if target_id == "client":
+            target = self.cluster.client
+            sock.sendto(data, (target.host, target.port))
+            return
+        try:
+            target = self.cluster.node(target_id)
+            sock.sendto(data, (target.host, target.port))
+        except (KeyError, AttributeError):
+            self._log("send_no_route", level="warning",
+                      fields={"target": target_id})
 
 def build_native_forward_plan(forward_path: Sequence[str] | list[str] | tuple[str, ...]):
     """Build route-info and circuit setup for process-wire clients.
