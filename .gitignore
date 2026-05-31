@@ -110,3 +110,10 @@ venv.bak/
 
 # Internal working notes (arc / coordination / in-progress design)
 /notes/
+
+# Android build artifacts
+.venv*/
+/build/
+/dist/
+*.apk
+*.aab

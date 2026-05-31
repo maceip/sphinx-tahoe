@@ -1,0 +1,13 @@
+# UDP-only Android client runtime dependencies.
+#
+# The QUIC transport (aioquic + its pylsqpack/h3 stack) is excluded: it is
+# optional in the runtime (guarded by AIOQUIC_AVAILABLE) and not on the core
+# client path. `cryptography` stays — it is used for the AES-CTR payload stream
+# cipher in the packet format, not only by QUIC.
+#
+# Verified: `por` client + runtime import and the packet crypto runs with only
+# these four installed (no aioquic, no pylsqpack).
+pynacl
+msgpack
+cryptography
+pqcrypto

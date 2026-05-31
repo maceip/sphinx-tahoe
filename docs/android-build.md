@@ -26,16 +26,23 @@ The painful dependency is the QUIC stack (`aioquic` → `cryptography` →
 Rust-for-Android). In this codebase that stack is **optional** — guarded behind
 `AIOQUIC_AVAILABLE`; the core client / runtime / daemon path never imports it.
 
-So **Android v0 = UDP-only client**, which drops `aioquic` and `cryptography`
-entirely and leaves three plain-C native deps:
+So **Android v0 = UDP-only client**, which drops `aioquic` (and its
+`pylsqpack`/`h3` C stack). Verified: the `por` client + runtime import and the
+packet crypto runs with only the four deps below — no `aioquic`. The set:
 
 | Dep | Provides | Android build notes |
 |-----|----------|---------------------|
-| `pynacl` (libsodium) | core packet crypto (X25519, AEAD) | libsodium has official `android-*.sh` scripts; pynacl is cffi over it |
+| `pynacl` (libsodium) | X25519 KEM, ChaCha20-Poly1305 AEAD | libsodium has official `android-*.sh` scripts; pynacl is cffi over it |
 | `msgpack` | wire serialization | single C module |
-| `pqcrypto` (PQClean) | ML-DSA-65 signatures on forward payloads | plain C, no deps; no upstream Android wheel yet → we build it |
+| `cryptography` | AES-CTR payload stream cipher (`se_enc`/`se_dec`) | **needs Rust** (`aarch64-linux-android` target); pyca + BeeWare mobile-forge have recipes |
+| `pqcrypto` (PQClean) | ML-DSA-65 signatures on forward payloads | plain C, no deps; no upstream Android wheel → we build it |
 
-No Rust. v1 adds the QUIC transport + APK packaging (see Open questions).
+Correction to an earlier note: `cryptography` is **not** QUIC-only — it backs
+the AES-CTR payload cipher in `sphinxmix/OutfoxParams.py`, so it stays and the
+Rust-for-Android toolchain is required. (A future option is swapping AES-CTR for
+a libsodium ChaCha20 stream to drop the Rust dep — a wire-format change, out of
+scope for v0.) `pqcrypto` remains the one dep with no existing Android recipe.
+v1 adds the QUIC transport + native APK polish.
 
 ## Toolchain prerequisites
 
