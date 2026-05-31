@@ -1,16 +1,23 @@
 # Proof of execution (zkTLS / TLSNotary prover)
 
+Locked decisions: **`docs/por_locked_decisions.md`**.
+
 Execution proof is **base `por.app.v1` behavior**, not a relay extension and not
 negotiated via `client_extensions`.
 
 ## Composition (front end + prover)
 
 ```text
-expert HTTP call (anthropic | openai)
+client + expert already online (2P)
+    → mpc_session on request binds verifier_peer_id
+expert HTTP call (anthropic | openai)  [expert = MPC prover]
     → execution_trace on final done frame     ← wire front end (por/execution.py)
         → proof_obligation.exportable_tls     ← pluggable prover (por/prover.py)
-            → threshold validators / 8004 validation registry → payout
+            → 8004 validation registry / coordinator → payout
 ```
+
+Default: **no** dedicated notary peer; the requesting client is the MPC **verifier**.
+Portable/offline notary attestations and threshold k-of-n are **policy opt-ins** only.
 
 | Layer | Module | Role |
 |-------|--------|------|
@@ -45,9 +52,12 @@ connected (`por/prover.py`).
 
 ## Request envelope fields
 
+- **`mpc_session`** (`por.mpc_session.v0`, mode `inline_2p_v0`): `verifier_peer_id` of the
+  client in the live session; included in `request_binding` so the expert cannot swap verifiers.
 - **`proof_requirements`**: reserved; execution proof is carried on the **response**
   (`execution_trace`), not by setting `proof_requirements` on the request.
-- **`payment_terms`**: funding path (stake / sponsor); see `docs/por_8004_execution_settlement.md`.
+- **`payment_terms`**: funding path (stake / sponsor); canonical terms are part of
+  `request_binding`; see `docs/por_8004_execution_settlement.md`.
 
 ## Allowed upstream hosts
 

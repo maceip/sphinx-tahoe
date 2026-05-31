@@ -82,6 +82,7 @@ por.app.v1
   return_descriptor          SURB or circuit setup reference
   proof_requirements?        reserved (execution proof on response; see por_execution_proof.md)
   payment_terms?             optional settlement policy
+  mpc_session?               inline 2P MPC verifier binding (por_locked_decisions.md)
   client_extensions          supported extension identifiers
 ```
 

@@ -153,6 +153,7 @@ def build_proof_obligation(
         "prover": exportable.get("prover"),
         "threshold_policy": dict(DEFAULT_THRESHOLD_POLICY),
         "validation_registry": _validation_registry_hint(envelope),
+        "mpc_session": envelope.mpc_session,
         "pgp_notes": (
             "PGP: exportable TLS proof from configured prover (default TLSNotary); "
             "threshold validators release payout per Şen coll-min framework."

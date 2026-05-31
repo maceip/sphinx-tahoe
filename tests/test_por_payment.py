@@ -1,4 +1,4 @@
-from por.envelope import PromptRequestEnvelope
+from por.envelope import PromptRequestEnvelope, build_inline_mpc_session
 from por.execution import UPSTREAM_PROFILES, build_execution_trace
 from por.payment import (
     SCHEME_ERC8004_STAKE,
@@ -156,3 +156,48 @@ def test_envelope_roundtrip_payment_terms():
     restored = PromptRequestEnvelope.from_json(env.to_json())
     assert restored.payment_terms is not None
     assert restored.payment_terms["scheme"] == SCHEME_ZKTLS_CONDITIONAL
+
+
+def test_request_binding_includes_payment_terms():
+    base = PromptRequestEnvelope.visible_prompt("x", selected_peer_id="expert_1")
+    terms_a = build_payment_terms(
+        base,
+        scheme=SCHEME_ZKTLS_CONDITIONAL,
+        pay_in={"ref": "a", "verified": True},
+        payout={"payee": "expert_1", "amount": "100", "asset": "USDC"},
+    )
+    terms_b = build_payment_terms(
+        base,
+        scheme=SCHEME_ZKTLS_CONDITIONAL,
+        pay_in={"ref": "a", "verified": True},
+        payout={"payee": "expert_1", "amount": "200", "asset": "USDC"},
+    )
+    env_a = PromptRequestEnvelope.visible_prompt(
+        "x", selected_peer_id="expert_1", request_id=base.request_id, payment_terms=terms_a
+    )
+    env_b = PromptRequestEnvelope.visible_prompt(
+        "x", selected_peer_id="expert_1", request_id=base.request_id, payment_terms=terms_b
+    )
+    assert request_binding_hash(env_a) != request_binding_hash(env_b)
+
+
+def test_request_binding_includes_mpc_session():
+    base = PromptRequestEnvelope.visible_prompt("x", selected_peer_id="expert_1")
+    session_a = build_inline_mpc_session(verifier_peer_id="client_a")
+    session_b = build_inline_mpc_session(verifier_peer_id="client_b")
+    env_a = PromptRequestEnvelope.visible_prompt(
+        "x", selected_peer_id="expert_1", request_id=base.request_id, mpc_session=session_a
+    )
+    env_b = PromptRequestEnvelope.visible_prompt(
+        "x", selected_peer_id="expert_1", request_id=base.request_id, mpc_session=session_b
+    )
+    assert request_binding_hash(env_a) != request_binding_hash(env_b)
+
+
+def test_execution_trace_carries_mpc_session():
+    session = build_inline_mpc_session(verifier_peer_id="client_1")
+    env = PromptRequestEnvelope.visible_prompt(
+        "q", selected_peer_id="p", mpc_session=session
+    )
+    trace = build_execution_trace(env, peer_id="p", provider_mode="anthropic", response_text="a")
+    assert trace["proof_obligation"]["mpc_session"] == session

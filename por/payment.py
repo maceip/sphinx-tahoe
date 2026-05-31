@@ -109,8 +109,20 @@ class PaymentTerms:
             )
 
 
-def request_binding_hash(envelope: PromptRequestEnvelope) -> str:
-    material = {
+def _payment_terms_binding_material(
+    raw: Mapping[str, object],
+) -> dict[str, object]:
+    """Canonical pay-in/payout/release for binding (exclude self-referential hash)."""
+    return {k: v for k, v in raw.items() if k != "request_binding"}
+
+
+def request_binding_hash(
+    envelope: PromptRequestEnvelope,
+    *,
+    pending_payment_terms: Mapping[str, object] | None = None,
+) -> str:
+    """Hash job identity: prompt route, settlement terms, and MPC verifier binding."""
+    material: dict[str, object] = {
         "version": envelope.version,
         "request_id": envelope.request_id,
         "selected_peer_id": envelope.selected_peer_id,
@@ -119,6 +131,11 @@ def request_binding_hash(envelope: PromptRequestEnvelope) -> str:
         "prompt_sha256": envelope.intent_descriptor.get("prompt_sha256"),
         "provider_request": envelope.provider_request,
     }
+    terms_raw = pending_payment_terms if pending_payment_terms is not None else envelope.payment_terms
+    if terms_raw is not None:
+        material["payment_terms"] = _payment_terms_binding_material(terms_raw)
+    if envelope.mpc_session is not None:
+        material["mpc_session"] = envelope.mpc_session
     return "0x" + sha256(_canonical_json(material).encode()).hexdigest()
 
 
@@ -140,11 +157,20 @@ def build_payment_terms(
     release: dict[str, object] | None = None,
     not_after: int | None = None,
 ) -> dict[str, object]:
-    binding = request_binding_hash(envelope)
     if release is None:
         mode = str(envelope.provider_request.get("provider", "harness"))
         provider_mode = mode if mode in {"anthropic", "openai", "harness"} else "harness"
         release = release_predicate_for_provider(provider_mode)
+    pending: dict[str, object] = {
+        "type": PAYMENT_TERMS_V0,
+        "scheme": scheme,
+        "pay_in": pay_in,
+        "payout": payout,
+        "release": release,
+    }
+    if not_after is not None:
+        pending["not_after"] = not_after
+    binding = request_binding_hash(envelope, pending_payment_terms=pending)
     return PaymentTerms(
         type=PAYMENT_TERMS_V0,
         scheme=scheme,

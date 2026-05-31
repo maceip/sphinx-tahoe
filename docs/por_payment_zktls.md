@@ -56,7 +56,9 @@ See `docs/por_8004_execution_settlement.md` for the full plan.
 }
 ```
 
-`request_binding` MUST equal `request_binding_hash(envelope)` so pay-in locks this job, not another prompt.
+`request_binding` MUST equal `request_binding_hash(envelope)` so pay-in locks this job,
+not another prompt. The hash includes canonical **`payment_terms`** (pay-in/payout/release)
+and **`mpc_session`** when present — changing payout or verifier identity changes the binding.
 
 ## Expert behavior
 
