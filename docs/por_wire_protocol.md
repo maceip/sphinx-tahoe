@@ -531,6 +531,7 @@ Current schema from `por.envelope.PromptRequestEnvelope`:
     "return_profile": "relay_additive_v1"
   },
   "proof_requirements": ["none"],
+  "payment_terms": null,
   "client_extensions": ["public_snapshot_v1", "hybrid_return_path_v2"],
   "privacy_warnings": []
 }
@@ -683,3 +684,7 @@ them before a production daemon is treated as stable:
    `docs/por_layer7_architecture.md`); the MVP wire leaves
    `proof_requirements` at `["none"]` and does not attach proof payloads to
    streaming return frames.
+6. **`payment_terms`** is part of the base envelope (not an extension). When set,
+   the expert verifies pay-in before upstream execution and may attach
+   `payment_settlement` on the final `done` stream frame. See
+   `docs/por_payment_zktls.md`.

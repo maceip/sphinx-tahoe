@@ -155,6 +155,14 @@ registry alignment is design intent for later; it must not appear on streaming
 Until then, experts answer in visible-prompt mode with no execution proof on the
 wire.
 
+### Conditional payments (base envelope — shipped)
+
+`payment_terms` on `por.app.v1` implements pay-in → execute → zkTLS proof (PGP) →
+payout without a separate extension id. See `docs/por_payment_zktls.md`. The final
+streaming frame may include `payment_settlement` when terms were present on the
+request. This is orthogonal to ERC-8004 reputation and to the future TLSNotary
+execution-proof extension.
+
 ### Expertise And Memory Claims
 
 Expertise and memory should be expressed in signed descriptors and validated by

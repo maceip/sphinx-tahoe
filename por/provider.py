@@ -10,6 +10,14 @@ from urllib.request import Request, urlopen
 
 from .config import ProviderConfig
 from .envelope import PromptRequestEnvelope
+from .payment import (
+    PaymentRequiredError,
+    build_settlement_receipt,
+    payment_terms_from_envelope,
+    payment_verify_mode,
+    require_pay_in_before_execution,
+    verify_pay_in,
+)
 
 
 class ProviderError(RuntimeError):
@@ -19,6 +27,14 @@ class ProviderError(RuntimeError):
         super().__init__(message)
         self.status = status
         self.retryable = retryable
+
+
+class PayInRequiredError(ProviderError):
+    """Pay-in on ``payment_terms`` was not satisfied before upstream execution."""
+
+    def __init__(self, message: str, *, terms: dict[str, object]):
+        super().__init__(message, retryable=False)
+        self.terms = terms
 
 
 def provider_mode(provider_config: ProviderConfig | None = None) -> str:
@@ -33,6 +49,11 @@ def stream_expert_reply(
     *,
     provider_config: ProviderConfig | None = None,
 ) -> Iterator[str]:
+    try:
+        require_pay_in_before_execution(envelope)
+    except PaymentRequiredError as exc:
+        raise PayInRequiredError(str(exc), terms=exc.terms) from exc
+
     prompt = envelope.prompt_text()
     expertise = envelope.intent_descriptor.get("requested_expertise") or "auto"
     mode = provider_mode(provider_config)
@@ -79,6 +100,33 @@ def expert_reply_chunks(
     if not text:
         return [""]
     return [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
+
+
+def expert_reply_with_settlement(
+    envelope: PromptRequestEnvelope,
+    peer_id: str,
+    *,
+    provider_config: ProviderConfig | None = None,
+) -> tuple[str, dict[str, object] | None]:
+    mode = provider_mode(provider_config)
+    terms = payment_terms_from_envelope(envelope)
+    pay_ok = terms is not None and verify_pay_in(terms, mode=payment_verify_mode())
+    if terms is not None:
+        try:
+            require_pay_in_before_execution(envelope)
+        except PaymentRequiredError as exc:
+            raise PayInRequiredError(str(exc), terms=exc.terms) from exc
+    text = "".join(stream_expert_reply(envelope, peer_id, provider_config=provider_config))
+    if terms is None:
+        return text, None
+    return text, build_settlement_receipt(
+        envelope,
+        peer_id=peer_id,
+        response_text=text,
+        provider_mode=mode,
+        terms=terms,
+        pay_in_verified=pay_ok,
+    )
 
 
 def _harness_expert_reply(peer_id: str, prompt: str, expertise: str) -> str:

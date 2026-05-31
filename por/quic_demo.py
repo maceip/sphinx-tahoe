@@ -52,7 +52,8 @@ def _b64e(data: bytes) -> str:
 
 def _b64d(data: str) -> bytes:
     return _base64.b64decode(data.encode("ascii"))
-from .provider import ProviderError, expert_reply_chunks
+from .payment import stream_done_payload
+from .provider import PayInRequiredError, ProviderError, expert_reply_with_settlement
 from .udp_demo import (
     DemoResult,
     _collect_node_logs,
@@ -315,8 +316,14 @@ async def _handle_forward(config, params, node_id, sk, pk, circuits, frame):
         ),
         flush=True,
     )
+    settlement: dict[str, object] | None = None
     try:
-        chunks = expert_reply_chunks(envelope, node_id)
+        text, settlement = expert_reply_with_settlement(envelope, node_id)
+        chunk_size = 256
+        chunks = [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)] if text else [""]
+    except PayInRequiredError as exc:
+        print(f"node={node_id} event=pay_in_required reason={exc!s}", flush=True)
+        chunks = [f"[pay_in_required] peer={node_id} message={exc}"]
     except ProviderError as exc:
         print(
             f"node={node_id} event=provider_error retryable={str(exc.retryable).lower()} reason={exc!s}",
@@ -329,7 +336,10 @@ async def _handle_forward(config, params, node_id, sk, pk, circuits, frame):
         await asyncio.sleep(0.05)
 
     done_seq = len(chunks)
-    done = json.dumps({"seq": done_seq, "data": "", "done": True}).encode("utf-8")
+    done = json.dumps(
+        stream_done_payload(done_seq, settlement=settlement),
+        separators=(",", ":"),
+    ).encode("utf-8")
     await _stream_return_chunk(config, params, exit_entry["next_id"], exit_outbound, done_seq, done, exit_key)
 
 

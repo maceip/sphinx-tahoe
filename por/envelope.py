@@ -38,6 +38,7 @@ class PromptRequestEnvelope:
     prompt_payload: dict[str, object]
     return_descriptor: dict[str, object]
     proof_requirements: tuple[str, ...] = (PROOF_NONE,)
+    payment_terms: dict[str, object] | None = None
     client_extensions: tuple[str, ...] = field(default_factory=tuple)
     privacy_warnings: tuple[str, ...] = field(default_factory=tuple)
 
@@ -50,6 +51,7 @@ class PromptRequestEnvelope:
         provider_request: dict[str, object] | None = None,
         return_descriptor: dict[str, object] | None = None,
         proof_requirements: Sequence[str] = (PROOF_NONE,),
+        payment_terms: dict[str, object] | None = None,
         client_extensions: Sequence[str] = (),
         privacy_warnings: Sequence[str] = (),
         request_id: str | None = None,
@@ -76,6 +78,7 @@ class PromptRequestEnvelope:
             },
             return_descriptor=return_descriptor or _default_streaming_return_descriptor(),
             proof_requirements=tuple(proof_requirements),
+            payment_terms=dict(payment_terms) if payment_terms is not None else None,
             client_extensions=tuple(client_extensions),
             privacy_warnings=tuple(privacy_warnings),
         )
@@ -99,6 +102,9 @@ class PromptRequestEnvelope:
             prompt_payload=dict(raw["prompt_payload"]),
             return_descriptor=dict(raw["return_descriptor"]),
             proof_requirements=tuple(raw.get("proof_requirements", (PROOF_NONE,))),
+            payment_terms=(
+                dict(raw["payment_terms"]) if raw.get("payment_terms") is not None else None
+            ),
             client_extensions=tuple(raw.get("client_extensions", ())),
             privacy_warnings=tuple(raw.get("privacy_warnings", ())),
         )
@@ -129,4 +135,8 @@ class PromptRequestEnvelope:
             )
         if self.mode == VISIBLE_PROMPT_V1 and "text" not in self.prompt_payload:
             raise ValueError("visible prompt envelope requires prompt_payload.text")
+        if self.payment_terms is not None:
+            from .payment import PaymentTerms
+
+            PaymentTerms.from_dict(self.payment_terms).validate_against_envelope(self)
 
