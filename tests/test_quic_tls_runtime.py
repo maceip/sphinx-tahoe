@@ -79,7 +79,7 @@ def test_production_quic_runtime_requires_cert():
     """QUIC runtime without cert and dev_localhost=False raises."""
     import por.quic_runtime
 
-    class FakeRuntime:
+    class RuntimeDouble:
         identity = type("I", (), {"host": "127.0.0.1", "port": 0})()
         params = type("P", (), {"payload_size": 1024})()
         on_reach_control = None
@@ -89,6 +89,6 @@ def test_production_quic_runtime_requires_cert():
     async def run():
         with pytest.raises(ValueError, match="certfile"):
             await por.quic_runtime._serve_quic_async(
-                FakeRuntime(), certfile=None, keyfile=None, dev_localhost=False)
+                RuntimeDouble(), certfile=None, keyfile=None, dev_localhost=False)
 
     asyncio.run(run())

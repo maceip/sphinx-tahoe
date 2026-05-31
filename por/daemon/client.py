@@ -160,6 +160,7 @@ class PersistentClientSession:
                 dev_allow_untrusted_reachability_relays=(
                     self.daemon.client.dev_allow_untrusted_reachability_relays
                 ),
+                provider_config=self.daemon.provider,
                 on_chunk=wrapped_chunk,
             )
         except Exception as exc:

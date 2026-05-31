@@ -149,7 +149,7 @@ def make_client_config(
 ) -> "QuicConfiguration":
     """Build a QUIC client config with DATAGRAM support enabled.
 
-    TLS verification is on by default. Localhost demos with generated
+    TLS verification is on by default. Localhost development runs with generated
     self-signed certificates must explicitly set both ``verify_tls=False`` and
     ``dev_allow_insecure_tls=True``.
     """

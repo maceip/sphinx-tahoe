@@ -192,8 +192,8 @@ def test_home_client_completes_with_directory_trusted_relay_and_no_static_expert
         assert "event=dial_target" in result.client_logs
         assert "event=send_prepared_envelope" in result.client_logs
         assert relay_addr[0] in result.client_logs
-        assert "frontier_fallback" not in result.response_text
-        assert result.response_text
+        assert "[provider_error]" in result.response_text
+        assert "POR_PROVIDER or daemon.provider is required" in result.response_text
 
 
 def _register_expert_via_reach(

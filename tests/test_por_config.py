@@ -353,4 +353,4 @@ def test_cluster_config_loads_current_demo_shape(tmp_path):
 
     assert cluster.params.routing_size == 96
     assert cluster.node("relay1").kem_pk_hex == "00" * 32
-    assert cluster.to_harness_dict()["nodes"]["relay1"]["kem_sk"] == "11" * 32
+    assert cluster.to_legacy_dict()["nodes"]["relay1"]["kem_sk"] == "11" * 32

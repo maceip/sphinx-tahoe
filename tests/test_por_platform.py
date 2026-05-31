@@ -61,7 +61,7 @@ def test_por_run_dispatches_roles(monkeypatch, tmp_path, argv, attr, expected_no
     )
     seen = {}
 
-    def fake_runner(*args, **kwargs):
+    def recording_runner(*args, **kwargs):
         if "run_relay_cluster" in attr:
             seen["node_id"] = args[0].node_id
             seen["cluster_nodes"] = tuple(args[1].to_cluster_config().nodes)
@@ -70,18 +70,11 @@ def test_por_run_dispatches_roles(monkeypatch, tmp_path, argv, attr, expected_no
             seen["daemon_count"] = len(args[1].daemons)
         return 0
 
-    monkeypatch.setattr(attr, fake_runner)
+    monkeypatch.setattr(attr, recording_runner)
     parsed = [part.replace("{config}", str(path)) for part in argv]
     args = build_parser().parse_args(parsed)
     assert dispatch(args) == 0
     assert seen["node_id"] == expected_node
-
-
-def test_udp_demo_uses_unified_por_module():
-    from por.udp_demo import _daemon_argv
-
-    assert _daemon_argv("relay1") == ["-m", "por", "relay", "--config"]
-    assert _daemon_argv("expert_art") == ["-m", "por", "expert", "--config"]
 
 
 def test_structured_logging_redacts_sensitive_fields():
@@ -136,6 +129,11 @@ def test_relay_and_expert_cluster_entrypoints_emit_start_log(monkeypatch, tmp_pa
                         "transport": {"port": 7002},
                         "kem_pk": "03" * 32,
                         "kem_sk": "04" * 32,
+                        "provider": {
+                            "provider": "openai",
+                            "model": "gpt-test",
+                            "api_key_env": "OPENAI_API_KEY",
+                        },
                     },
                 },
             }
@@ -150,11 +148,11 @@ def test_relay_and_expert_cluster_entrypoints_emit_start_log(monkeypatch, tmp_pa
     monkeypatch.setattr(
         WireNodeRuntime,
         "serve_forever",
-        lambda self: seen.append(self.role) or 0,
+        lambda self: seen.append((self.role, self.provider.provider if self.provider else None)) or 0,
     )
     assert run_relay_cluster(por_config.daemon("relay1"), por_config) == 0
     assert run_expert_cluster(por_config.daemon("expert_art"), por_config) == 0
-    assert seen == ["relay", "expert"]
+    assert seen == [("relay", None), ("expert", "openai")]
 
 
 def test_local_http_sse_on_client_process(tmp_path):
@@ -188,20 +186,20 @@ def test_local_http_sse_on_client_process(tmp_path):
         }
     )
 
-    def fake_runner(**_kwargs):
+    def response_runner(**_kwargs):
         return ClientRunResult(
             selected_peer_id="expert_art",
             degraded_anonymity=False,
             fallback_used=False,
             response_text="hello from expert",
-            client_logs="client event=fake",
+            client_logs="client event=test",
         )
 
     handler = make_client_http_handler(
         daemon=daemon,
         cluster=cluster,
         discovery_provider=PublicManifestDirectory(records=tuple()),
-        runner=fake_runner,
+        runner=response_runner,
     )
     with mixnet_harness() as net:
         server = net.serve_http(handler)
@@ -251,20 +249,20 @@ def test_local_http_status_reports_session_counters():
         }
     )
 
-    def fake_runner(**_kwargs):
+    def response_runner(**_kwargs):
         return ClientRunResult(
             selected_peer_id="expert_art",
             degraded_anonymity=False,
             fallback_used=False,
             response_text="hello",
-            client_logs="client event=fake",
+            client_logs="client event=test",
         )
 
     handler = make_client_http_handler(
         daemon=daemon,
         cluster=cluster,
         discovery_provider=PublicManifestDirectory(records=tuple()),
-        runner=fake_runner,
+        runner=response_runner,
     )
     with mixnet_harness() as net:
         server = net.serve_http(handler)
@@ -320,21 +318,21 @@ def test_persistent_client_session_reuses_loaded_state(capsys):
     discovery = PublicManifestDirectory(records=tuple())
     seen_discovery_ids = []
 
-    def fake_runner(**kwargs):
+    def response_runner(**kwargs):
         seen_discovery_ids.append(id(kwargs["discovery_provider"]))
         return ClientRunResult(
             selected_peer_id=None,
             degraded_anonymity=False,
             fallback_used=True,
             response_text=f"response:{kwargs['prompt']}",
-            client_logs="client event=fake",
+            client_logs="client event=test",
         )
 
     session = PersistentClientSession(
         daemon=daemon,
         cluster=cluster,
         discovery_provider=discovery,
-        runner=fake_runner,
+        runner=response_runner,
     )
 
     assert session.request(prompt="first").response_text == "response:first"
@@ -384,7 +382,7 @@ def test_local_http_sse_flushes_chunk_before_request_finishes():
     )
     release = threading.Event()
 
-    def fake_runner(**kwargs):
+    def streaming_runner(**kwargs):
         kwargs["on_chunk"]({"seq": 0, "data": "first-token", "done": False})
         assert release.wait(timeout=2.0)
         kwargs["on_chunk"]({"seq": 1, "data": "second-token", "done": False})
@@ -393,14 +391,14 @@ def test_local_http_sse_flushes_chunk_before_request_finishes():
             degraded_anonymity=False,
             fallback_used=False,
             response_text="first-tokensecond-token",
-            client_logs="client event=fake",
+            client_logs="client event=test",
         )
 
     handler = make_client_http_handler(
         daemon=daemon,
         cluster=cluster,
         discovery_provider=PublicManifestDirectory(records=tuple()),
-        runner=fake_runner,
+        runner=streaming_runner,
     )
     with mixnet_harness() as net:
         server = net.serve_http(handler)

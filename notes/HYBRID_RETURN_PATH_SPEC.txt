@@ -470,9 +470,9 @@ timing analysis, not identifier matching.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-14. IMPLEMENTATION STATUS (PACKET/SIM VS PROCESS HARNESS)
+14. IMPLEMENTATION STATUS (PACKET TESTS VS PROCESS WIRE)
 
-Implemented in core packet/simulator paths:
+Implemented in core packet helpers and test-only packet utility:
 
   OutfoxParams.py    derive_circuit_key()                ✓
   OutfoxParams.py    CIRCUIT_MAGIC, CIRCUIT_TYPE         ✓
@@ -482,28 +482,26 @@ Implemented in core packet/simulator paths:
   OutfoxNode.py      outfox_process + on_circuit callback✓
   OutfoxClient.py    _build_header with circuit fields   ✓
   OutfoxClient.py    packet_create_repliable + circuit   ✓
-  mixnet.py          CircuitTable (extended, LRU, TTL)   ✓
-  mixnet.py          MixNode type-byte dispatch          ✓
-  mixnet.py          Client circuit decrypt + re-establish✓
-  mixnet.py          MixnetSim circuit stream routing    ✓
-  sim_mixnet_anthropic_proxy.py  Circuit streaming mode in MixnetSim  ✓
+  tests/mixnet_test_network.py CircuitTable (LRU, TTL)            ✓
+  tests/mixnet_test_network.py MixNode type-byte dispatch         ✓
+  tests/mixnet_test_network.py Client circuit decrypt + re-establish✓
+  tests/mixnet_test_network.py MixnetTestNetwork circuit stream routing   ✓
+  removed review proxy Circuit streaming regression path ✓
 
-Implemented in packet/simulator code, not yet migrated into process demos:
+Implemented in packet helper/test utility code:
 
   OutfoxParams.py    derive_circuit_key info → "circuit"
   OutfoxClient.py    _build_header: inbound + outbound link CIDs
   OutfoxClient.py    packet_create_repliable: generate bound CIDs
   OutfoxNode.py      outfox_process: extract inbound + outbound CIDs
   OutfoxNode.py      circuit_packet_process: header rewrite
-  mixnet.py          CircuitTable: store outbound_link_cid
-  mixnet.py          Client: key by client.inbound_link_cid
+  tests/mixnet_test_network.py CircuitTable: store outbound_link_cid
+  tests/mixnet_test_network.py Client: key by client.inbound_link_cid
   Tests:             link binding invariants, header rewrite per hop,
                      non-adjacent collusion regression test
 
 Remaining process-wire work:
 
-  por/udp_demo.py    Replace demo POR1 global circuit_id with per-hop link CIDs
-  por/quic_demo.py   Same migration for the QUIC/H3 process harness
   Transport daemon   Persistent peer connections and binary frame carrier
 
 
@@ -513,8 +511,8 @@ Remaining process-wire work:
 
 Phase 1: Primitives                                          ✓ DONE
 Phase 2: Circuit setup in forward path                       ✓ DONE
-Phase 2.5: Per-hop link circuit identifiers in packet/sim    ✓ DONE
-Phase 2.6: Per-hop link IDs in UDP/QUIC process harnesses    ← NEXT
+Phase 2.5: Per-hop link circuit identifiers in packet tests   ✓ DONE
+Phase 2.6: Per-hop link IDs in production process wire        ← NEXT
 Phase 3: Client integration                                  ✓ DONE
-Phase 4: Simulator wiring                                    ✓ DONE
-Phase 5: Streaming behavior in sim/harness                   ✓ DONE
+Phase 4: Test utility wiring                                  ✓ DONE
+Phase 5: Streaming behavior in process/test paths             ✓ DONE

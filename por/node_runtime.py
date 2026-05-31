@@ -59,7 +59,6 @@ class WireNodeRuntime:
         self.sk = bytes.fromhex(self.identity.kem_sk_hex)
         self.pk = bytes.fromhex(self.identity.kem_pk_hex)
         self.circuits: dict[str, dict[str, object]] = {}
-        self._harness = cluster.to_harness_dict()
         self._shutdown = False
         self.logging = logging or LoggingConfig()
         self.provider = provider
@@ -101,7 +100,7 @@ class WireNodeRuntime:
         """Drive the canonical binary receive/dispatch loop on a bound socket.
 
         Production ``serve_forever`` binds its own socket and delegates here.
-        Test harnesses bind a socket once, hold it open, and pass it in — so a
+        Tests can bind a socket once, hold it open, and pass it in — so a
         node never closes a port only to rebind it later (the source of the
         cross-test datagram races). ``stop`` is an optional ``threading.Event``;
         when set, the loop exits without relying on signal handlers.

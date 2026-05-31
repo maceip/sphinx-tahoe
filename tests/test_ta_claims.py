@@ -9,6 +9,7 @@ from sphinxmix.ta_claims import (
     assert_honest_streaming_copy,
     find_forbidden_streaming_claims,
     response_claim_headers,
+    missing_scan_paths,
     scan_files_for_forbidden_claims,
     streaming_return_descriptor,
 )
@@ -64,7 +65,8 @@ def test_expert_mode_default_envelope_has_ta_claim(tmp_path):
 
 
 def test_scan_tracked_docs_are_honest():
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parents[1]
+    assert missing_scan_paths(root) == ()
     violations = scan_files_for_forbidden_claims(root)
     assert violations == []
 

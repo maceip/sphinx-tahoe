@@ -10,7 +10,7 @@ Header/payload split for forward packets: the receiver knows payload_size
 from config, so header_len = len(datagram) - 1 - payload_size.
 
 This module is the ONLY place that defines wire byte layout for production
-daemons. JSON/base64 framing in udp_demo is harness-only.
+daemons.
 """
 
 from __future__ import annotations

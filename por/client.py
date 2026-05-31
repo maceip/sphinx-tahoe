@@ -16,7 +16,12 @@ from sphinxmix.OutfoxClient import packet_create
 from sphinxmix.OutfoxNode import circuit_packet_decrypt
 from sphinxmix.OutfoxParams import OutfoxParams
 
-from .config import ClusterConfig, PeerAddressConfig, TrustedReachabilityRelayConfig
+from .config import (
+    ClusterConfig,
+    PeerAddressConfig,
+    ProviderConfig,
+    TrustedReachabilityRelayConfig,
+)
 from .directory import DiscoveryProvider
 from .envelope import PromptRequestEnvelope
 from .expert_mode import ExpertModeConfig, prepare_expert_mode_request
@@ -59,13 +64,14 @@ def run_client_once(
     peer_address_records: Mapping[str, dict[str, object]] | None = None,
     trusted_reachability_relays: Sequence[TrustedReachabilityRelayConfig] = (),
     dev_allow_untrusted_reachability_relays: bool = False,
+    provider_config: ProviderConfig | None = None,
     on_chunk: Callable[[dict[str, object]], None] | None = None,
     client_sock: socket.socket | None = None,
 ) -> ClientRunResult:
     """Plan one Expert Mode request and send the prepared envelope if selected.
 
     ``client_sock`` is an optional pre-bound socket on the cluster client
-    address; callers that own the socket lifecycle (e.g. test harnesses holding
+    address; callers that own the socket lifecycle (e.g. tests holding
     a port open to avoid rebind races) pass it through to the send path.
     """
 
@@ -91,7 +97,9 @@ def run_client_once(
     ]
 
     if not prepared.use_expert or prepared.envelope is None:
-        response = "".join(stream_frontier_reply(prompt, prepared.trace.fallback_reason))
+        response = "".join(
+            stream_frontier_reply(prompt, prepared.trace.fallback_reason, provider_config)
+        )
         return ClientRunResult(
             selected_peer_id=None,
             degraded_anonymity=prepared.plan.pool.degraded_anonymity,
@@ -114,7 +122,7 @@ def run_client_once(
     )
     logs.extend(route_result.logs)
     if route_result.blocked_reason is not None:
-        response = "".join(stream_frontier_reply(prompt, route_result.blocked_reason))
+        response = "".join(stream_frontier_reply(prompt, route_result.blocked_reason, provider_config))
         return ClientRunResult(
             selected_peer_id=selected_peer_id,
             degraded_anonymity=prepared.plan.pool.degraded_anonymity,
@@ -128,7 +136,9 @@ def run_client_once(
         selected_peer_id,
         relay_path=route_result.relay_path,
     ):
-        response = "".join(stream_frontier_reply(prompt, "selected expert peer not in cluster"))
+        response = "".join(
+            stream_frontier_reply(prompt, "selected expert peer not in cluster", provider_config)
+        )
         logs.append("client event=selected_peer_missing fallback_used=true")
         return ClientRunResult(
             selected_peer_id=selected_peer_id,

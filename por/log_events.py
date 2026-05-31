@@ -1,4 +1,4 @@
-"""Structured log event helpers for P-OR daemons and harnesses."""
+"""Structured log event helpers for P-OR daemons and tests."""
 
 from __future__ import annotations
 
@@ -91,4 +91,3 @@ def _redact_mapping(value: dict[str, object], redact_fields: set[str] | frozense
         else:
             redacted[key] = item
     return redacted
-

@@ -192,11 +192,11 @@ def test_directory_daemon_registers_configured_supernodes(monkeypatch):
     )
     seen = {}
 
-    def fake_run_directory_server(**kwargs):
+    def recording_run_directory_server(**kwargs):
         seen.update(kwargs)
         return 0
 
-    monkeypatch.setattr("por.daemon.directory.run_directory_server", fake_run_directory_server)
+    monkeypatch.setattr("por.daemon.directory.run_directory_server", recording_run_directory_server)
 
     assert run_directory_from_daemon(config.daemon("directory-a"), config) == 0
 
@@ -233,11 +233,11 @@ def test_directory_daemon_serves_configured_peer_address_record(monkeypatch, tmp
     )
     seen = {}
 
-    def fake_run_directory_server(**kwargs):
+    def recording_run_directory_server(**kwargs):
         seen.update(kwargs)
         return 0
 
-    monkeypatch.setattr("por.daemon.directory.run_directory_server", fake_run_directory_server)
+    monkeypatch.setattr("por.daemon.directory.run_directory_server", recording_run_directory_server)
 
     assert run_directory_from_daemon(config.daemon("directory-a"), config) == 0
 

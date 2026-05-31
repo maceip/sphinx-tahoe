@@ -10,7 +10,7 @@ from por.node_runtime import WireNodeRuntime
 
 
 def run_relay(*, config_path: str, node_id: str) -> int:
-    """Cluster-config relay — raw UDP (harness/test path)."""
+    """Cluster-config relay over canonical binary UDP."""
     cluster = ClusterConfig.load(config_path)
     runtime = WireNodeRuntime(cluster, node_id, role="relay")
     return runtime.serve_forever()

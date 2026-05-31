@@ -1,4 +1,4 @@
-"""P-OR mixnet simulator.
+"""Test-only P-OR packet crypto/routing utility.
 
 Local model for Outfox forward packets + symmetric circuit return streaming.
 Forward path uses layered Outfox; **streaming return is an encrypted relay
@@ -8,7 +8,7 @@ Components:
   MixNode       — processes forward packets (Outfox) and circuit packets (AES)
   Client        — creates packets, manages circuits, decrypts replies
   PKI           — in-memory directory of node keys
-  MixnetSim     — local multi-node simulator (no network, direct calls)
+  MixnetTestNetwork     — local multi-node test network (no sockets)
 """
 
 import time
@@ -16,20 +16,20 @@ import struct
 from os import urandom
 from collections import namedtuple
 
-from .OutfoxParams import (
+from sphinxmix.OutfoxParams import (
     OutfoxParams, KEM_X25519,
     FLAG_REAL, FLAG_DUMMY, CIRCUIT_TTL_SECONDS, CIRCUIT_PACE_INTERVAL_MS,
     make_timestamp, check_timestamp,
     generate_signing_keypair, sign_payload, verify_payload,
     hkdf,
 )
-from .OutfoxClient import (
+from sphinxmix.OutfoxClient import (
     packet_create, packet_create_repliable, packet_create_signed,
     packet_create_dummy,
     surb_create, surb_use, surb_check, surb_recover,
     pki_entry, pad_body, unpad_body,
 )
-from .OutfoxNode import (
+from sphinxmix.OutfoxNode import (
     outfox_process, circuit_process, circuit_self_heal,
     circuit_packet_create, circuit_packet_process, circuit_packet_decrypt,
     CircuitStream, PacedCircuitStream,
@@ -336,7 +336,7 @@ class Client:
 
         self.pending_surbs[idsurb] = sksurb
         client_inbound = circuit_info["client_inbound"]
-        from .ta_claims import streaming_return_descriptor
+        from sphinxmix.ta_claims import streaming_return_descriptor
 
         self.pending_circuits[client_inbound] = {
             "keys": circuit_info["keys"],
@@ -392,8 +392,8 @@ class Client:
         return None
 
 
-class MixnetSim:
-    """Local multi-node simulator. No network — direct function calls.
+class MixnetTestNetwork:
+    """Local multi-node test network. No sockets; direct function calls.
 
     Nodes are created with optional provider capabilities. A node that
     advertises providers can serve as an exit node for those providers.

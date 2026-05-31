@@ -1,20 +1,16 @@
-"""In-process MixnetSim crypto/routing tests.
-
-Tests the in-process P-OR simulator path: packet creation → forward routing →
-exit processing → reply → sender decryption. No network — direct calls.
-"""
+"""In-process packet crypto/routing tests."""
 
 import struct
-from sphinxmix.mixnet import MixnetSim, Client, CircuitCorrupted
+from tests.mixnet_test_network import MixnetTestNetwork, Client, CircuitCorrupted
 from sphinxmix.OutfoxParams import (
     FLAG_REAL, FLAG_DUMMY, verify_payload, generate_signing_keypair,
 )
 from sphinxmix.OutfoxClient import surb_use, surb_check, surb_recover
 
 
-def test_forward_through_simulated_nodes():
-    """Forward packet through 5 simulated nodes."""
-    sim = MixnetSim(num_nodes=8)
+def test_forward_through_test_nodes():
+    """Forward packet through 5 in-process test nodes."""
+    sim = MixnetTestNetwork(num_nodes=8)
     client = sim.create_client(b"alice")
 
     path = sim.node_ids()[:5]
@@ -27,12 +23,12 @@ def test_forward_through_simulated_nodes():
     assert flag == FLAG_REAL
     assert surb_info is None
 
-    print("[PASS] Forward: 5-hop delivery through MixnetSim.")
+    print("[PASS] Forward: 5-hop delivery through MixnetTestNetwork.")
 
 
 def test_repliable_round_trip():
     """Full repliable flow: forward → exit → reply → sender decrypts."""
-    sim = MixnetSim(num_nodes=8)
+    sim = MixnetTestNetwork(num_nodes=8)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:4]
@@ -59,12 +55,12 @@ def test_repliable_round_trip():
     received = client.receive_reply(reply_header, reply_payload)
     assert received == b"here is your reply"
 
-    print("[PASS] Repliable: full round-trip forward + reply through MixnetSim.")
+    print("[PASS] Repliable: full round-trip forward + reply through MixnetTestNetwork.")
 
 
 def test_signed_message():
     """Forward packet with ML-DSA-65 signature verified at exit."""
-    sim = MixnetSim(num_nodes=8, payload_size=4096)
+    sim = MixnetTestNetwork(num_nodes=8, payload_size=4096)
     client = sim.create_client(b"alice")
 
     path = sim.node_ids()[:3]
@@ -90,7 +86,7 @@ def test_signed_message():
 
 def test_dummy_traffic():
     """Dummy packets are processed identically but flagged."""
-    sim = MixnetSim(num_nodes=8)
+    sim = MixnetTestNetwork(num_nodes=8)
     client = sim.create_client(b"alice")
 
     path = sim.node_ids()[:3]
@@ -114,7 +110,7 @@ def test_dummy_traffic():
 
 def test_multiple_clients():
     """Multiple clients routing through the same network simultaneously."""
-    sim = MixnetSim(num_nodes=8)
+    sim = MixnetTestNetwork(num_nodes=8)
     alice = sim.create_client(b"alice")
     bob = sim.create_client(b"bob__")
     carol = sim.create_client(b"carol")
@@ -141,7 +137,7 @@ def test_multiple_clients():
 
 def test_tampered_header_rejected():
     """Tampered header fails AEAD at the first honest node."""
-    sim = MixnetSim(num_nodes=8)
+    sim = MixnetTestNetwork(num_nodes=8)
     client = sim.create_client(b"alice")
 
     path = sim.node_ids()[:3]
@@ -161,7 +157,7 @@ def test_tampered_header_rejected():
 
 def test_tagged_payload_rejected():
     """Tagged payload detected at exit via zero-padding check."""
-    sim = MixnetSim(num_nodes=8)
+    sim = MixnetTestNetwork(num_nodes=8)
     client = sim.create_client(b"alice")
 
     path = sim.node_ids()[:3]
@@ -178,7 +174,7 @@ def test_tagged_payload_rejected():
 
 def test_circuit_table():
     """Circuit key table: store, lookup, expiry."""
-    from sphinxmix.mixnet import CircuitTable
+    from tests.mixnet_test_network import CircuitTable
 
     table = CircuitTable(ttl=1)
     cid = b"circuit_id_12345"
@@ -221,7 +217,7 @@ def test_exit_node_discovery():
             {"name": "openai", "models": ["gpt-4o"]}],
         7: [{"name": "openai", "models": ["gpt-4o", "gpt-4o-mini"]}],
     }
-    sim = MixnetSim(num_nodes=8, node_providers=providers)
+    sim = MixnetTestNetwork(num_nodes=8, node_providers=providers)
     client = sim.create_client(b"alice")
 
     # Find Anthropic exit nodes
@@ -253,7 +249,7 @@ def test_capability_based_routing():
         4: [{"name": "anthropic", "models": ["claude-sonnet-4-20250514"]}],
         6: [{"name": "openai", "models": ["gpt-4o"]}],
     }
-    sim = MixnetSim(num_nodes=8, node_providers=providers)
+    sim = MixnetTestNetwork(num_nodes=8, node_providers=providers)
     client = sim.create_client(b"alice")
 
     # Select path for Anthropic — exit must be node 4
@@ -290,7 +286,7 @@ def test_exit_with_api_call():
         2: [{"name": "anthropic", "models": ["claude-sonnet-4-20250514"],
              "api_base": "http://127.0.0.1:8000"}],
     }
-    sim = MixnetSim(num_nodes=6, payload_size=32768, node_providers=providers)
+    sim = MixnetTestNetwork(num_nodes=6, payload_size=32768, node_providers=providers)
     client = sim.create_client(b"alice")
 
     import json
@@ -335,7 +331,7 @@ def test_exit_with_api_call():
 
 def test_network_stats():
     """Node statistics are tracked correctly."""
-    sim = MixnetSim(num_nodes=4)
+    sim = MixnetTestNetwork(num_nodes=4)
     client = sim.create_client(b"alice")
 
     path = sim.node_ids()[:4]
@@ -356,7 +352,7 @@ def test_network_stats():
 
 def test_circuit_install_on_forward():
     """Forward packet with circuit setup installs state at each relay."""
-    sim = MixnetSim(num_nodes=8)
+    sim = MixnetTestNetwork(num_nodes=8)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:4]
@@ -388,7 +384,7 @@ def test_circuit_install_on_forward():
 
 def test_circuit_reply_end_to_end():
     """Full circuit reply: forward installs state, exit streams tokens back."""
-    sim = MixnetSim(num_nodes=6)
+    sim = MixnetTestNetwork(num_nodes=6)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:4]
@@ -414,7 +410,7 @@ def test_circuit_reply_end_to_end():
 
 def test_circuit_reply_multi_hop():
     """Circuit reply through 5 hops."""
-    sim = MixnetSim(num_nodes=8)
+    sim = MixnetTestNetwork(num_nodes=8)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:5]
@@ -436,7 +432,7 @@ def test_circuit_reply_multi_hop():
 
 def test_circuit_nonce_rejection():
     """Client rejects replayed or regressed nonces."""
-    sim = MixnetSim(num_nodes=4)
+    sim = MixnetTestNetwork(num_nodes=4)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
@@ -471,7 +467,7 @@ def test_circuit_nonce_rejection():
 
 def test_circuit_corruption_detection():
     """Client detects corrupted circuit packets via magic field."""
-    sim = MixnetSim(num_nodes=4)
+    sim = MixnetTestNetwork(num_nodes=4)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
@@ -497,7 +493,7 @@ def test_circuit_corruption_detection():
 
 def test_circuit_stats():
     """Circuit processing increments node stats."""
-    sim = MixnetSim(num_nodes=4)
+    sim = MixnetTestNetwork(num_nodes=4)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
@@ -519,7 +515,7 @@ def test_circuit_stats():
 
 def test_circuit_reestablish_trigger():
     """3 consecutive corrupted packets triggers CircuitCorrupted exception."""
-    sim = MixnetSim(num_nodes=4)
+    sim = MixnetTestNetwork(num_nodes=4)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
@@ -563,7 +559,7 @@ def test_circuit_reestablish_trigger():
 
 def test_per_hop_link_cid_unlinkability():
     """Non-adjacent relays MUST NOT see the same link_cid on the wire."""
-    sim = MixnetSim(num_nodes=8)
+    sim = MixnetTestNetwork(num_nodes=8)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:5]
@@ -619,7 +615,7 @@ def test_per_hop_link_cid_unlinkability():
             assert not shared, \
                 f"Non-adjacent hops {i} and {j} share CID(s): {shared!r}"
 
-    # Simulator round-trip: stream a token through and verify it works.
+    # Test-network round-trip: stream a token through and verify it works.
     # route_circuit_reply handles exit lookup internally
     packet = sim.route_circuit_reply(
         fwd_path, client_inbound, None, 1, b"unlinkable token")
@@ -635,7 +631,7 @@ def test_per_hop_link_cid_unlinkability():
 
 def test_stream_tokens_end_to_end():
     """Full streaming flow: forward installs circuit, exit streams tokens via CircuitStream."""
-    sim = MixnetSim(num_nodes=6)
+    sim = MixnetTestNetwork(num_nodes=6)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:4]
@@ -667,7 +663,7 @@ def test_stream_tokens_end_to_end():
 
 def test_stream_keepalive():
     """Keepalive packets round-trip as empty tokens."""
-    sim = MixnetSim(num_nodes=4)
+    sim = MixnetTestNetwork(num_nodes=4)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
@@ -697,7 +693,7 @@ def test_stream_keepalive():
 
 def test_stream_large_chunked():
     """Large data auto-chunked into multiple circuit packets."""
-    sim = MixnetSim(num_nodes=4, payload_size=512)
+    sim = MixnetTestNetwork(num_nodes=4, payload_size=512)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
@@ -729,7 +725,7 @@ def test_stream_large_chunked():
 
 def test_stream_and_surb_coexist():
     """Circuit streaming and SURB reply work in the same session."""
-    sim = MixnetSim(num_nodes=6)
+    sim = MixnetTestNetwork(num_nodes=6)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:4]
@@ -762,7 +758,7 @@ def test_stream_and_surb_coexist():
 
 def test_type_byte_dispatch():
     """MixNode.process_packet dispatches on byte 0."""
-    sim = MixnetSim(num_nodes=4)
+    sim = MixnetTestNetwork(num_nodes=4)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
@@ -793,7 +789,7 @@ def test_type_byte_dispatch():
 
 def test_paced_stream_flattens_token_burst():
     """PacedCircuitStream spreads an instant token burst across fixed intervals."""
-    sim = MixnetSim(num_nodes=4)
+    sim = MixnetTestNetwork(num_nodes=4)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
@@ -826,7 +822,7 @@ def test_paced_stream_flattens_token_burst():
 
 def test_paced_stream_keepalive_fills_idle_gap():
     """Active paced sessions emit keepalives on empty cadence ticks."""
-    sim = MixnetSim(num_nodes=4)
+    sim = MixnetTestNetwork(num_nodes=4)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
@@ -849,7 +845,7 @@ def test_paced_stream_keepalive_fills_idle_gap():
 
 def test_paced_drain_all_delivers_burst():
     """drain_all + stream_paced_drain returns full payload after close()."""
-    sim = MixnetSim(num_nodes=4)
+    sim = MixnetTestNetwork(num_nodes=4)
     client = sim.create_client(b"alice")
 
     fwd_path = sim.node_ids()[:3]
@@ -874,11 +870,11 @@ def test_paced_drain_all_delivers_burst():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("P-OR Mixnet Simulator Tests")
+    print("P-OR Mixnet Packet Tests")
     print("=" * 60)
     print()
 
-    test_forward_through_network()
+    test_forward_through_test_nodes()
     test_repliable_round_trip()
     test_signed_message()
     test_dummy_traffic()

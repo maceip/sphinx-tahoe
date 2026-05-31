@@ -96,18 +96,12 @@ pip install -r requirements.txt
 # Run the test suite
 pytest -q
 
-# Expert-routing demo (simulated, no network)
-python3 scripts/demo.py
-
-# Wire demo over real UDP sockets (separate node processes)
-python3 -m por.udp_demo demo
-
 # Unified client
 python3 -m por --help
 python3 -m por run --config client.json
 
 # Answer with a real model at the expert edge
-POR_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... python3 -m por.udp_demo demo
+POR_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... python3 -m por run --config expert.json
 ```
 
 ### Home client

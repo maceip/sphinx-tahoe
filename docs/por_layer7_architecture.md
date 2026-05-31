@@ -107,11 +107,9 @@ metadata containing:
 This is separate from the application envelope. It belongs to the P-OR routing
 protocol because relays must understand it.
 
-This is a required P-OR milestone, not an optional optimization. The repository
-now contains simulator support and local UDP/QUIC wire harnesses for this idea,
-but the process demos still use the older single visible circuit ID shape rather
-than the final per-hop link-CID wire. Treat them as harnesses until that is
-migrated.
+This is a required P-OR milestone, not an optional optimization. The production
+process path uses canonical binary relay/circuit frames; controlled socket
+harnesses live in the test suite only.
 
 Minimum completion criteria:
 
@@ -264,11 +262,8 @@ The planner is intentionally not a router. It does not select relay hops, build
 packets, contact peers, or call LLM providers. It produces a route decision that
 the routing layer can later consume.
 
-The repository also includes local UDP and QUIC wire harnesses. They run
-separate node processes over localhost sockets, select an Expert Mode peer from
-memory manifests, route a prompt envelope to that peer, and stream a harness
-response over a symmetric return circuit. They are socket/process harnesses, not
-production daemons and not real provider integrations.
+The test suite includes controlled localhost process coverage for relay and
+expert nodes. Those tests do not provide a shipped demo response path.
 
 Threat-model target for a real multi-hop P-OR route with correct crypto and
 non-local deployment:
@@ -288,8 +283,10 @@ the deployed privacy claims above.
 
 The repository contains:
 
-- `sphinxmix`: packet crypto, Outfox forward processing, SURB replies, circuit
-  packet helpers, and the in-process `MixnetSim`.
+- `sphinxmix`: packet crypto, Outfox forward processing, SURB replies, and
+  circuit packet helpers.
+- `tests/mixnet_test_network.py`: in-process packet regression utility; not shipped
+  runtime code.
 - `por/envelope.py`: versioned prompt request envelope.
 - `por/directory.py`: public snapshot discovery interface and JSON snapshot
   loader/saver.
@@ -298,15 +295,14 @@ The repository contains:
 - `por/memory_index.py`: deterministic memory manifest sidecar.
 - `por/config.py`: shared daemon/config schema.
 - `por/log_events.py`: structured log event helper.
-- `por/udp_demo.py` and `por/quic_demo.py`: local process/socket wire harnesses.
+- `por/daemon/*`, `por/client.py`, and `por/node_runtime.py`: production CLI,
+  client send path, relay, expert, directory, and runtime loop.
 
 Still missing or incomplete:
 
-- Production daemon wiring with persistent peer connections.
-- Migration of process demos to the final per-hop link-CID return wire.
-- Real provider/LLM integration in the UDP/QUIC harnesses.
+- Persistent peer connections.
 - Prompt hiding and proof-of-execution extensions.
-- A gateway that maps HTTP/SSE provider traffic into envelopes and back.
+- Provider-native token streaming.
 
 The existing `sphinxmix` package should remain the lower-level packet/routing
 library; the `por` package is the application/control-plane layer above it.

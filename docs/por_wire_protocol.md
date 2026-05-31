@@ -1,7 +1,6 @@
 # P-OR Full Wire Map
 
-Status: target relay wire map plus current Python prototype notes. This is not
-a claim that every harness emits final canonical bytes today.
+Status: relay wire map plus current Python runtime notes.
 Scope: bytes that cross peer, relay, exit, and client boundaries.
 
 This document separates three things that are easy to blur:
@@ -9,8 +8,8 @@ This document separates three things that are easy to blur:
 - Relay wire: Outfox forward packets and symmetric circuit packets.
 - Layer 7 payload: JSON request envelopes and discovery records carried by or
   used before relay packets.
-- Demo transport glue: localhost JSON/base64 frames used by `por.udp_demo` and
-  `por.quic_demo`.
+- Test harnesses: controlled sockets used by the test suite; these are not
+  shipped runtime entrypoints.
 
 ## 0. Current Constants
 
@@ -38,13 +37,9 @@ Forward packet type        0x00, canonical prefix, legacy optional
 Circuit packet type        0x01
 ```
 
-The UDP demo uses `payload_size=2048` and `routing_size=80` so it can carry a
-larger demo route instruction. That is not the core default.
-
 ## 1. Target Relay Flow
 
-This is the intended relay flow for the production daemon and final process
-harnesses:
+This is the relay flow for the production daemon/client path:
 
 ```text
 1. Client obtains discovery snapshot or private discovery result.
@@ -69,10 +64,8 @@ Current implementation boundary:
 
 | Surface | Boundary | Provider/response | Return CID shape |
 | --- | --- | --- | --- |
-| `sphinxmix` / `MixnetSim` | in-process packet/sim code | simulated or caller-provided | per-hop link CIDs in packet/sim paths |
-| `por.udp_demo` | localhost UDP JSON/base64 harness | harness response | older single visible circuit ID |
-| `por.quic_demo` | localhost QUIC/H3 JSON/base64 harness | harness response | older single visible circuit ID |
-| production daemon/gateway | not implemented | not implemented | target wire in this document |
+| `sphinxmix` + `tests/mixnet_test_network.py` | packet crypto plus in-process tests | caller-provided | per-hop link CIDs in packet paths |
+| production daemon/client | binary UDP frames via `por.wire_frame` | Anthropic/OpenAI only | per-hop link CIDs |
 
 ## 2. Transport Frame
 
@@ -111,25 +104,6 @@ header_len = total_forward_body_len - payload_size
 header     = body[0:header_len]
 payload    = body[header_len:]
 ```
-
-### 2.3 Demo-Only UDP Frames
-
-`por.udp_demo` uses JSON/base64 over localhost UDP and `por.quic_demo` carries
-the same frame shape over HTTP/3 Extended CONNECT on QUIC:
-
-```json
-{"kind":"forward","header":"...base64...","payload":"...base64..."}
-{"kind":"circuit","seq":1,"packet":"...base64..."}
-{"kind":"shutdown"}
-```
-
-That is harness glue only. It is not the relay wire.
-
-QUIC DATAGRAM is implemented in `por.quic_transport`, but the default DATAGRAM
-payload limit is MTU-sized and the current fixed-size demo frames exceed it.
-The local QUIC harness therefore uses the H3 stream carrier for full
-frames. These are separate connection profiles: DATAGRAM uses
-`por-quic-datagram-v1`; H3 Extended CONNECT uses `h3`.
 
 ## 3. Forward Outfox Packet
 
@@ -665,17 +639,12 @@ future private mode: should return equivalent candidate records without
 These are not blockers for documenting the wire, but reviewers should decide
 them before a production daemon is treated as stable:
 
-1. Forward packet type prefix is only partially migrated. Canonical is `0x00`,
-   but `packet_create()` still returns legacy `(header, payload)`.
-2. Per-hop link CIDs are the target wire. The packet/sim paths implement this,
-   but the UDP/QUIC process harnesses still use a single visible `circuit_id`;
-   `HYBRID_RETURN_PATH_SPEC.txt` tracks that remaining migration as Phase 2.6.
-3. `routing_info` is opaque in the core. The UDP demo's `POR1` route-info
-   layout is demo-only and should not become accidental production wire.
-4. Raw QUIC DATAGRAM support exists, but current QUIC harness frames ride over
-   HTTP/3 Extended CONNECT on QUIC. Persistent peer connections, daemon
+1. Forward packet type prefix is canonical on process wire (`0x00`); lower-level
+   packet helpers still return `(header, payload)` for caller framing.
+2. `routing_info` is opaque in the core.
+3. Raw QUIC DATAGRAM support exists. Persistent peer connections, daemon
    authentication, and cross-hop flow-control policy are still
    transport-daemon work.
-5. Prompt hiding and provider-call proof are extension slots only. They do not
+4. Prompt hiding and provider-call proof are extension slots only. They do not
    change relay packet bytes unless a future extension explicitly negotiates a
    new envelope mode.

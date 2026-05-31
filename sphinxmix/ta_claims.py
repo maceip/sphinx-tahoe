@@ -100,14 +100,25 @@ def assert_honest_streaming_copy(text: str) -> None:
 
 # Docs scanned by scripts/check_ta_claims.py (TA-3 regression guard)
 TA_CLAIM_SCAN_PATHS = (
-    "docs/hybrid_return_ta_requirements.md",
+    "notes/hybrid_return_ta_requirements.md",
     "docs/por_wire_protocol.md",
     "docs/por_layer7_architecture.md",
-    "HYBRID_RETURN_PATH_SPEC.txt",
-    "sim_mixnet_anthropic_proxy.py",
-    "sphinxmix/mixnet.py",
+    "notes/HYBRID_RETURN_PATH_SPEC.txt",
+    "tests/mixnet_test_network.py",
     "sphinxmix/OutfoxNode.py",
 )
+
+
+def missing_scan_paths(
+    root: Path,
+    relative_paths: tuple[str, ...] = TA_CLAIM_SCAN_PATHS,
+) -> tuple[str, ...]:
+    """Return configured scan paths that do not exist under ``root``."""
+    missing = []
+    for rel in relative_paths:
+        if not (root / rel).is_file():
+            missing.append(rel)
+    return tuple(missing)
 
 
 def scan_files_for_forbidden_claims(

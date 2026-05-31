@@ -31,8 +31,7 @@ VALID_TRANSPORTS = {TRANSPORT_UDP, TRANSPORT_QUIC_H3, TRANSPORT_QUIC_DATAGRAM}
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 0
 DEFAULT_PAYLOAD_SIZE = 2048
-# Daemon JSON-frame harnesses need enough routing_info space for POR1 route
-# instructions. Core OutfoxParams still defaults to routing_size=16.
+# Legacy cluster configs use a wider route field than core OutfoxParams.
 DEFAULT_ROUTING_SIZE = 96
 DEFAULT_MAX_HOPS = 5
 DEFAULT_CIRCUIT_TTL_SECONDS = 120
@@ -171,7 +170,7 @@ class ClusterNodeConfig:
             raise ValueError(f"unsupported cluster node role: {self.role}")
         return self
 
-    def to_harness_dict(self) -> dict[str, object]:
+    def to_legacy_dict(self) -> dict[str, object]:
         return {
             "host": self.host,
             "port": self.port,
@@ -183,10 +182,11 @@ class ClusterNodeConfig:
 
 @dataclass(frozen=True)
 class ClusterConfig:
-    """Compatibility config for local relay/expert daemon harnesses.
+    """Compatibility config for the legacy cluster JSON shape.
 
-    This preserves the current demo JSON shape (`params`, `client`, `nodes`)
-    while the broader daemon config schema settles.
+    The product path is ``por.config.v1`` through ``por run``. This shape is
+    still accepted by ``por send`` / ``por relay`` / ``por expert`` for process
+    tests and explicit low-level runs.
     """
 
     params: PacketConfig
@@ -229,7 +229,7 @@ class ClusterConfig:
         except KeyError as exc:
             raise KeyError(f"unknown cluster node_id: {node_id}") from exc
 
-    def to_harness_dict(self) -> dict[str, object]:
+    def to_legacy_dict(self) -> dict[str, object]:
         return {
             "params": {
                 "payload_size": self.params.payload_size,
@@ -238,7 +238,7 @@ class ClusterConfig:
             },
             "client": {"host": self.client.host, "port": self.client.port},
             "nodes": {
-                node_id: node.to_harness_dict()
+                node_id: node.to_legacy_dict()
                 for node_id, node in self.nodes.items()
             },
         }
@@ -369,7 +369,7 @@ class ExpertRoutingConfig:
 
 @dataclass(frozen=True)
 class ProviderConfig:
-    provider: str = "frontier"
+    provider: str = ""
     model: str | None = None
     base_url: str | None = None
     api_key_env: str | None = None
@@ -383,7 +383,7 @@ class ProviderConfig:
     def from_dict(cls, raw: Mapping[str, object] | None) -> "ProviderConfig":
         raw = raw or {}
         return cls(
-            provider=str(raw.get("provider", "frontier")),
+            provider=str(raw.get("provider", "")),
             model=_optional_str(raw.get("model")),
             base_url=_optional_str(raw.get("base_url")),
             api_key_env=_optional_str(raw.get("api_key_env")),
@@ -392,8 +392,11 @@ class ProviderConfig:
         ).validate()
 
     def validate(self) -> "ProviderConfig":
-        if not self.provider:
+        provider = self.provider.strip().lower()
+        if not provider:
             raise ValueError("provider is required")
+        if provider not in {"anthropic", "openai"}:
+            raise ValueError(f"unsupported provider: {self.provider}")
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         return self
