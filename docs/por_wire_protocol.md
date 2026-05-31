@@ -531,6 +531,12 @@ Current schema from `por.envelope.PromptRequestEnvelope`:
     "return_profile": "relay_additive_v1"
   },
   "proof_requirements": ["none"],
+  "payment_terms": null,
+  "mpc_session": {
+    "type": "por.mpc_session.v0",
+    "mode": "inline_2p_v0",
+    "verifier_peer_id": "client peer id in the live 2P session"
+  },
   "client_extensions": ["public_snapshot_v1", "hybrid_return_path_v2"],
   "privacy_warnings": []
 }
@@ -676,6 +682,15 @@ them before a production daemon is treated as stable:
    HTTP/3 Extended CONNECT on QUIC. Persistent peer connections, daemon
    authentication, and cross-hop flow-control policy are still
    transport-daemon work.
-5. Prompt hiding and provider-call proof are extension slots only. They do not
-   change relay packet bytes unless a future extension explicitly negotiates a
-   new envelope mode.
+5. **Prompt hiding** remains a future extension (confidential prompt mode). It
+   does not change relay packet bytes unless a future envelope mode is negotiated.
+6. **Proof of execution** is base endpoint behavior: the final `done` stream
+   frame may include `execution_trace` and `proof_obligation` (zkTLS / TLSNotary
+   prover behind `por/prover.py`). See `docs/por_execution_proof.md`.
+   `proof_requirements` on the request is reserved; proof rides on the response.
+7. **`payment_terms`** is part of the base envelope. When set,
+   the expert verifies pay-in before upstream execution and may attach
+   `payment_settlement` on the final `done` stream frame. See
+   `docs/por_payment_zktls.md`.
+8. **`mpc_session`** binds the MPC verifier (default: requesting client) before upstream.
+   Locked product decisions: `docs/por_locked_decisions.md`.

@@ -8,7 +8,10 @@ from typing import Iterator, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from .config import ProviderConfig
 from .envelope import PromptRequestEnvelope
+from .payment import PaymentRequiredError, require_pay_in_before_execution
+from .settlement import build_verifiable_completion, pay_in_verified_for_envelope
 
 
 class ProviderError(RuntimeError):
@@ -20,17 +23,34 @@ class ProviderError(RuntimeError):
         self.retryable = retryable
 
 
-def provider_mode() -> str:
+class PayInRequiredError(ProviderError):
+    """Pay-in on ``payment_terms`` was not satisfied before upstream execution."""
+
+    def __init__(self, message: str, *, terms: dict[str, object]):
+        super().__init__(message, retryable=False)
+        self.terms = terms
+
+
+def provider_mode(provider_config: ProviderConfig | None = None) -> str:
+    if provider_config is not None and provider_config.provider:
+        return provider_config.provider.strip().lower()
     return os.environ.get("POR_PROVIDER", "harness").strip().lower() or "harness"
 
 
 def stream_expert_reply(
     envelope: PromptRequestEnvelope,
     peer_id: str,
+    *,
+    provider_config: ProviderConfig | None = None,
 ) -> Iterator[str]:
+    try:
+        require_pay_in_before_execution(envelope)
+    except PaymentRequiredError as exc:
+        raise PayInRequiredError(str(exc), terms=exc.terms) from exc
+
     prompt = envelope.prompt_text()
     expertise = envelope.intent_descriptor.get("requested_expertise") or "auto"
-    mode = provider_mode()
+    mode = provider_mode(provider_config)
     if mode == "harness":
         yield _harness_expert_reply(peer_id, prompt, expertise)
         return
@@ -68,11 +88,38 @@ def expert_reply_chunks(
     peer_id: str,
     *,
     chunk_size: int = 256,
+    provider_config: ProviderConfig | None = None,
 ) -> Sequence[str]:
-    text = "".join(stream_expert_reply(envelope, peer_id))
+    text = "".join(stream_expert_reply(envelope, peer_id, provider_config=provider_config))
     if not text:
         return [""]
     return [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
+
+
+def expert_reply_with_settlement(
+    envelope: PromptRequestEnvelope,
+    peer_id: str,
+    *,
+    provider_config: ProviderConfig | None = None,
+) -> tuple[str, dict[str, object] | None]:
+    """Return reply text and optional ``done``-frame completion (trace + settlement)."""
+    mode = provider_mode(provider_config)
+    terms, pay_ok = pay_in_verified_for_envelope(envelope)
+    if terms is not None:
+        try:
+            require_pay_in_before_execution(envelope)
+        except PaymentRequiredError as exc:
+            raise PayInRequiredError(str(exc), terms=exc.terms) from exc
+    text = "".join(stream_expert_reply(envelope, peer_id, provider_config=provider_config))
+    completion = build_verifiable_completion(
+        envelope,
+        peer_id=peer_id,
+        response_text=text,
+        provider_mode=mode,
+        terms=terms,
+        pay_in_verified=pay_ok,
+    )
+    return text, completion
 
 
 def _harness_expert_reply(peer_id: str, prompt: str, expertise: str) -> str:
