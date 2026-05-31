@@ -53,6 +53,24 @@ def build_parser() -> argparse.ArgumentParser:
     directory.add_argument("--port", type=int, default=8765)
     directory.add_argument("--route", default="/snapshot")
 
+    quality = sub.add_parser("quality", help="Record/review/aggregate expert quality events.")
+    quality_sub = quality.add_subparsers(dest="quality_command", required=True)
+    quality_record = quality_sub.add_parser("record", help="Record a request event.")
+    quality_record.add_argument("--store", required=True)
+    quality_record.add_argument("--event", required=True)
+    quality_review = quality_sub.add_parser("review", help="Submit a review for a completed request.")
+    quality_review.add_argument("--store", required=True)
+    quality_review.add_argument("--request-id", required=True)
+    quality_review.add_argument("--rating", required=True)
+    quality_review.add_argument("--complaint-reason")
+    quality_review.add_argument("--judge-score", type=float)
+    quality_review.add_argument("--probe-id")
+    quality_review.add_argument("--timestamp")
+    quality_review.add_argument("--signature")
+    quality_aggregate = quality_sub.add_parser("aggregate", help="Aggregate manifest quality signals.")
+    quality_aggregate.add_argument("--store", required=True)
+    quality_aggregate.add_argument("--manifest-id", required=True)
+
     run = sub.add_parser(
         "run",
         help="Run from a por.config.v1 daemon JSON (role selects subcommand).",
@@ -95,6 +113,22 @@ def dispatch(args: argparse.Namespace) -> int:
             port=args.port,
             route=args.route,
         )
+
+    if args.command == "quality":
+        from por import quality
+
+        argv = [args.quality_command, "--store", args.store]
+        if args.quality_command == "record":
+            argv.extend(["--event", args.event])
+        elif args.quality_command == "review":
+            argv.extend(["--request-id", args.request_id, "--rating", args.rating])
+            for name in ("complaint_reason", "judge_score", "probe_id", "timestamp", "signature"):
+                value = getattr(args, name)
+                if value is not None:
+                    argv.extend([f"--{name.replace('_', '-')}", str(value)])
+        elif args.quality_command == "aggregate":
+            argv.extend(["--manifest-id", args.manifest_id])
+        return quality.main(argv)
 
     if args.command == "run":
         return _run_from_daemon_config(args.config, node_id=args.node_id)

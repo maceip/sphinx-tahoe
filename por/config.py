@@ -406,6 +406,50 @@ class ProviderConfig:
 
 
 @dataclass(frozen=True)
+class ExpertSessionConfig:
+    enabled: bool = False
+    engine: str = "claude_code"
+    cwd: str | None = None
+    session_ref: str | None = None
+    resume_mode: str = "fork"
+    command_path: str | None = None
+    command_template: tuple[str, ...] = ()
+    timeout_seconds: float = 180.0
+    prompt_template: str = "{prompt}"
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, object] | None) -> "ExpertSessionConfig":
+        raw = raw or {}
+        return cls(
+            enabled=_bool(raw.get("enabled", False)),
+            engine=str(raw.get("engine", "claude_code")),
+            cwd=_optional_str(raw.get("cwd")),
+            session_ref=_optional_str(raw.get("session_ref")),
+            resume_mode=str(raw.get("resume_mode", "fork")),
+            command_path=_optional_str(raw.get("command_path")),
+            command_template=tuple(str(item) for item in _sequence_or_empty(raw.get("command_template"))),
+            timeout_seconds=float(raw.get("timeout_seconds", 180.0)),
+            prompt_template=str(raw.get("prompt_template", "{prompt}")),
+        ).validate()
+
+    def validate(self) -> "ExpertSessionConfig":
+        if self.engine not in {"claude_code", "codex", "other"}:
+            raise ValueError(f"unsupported expert_session engine: {self.engine}")
+        if self.resume_mode not in {"resume", "fork"}:
+            raise ValueError("expert_session.resume_mode must be resume or fork")
+        if self.enabled and not self.session_ref:
+            raise ValueError("expert_session.session_ref is required when enabled")
+        if self.timeout_seconds <= 0:
+            raise ValueError("expert_session.timeout_seconds must be positive")
+        if "{prompt}" not in self.prompt_template:
+            raise ValueError("expert_session.prompt_template must include {prompt}")
+        return self
+
+
+@dataclass(frozen=True)
 class PeerAddressConfig:
     enabled: bool = False
     allow_direct: bool = False
@@ -483,6 +527,8 @@ class LocalHttpConfig:
     bind: EndpointConfig = field(default_factory=lambda: EndpointConfig(DEFAULT_HOST, 8766))
     path: str = "/v1/expert"
     status_path: str = "/v1/status"
+    review_path: str = "/v1/review"
+    quality_store_path: str | None = None
 
     def __post_init__(self) -> None:
         self.validate()
@@ -498,6 +544,8 @@ class LocalHttpConfig:
             bind=EndpointConfig.from_dict(_mapping_or_none(bind_raw)),
             path=str(raw.get("path", "/v1/expert")),
             status_path=str(raw.get("status_path", "/v1/status")),
+            review_path=str(raw.get("review_path", "/v1/review")),
+            quality_store_path=_optional_str(raw.get("quality_store_path")),
         ).validate()
 
     def validate(self) -> "LocalHttpConfig":
@@ -506,8 +554,12 @@ class LocalHttpConfig:
             raise ValueError("local_http.path must start with /")
         if not self.status_path.startswith("/"):
             raise ValueError("local_http.status_path must start with /")
+        if not self.review_path.startswith("/"):
+            raise ValueError("local_http.review_path must start with /")
         if self.status_path == self.path:
             raise ValueError("local_http.status_path must differ from local_http.path")
+        if self.review_path in {self.path, self.status_path}:
+            raise ValueError("local_http.review_path must differ from local_http.path/status_path")
         return self
 
 
@@ -644,6 +696,7 @@ class DaemonConfig:
     client: ClientConfig = field(default_factory=ClientConfig)
     expert_routing: ExpertRoutingConfig = field(default_factory=ExpertRoutingConfig)
     provider: ProviderConfig | None = None
+    expert_session: ExpertSessionConfig = field(default_factory=ExpertSessionConfig)
     peer_address: PeerAddressConfig = field(default_factory=PeerAddressConfig)
     supernode: SupernodeConfig = field(default_factory=SupernodeConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -672,6 +725,7 @@ class DaemonConfig:
                 if raw.get("provider") is not None
                 else None
             ),
+            expert_session=ExpertSessionConfig.from_dict(_mapping_or_none(raw.get("expert_session"))),
             peer_address=PeerAddressConfig.from_dict(_mapping_or_none(raw.get("peer_address"))),
             supernode=SupernodeConfig.from_dict(_mapping_or_none(raw.get("supernode"))),
             logging=LoggingConfig.from_dict(_mapping_or_none(raw.get("logging"))),
@@ -693,6 +747,7 @@ class DaemonConfig:
         self.expert_routing.validate()
         if self.provider is not None:
             self.provider.validate()
+        self.expert_session.validate()
         self.peer_address.validate()
         self.supernode.validate()
         self.logging.validate()

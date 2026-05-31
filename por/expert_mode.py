@@ -161,6 +161,7 @@ def _default_expert_provider_request(plan: ExpertRoutePlan, fallback_provider: s
     request: dict[str, object] = {
         "provider": "expert_peer",
         "selected_peer_id": plan.selected_peer_id,
+        "manifest_id": plan.selected_manifest_id,
         "capability_type": plan.selected_capability_type or "memory_manifest",
         "fallback_provider": fallback_provider,
         "stream": True,

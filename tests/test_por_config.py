@@ -252,6 +252,56 @@ def test_local_http_status_path_is_validated():
         )
 
 
+def test_local_http_review_path_and_quality_store_parse(tmp_path):
+    config = DaemonConfig.from_dict(
+        {
+            "node_id": "client-a",
+            "role": ROLE_CLIENT,
+            "client": {
+                "local_http": {
+                    "enabled": True,
+                    "path": "/v1/expert",
+                    "status_path": "/v1/status",
+                    "review_path": "/v1/review",
+                    "quality_store_path": str(tmp_path / "quality.sqlite"),
+                }
+            },
+        }
+    )
+
+    assert config.client.local_http.review_path == "/v1/review"
+    assert config.client.local_http.quality_store_path.endswith("quality.sqlite")
+
+
+def test_expert_session_config_requires_session_ref_when_enabled(tmp_path):
+    with pytest.raises(ValueError, match="session_ref"):
+        DaemonConfig.from_dict(
+            {
+                "node_id": "expert-a",
+                "role": ROLE_EXPERT,
+                "expert_session": {"enabled": True, "engine": "claude_code"},
+            }
+        )
+
+    config = DaemonConfig.from_dict(
+        {
+            "node_id": "expert-a",
+            "role": ROLE_EXPERT,
+            "expert_session": {
+                "enabled": True,
+                "engine": "claude_code",
+                "cwd": str(tmp_path),
+                "session_ref": "compiled-topic-x",
+                "resume_mode": "fork",
+                "prompt_template": "Answer using the expert session: {prompt}",
+            },
+        }
+    )
+
+    assert config.expert_session.enabled is True
+    assert config.expert_session.session_ref == "compiled-topic-x"
+
+
 def test_client_trusted_reachability_relays_parse_and_validate():
     config = DaemonConfig.from_dict(
         {

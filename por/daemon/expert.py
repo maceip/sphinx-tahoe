@@ -27,6 +27,7 @@ def run_expert_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
         role="expert",
         logging=daemon.logging,
         provider=daemon.provider,
+        expert_session=daemon.expert_session,
     )
     tls = daemon.transport
     if tls.certfile and tls.keyfile:

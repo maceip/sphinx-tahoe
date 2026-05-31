@@ -63,6 +63,7 @@ class RouteIntent:
 @dataclass(frozen=True)
 class CandidateScore:
     peer_id: str
+    manifest_id: str
     total_score: float
     memory_score: float
     session_score: float
@@ -97,6 +98,7 @@ class CandidatePool:
 class ExpertRoutePlan:
     use_expert: bool
     selected_peer_id: str | None
+    selected_manifest_id: str | None
     selected_capability_type: str | None
     selected_engine: str | None
     fallback_provider: str
@@ -124,7 +126,7 @@ def plan_expert_route(
             degraded_anonymity=False,
             reason="no candidate had measurable memory fit",
         )
-        return ExpertRoutePlan(False, None, None, None, intent.fallback_provider, pool, pool.reason)
+        return ExpertRoutePlan(False, None, None, None, None, intent.fallback_provider, pool, pool.reason)
 
     degraded = len(scored) < intent.min_pool_size
     if degraded and not intent.allow_degraded_pool:
@@ -136,7 +138,7 @@ def plan_expert_route(
             degraded_anonymity=True,
             reason="candidate pool below minimum privacy threshold",
         )
-        return ExpertRoutePlan(False, None, None, None, intent.fallback_provider, pool, pool.reason)
+        return ExpertRoutePlan(False, None, None, None, None, intent.fallback_provider, pool, pool.reason)
 
     pool_tier = _pool_tier(scored, intent.min_pool_size)
     pool = CandidatePool(
@@ -151,6 +153,7 @@ def plan_expert_route(
     return ExpertRoutePlan(
         True,
         selected.peer_id,
+        selected.manifest_id,
         selected.capability_type,
         selected.engine,
         intent.fallback_provider,
@@ -203,6 +206,11 @@ def _score_candidates(
             if candidate.expert_manifest is not None and session >= memory
             else None
         )
+        manifest_id = (
+            candidate.expert_manifest.manifest_id
+            if candidate.expert_manifest is not None and session >= memory
+            else candidate.manifest.index_digest
+        )
         reasons = (
             f"memory_score={memory:.3f}",
             f"session_score={session:.3f}",
@@ -214,6 +222,7 @@ def _score_candidates(
         scored.append(
             CandidateScore(
                 peer_id=candidate.manifest.peer_id,
+                manifest_id=manifest_id,
                 total_score=total,
                 memory_score=memory,
                 session_score=session,

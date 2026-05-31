@@ -35,6 +35,8 @@ class ClientRunResult:
     fallback_used: bool
     response_text: str
     client_logs: str
+    selected_manifest_id: str | None = None
+    topic: str | None = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +100,7 @@ def run_client_once(
             fallback_used=True,
             response_text=response,
             client_logs="\n".join(logs),
+            topic=requested_expertise,
         )
 
     selected_peer_id = prepared.envelope.selected_peer_id
@@ -121,6 +124,8 @@ def run_client_once(
             fallback_used=True,
             response_text=response,
             client_logs="\n".join(logs),
+            selected_manifest_id=prepared.plan.selected_manifest_id,
+            topic=requested_expertise,
         )
     if not _routing_node_available(
         cluster,
@@ -136,6 +141,8 @@ def run_client_once(
             fallback_used=True,
             response_text=response,
             client_logs="\n".join(logs),
+            selected_manifest_id=prepared.plan.selected_manifest_id,
+            topic=requested_expertise,
         )
 
     relay_path = route_result.relay_path
@@ -158,6 +165,8 @@ def run_client_once(
         fallback_used=False,
         response_text=response,
         client_logs="\n".join(logs),
+        selected_manifest_id=prepared.plan.selected_manifest_id,
+        topic=requested_expertise,
     )
 
 

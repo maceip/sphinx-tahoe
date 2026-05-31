@@ -43,6 +43,7 @@ class WireNodeRuntime:
         role: NodeRole | None = None,
         logging: LoggingConfig | None = None,
         provider: object | None = None,
+        expert_session: object | None = None,
     ):
         self.cluster = cluster
         self.node_id = node_id
@@ -63,6 +64,7 @@ class WireNodeRuntime:
         self._shutdown = False
         self.logging = logging or LoggingConfig()
         self.provider = provider
+        self.expert_session = expert_session
         self.on_reach_control = None
         self.on_opaque_forward = None
         self.supernode_daemon = None
@@ -276,7 +278,11 @@ class WireNodeRuntime:
             },
         )
         try:
-            chunks = expert_reply_chunks(envelope, self.node_id)
+            chunks = expert_reply_chunks(
+                envelope,
+                self.node_id,
+                expert_session_config=self.expert_session,
+            )
         except ProviderError as exc:
             self._log(
                 "provider_error",

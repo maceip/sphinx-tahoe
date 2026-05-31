@@ -126,6 +126,7 @@ def test_expert_mode_default_provider_request_is_expert_oriented(tmp_path):
     assert prepared.envelope.provider_request == {
         "provider": "expert_peer",
         "selected_peer_id": "peer-art",
+        "manifest_id": prepared.plan.selected_manifest_id,
         "capability_type": "memory_manifest",
         "fallback_provider": "frontier",
         "stream": True,

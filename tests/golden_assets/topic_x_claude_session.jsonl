@@ -1,0 +1,3 @@
+{"type":"system","content":"Expert session compiled for topic X. Tools: filesystem, shell, local papers corpus."}
+{"type":"assistant","content":"TOPIC_X_CANARY: Use lattice routing notes and expert-session manifests when answering routed prompts."}
+{"type":"assistant","content":"Answer policy: grounded; cite uncertainty; do not claim raw access beyond configured local material."}

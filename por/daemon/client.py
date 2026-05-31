@@ -8,6 +8,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable, Sequence
 from uuid import uuid4
@@ -15,7 +16,14 @@ from uuid import uuid4
 from por.client import ClientRunResult, run_client_once
 from por.config import ClusterConfig, DaemonConfig, LoggingConfig, PorConfig
 from por.directory import load_public_snapshot_directory
+from por.expert_manifest import STATUS_COMPLETED, VerifiedQualityEvent
 from por.log_events import PorLogEvent, emit_log_event
+from por.quality import (
+    DuplicateReviewError,
+    QualityEventStore,
+    RequestNotCompletedError,
+    UnknownRequestError,
+)
 
 
 ClientRunner = Callable[..., ClientRunResult]
@@ -327,6 +335,12 @@ def make_client_http_handler(
 
     path = daemon.client.local_http.path
     status_path = daemon.client.local_http.status_path
+    review_path = daemon.client.local_http.review_path
+    quality_store = (
+        QualityEventStore(daemon.client.local_http.quality_store_path)
+        if daemon.client.local_http.quality_store_path
+        else None
+    )
     if session is None:
         if cluster is None or discovery_provider is None:
             raise ValueError("cluster and discovery_provider are required without session")
@@ -350,6 +364,9 @@ def make_client_http_handler(
             self.send_error(404, "not found")
 
         def do_POST(self) -> None:
+            if self.path == review_path:
+                self._handle_review()
+                return
             if self.path != path:
                 self.send_error(404, "not found")
                 return
@@ -417,10 +434,26 @@ def make_client_http_handler(
                 "request_id": request_id,
                 "response": result.response_text,
                 "selected_peer_id": result.selected_peer_id,
+                "manifest_id": result.selected_manifest_id,
                 "fallback_used": result.fallback_used,
                 "degraded_anonymity": result.degraded_anonymity,
                 "streamed": streamed,
             }
+            if quality_store is not None and result.selected_peer_id and not result.fallback_used:
+                quality_store.record_request(
+                    VerifiedQualityEvent.v0(
+                        request_id=request_id,
+                        expert_peer_id=result.selected_peer_id,
+                        manifest_id=result.selected_manifest_id or result.selected_peer_id,
+                        topic=result.topic or expertise or "unspecified",
+                        status=STATUS_COMPLETED,
+                        latency_ms=session.stats.last_duration_ms or 0,
+                        answer_digest="sha256:" + sha256(
+                            result.response_text.encode("utf-8")
+                        ).hexdigest(),
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                    )
+                )
             self._write_sse(
                 "message",
                 {
@@ -440,6 +473,52 @@ def make_client_http_handler(
                     "fallback_used": result.fallback_used,
                     "degraded_anonymity": result.degraded_anonymity,
                 },
+            )
+
+        def _handle_review(self) -> None:
+            if quality_store is None:
+                self.send_error(404, "quality store is not configured")
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length)
+                body = json.loads(raw.decode("utf-8"))
+                event = quality_store.submit_review(
+                    request_id=str(body["request_id"]),
+                    rating=str(body["rating"]),
+                    complaint_reason=(
+                        str(body["complaint_reason"])
+                        if body.get("complaint_reason") is not None
+                        else None
+                    ),
+                    judge_score=(
+                        float(body["judge_score"])
+                        if body.get("judge_score") is not None
+                        else None
+                    ),
+                    probe_id=str(body["probe_id"]) if body.get("probe_id") is not None else None,
+                )
+            except KeyError as exc:
+                self.send_error(400, f"bad request: missing {exc}")
+                return
+            except (ValueError, json.JSONDecodeError) as exc:
+                self.send_error(400, f"bad request: {exc}")
+                return
+            except UnknownRequestError as exc:
+                self.send_error(404, str(exc))
+                return
+            except RequestNotCompletedError as exc:
+                self.send_error(409, str(exc))
+                return
+            except DuplicateReviewError as exc:
+                self.send_error(409, str(exc))
+                return
+            self._send_json(
+                {
+                    "ok": True,
+                    "quality_event": event.to_dict(),
+                    "quality_signals": quality_store.aggregate_manifest(event.manifest_id).__dict__,
+                }
             )
 
         def log_message(self, _format: str, *_args) -> None:
@@ -499,6 +578,8 @@ def _status_payload(daemon: DaemonConfig, session: PersistentClientSession) -> d
         "local_http": {
             "path": daemon.client.local_http.path,
             "status_path": daemon.client.local_http.status_path,
+                "review_path": daemon.client.local_http.review_path,
+                "quality_store_configured": daemon.client.local_http.quality_store_path is not None,
         },
         "limits": {
             "max_concurrent_requests": daemon.client.max_concurrent_requests,

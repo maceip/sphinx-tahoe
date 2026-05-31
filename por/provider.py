@@ -27,9 +27,19 @@ def provider_mode() -> str:
 def stream_expert_reply(
     envelope: PromptRequestEnvelope,
     peer_id: str,
+    *,
+    expert_session_config=None,
 ) -> Iterator[str]:
     prompt = envelope.prompt_text()
     expertise = envelope.intent_descriptor.get("requested_expertise") or "auto"
+    if expert_session_config is not None and getattr(expert_session_config, "enabled", False):
+        try:
+            from .expert_session import ExpertSessionError, run_expert_session
+
+            yield run_expert_session(expert_session_config, envelope).output
+            return
+        except ExpertSessionError as exc:
+            raise ProviderError(str(exc), retryable=exc.retryable) from exc
     mode = provider_mode()
     if mode == "harness":
         yield _harness_expert_reply(peer_id, prompt, expertise)
@@ -68,8 +78,15 @@ def expert_reply_chunks(
     peer_id: str,
     *,
     chunk_size: int = 256,
+    expert_session_config=None,
 ) -> Sequence[str]:
-    text = "".join(stream_expert_reply(envelope, peer_id))
+    text = "".join(
+        stream_expert_reply(
+            envelope,
+            peer_id,
+            expert_session_config=expert_session_config,
+        )
+    )
     if not text:
         return [""]
     return [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]

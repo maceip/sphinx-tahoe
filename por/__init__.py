@@ -26,6 +26,8 @@ __all__ = (
     "EndpointConfig",
     "ExpertQualitySignals",
     "ExpertRoutingConfig",
+    "ExpertSessionConfig",
+    "ExpertSessionResult",
     "ExpertSessionManifest",
     "ExpertModeConfig",
     "ExpertModePreparedRequest",
@@ -56,6 +58,7 @@ __all__ = (
     "QuicDatagramServer",
     "QuicEndpoint",
     "QuicTransportUnavailable",
+    "QualityEventStore",
     "write_localhost_self_signed_cert",
     "AddressChallenge",
     "AddressExposurePolicy",
@@ -72,6 +75,7 @@ __all__ = (
     "UdpEndpoint",
     "VerifiedQualityEvent",
     "build_dial_plan",
+    "build_session_command",
     "build_memory_index",
     "emit_log_event",
     "format_log_event",
@@ -85,6 +89,7 @@ __all__ = (
     "peer_address_record_from_dict",
     "resolve_dial_target",
     "run_client_once",
+    "run_expert_session",
     "send_prepared_envelope",
     "send_prepared_envelope_via_plan",
     "score_manifest",
@@ -132,6 +137,7 @@ def __getattr__(name):
             "DirectoryConfig",
             "EndpointConfig",
             "ExpertRoutingConfig",
+            "ExpertSessionConfig",
             "LocalHttpConfig",
             "LoggingConfig",
             "PacketConfig",
@@ -156,6 +162,18 @@ def __getattr__(name):
             from . import expert_manifest
 
             return getattr(expert_manifest, name)
+        if name in {
+            "ExpertSessionResult",
+            "build_session_command",
+            "run_expert_session",
+        }:
+            from . import expert_session
+
+            return getattr(expert_session, name)
+        if name in {"QualityEventStore"}:
+            from . import quality
+
+            return getattr(quality, name)
         if name in {
             "DiscoveryRequest",
             "DiscoveryProvider",
