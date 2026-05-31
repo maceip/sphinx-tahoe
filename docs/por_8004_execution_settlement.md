@@ -1,8 +1,8 @@
 # Execution + settlement plan (8004-aligned)
 
-Target: **two server-side HTTPS tools** — `api.anthropic.com`, `api.openai.com`.
-Proof: **TLSNotary** (or compatible prover) behind `por/prover.py`; wire front end
-is `execution_trace`. See `docs/por_execution_proof.md`.
+Target: expert HTTPS to `api.anthropic.com` and `api.openai.com`. Proof:
+**TLSNotary** (or compatible prover) behind `por/prover.py`; wire front end is
+`execution_trace`. See `docs/por_execution_proof.md`.
 
 ## Execution (VET + Şen)
 

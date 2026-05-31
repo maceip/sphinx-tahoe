@@ -24,9 +24,10 @@ not a separate protocol extension.
 
 ## Why TLSNotary / zkTLS for this product
 
-- Experts call **two server-side HTTPS APIs** only — ideal for MPC-TLS / notarized
-  TLS (VET: “Web Proofs” for secret-bearing black-box tools).
-- Proves the **upstream LLM call** happened; does not require browser profiles.
+- Experts call **two HTTPS APIs** from the node process (`api.anthropic.com`,
+  `api.openai.com`) — ideal for MPC-TLS / notarized TLS (VET “Web Proofs” for
+  secret-bearing black-box tools).
+- Proves the **upstream LLM call** happened on that server-side channel.
 - Composes with Şen **pay-in → execute → PGP → payout** and EIP-8004
   **validation registry** as the evidence layer.
 - TEE-only attestation would require running inference inside our enclave, not

@@ -25,7 +25,7 @@ EXECUTION_TRACE_V0 = "por.execution_trace.v0"
 AID_FRAGMENT_V0 = "por.aid_fragment.v0"
 PROOF_DX_DCTLS_EXPORT_V0 = "dx_dctls_export.v0"
 
-# Server-side expert HTTP only — not browser zkTLS profiles
+# Expert process → vendor HTTPS (urllib/HTTP client), two hosts only
 UPSTREAM_PROFILES: dict[str, dict[str, str]] = {
     "anthropic": {
         "host": "api.anthropic.com",

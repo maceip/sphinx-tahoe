@@ -142,8 +142,8 @@ behavior**, delivered on the **final streaming `done` frame** as
 `execution_trace` (VET composition) with a **`proof_obligation`** filled by a
 **pluggable prover** (`por/prover.py`; default production target: **TLSNotary**).
 
-Allowed upstream hosts today: `api.anthropic.com`, `api.openai.com` (server-side
-HTTP from the expert, not browser TLS). Cryptographic profile:
+Allowed upstream hosts today: `api.anthropic.com`, `api.openai.com` (HTTPS from
+the expert node). Cryptographic profile:
 `dx_dctls_export.v0` (exportable TLS / zkTLS family; Şen PGP + threshold
 validators for payout). See **`docs/por_execution_proof.md`**.
 
