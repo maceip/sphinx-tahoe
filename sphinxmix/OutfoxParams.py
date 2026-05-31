@@ -92,11 +92,33 @@ def _select_aes_ctr():
 
 _aes_ctr, AES_CTR_BACKEND = _select_aes_ctr()
 
-from pqcrypto.sign.ml_dsa_65 import (
-    generate_keypair as dilithium_generate_keypair,
-    sign as dilithium_sign,
-    verify as dilithium_verify,
-)
+# ML-DSA-65 (Dilithium) backend. `pqcrypto` (PQClean C bindings) is preferred,
+# but its cffi build is hard to cross-compile for Android, so fall back to the
+# pure-Python `dilithium-py`. Both implement FIPS 204 ML-DSA-65 with identical
+# key/signature encodings, so signatures are interoperable across the two (a
+# pqcrypto node verifies a dilithium-py client's signature and vice versa —
+# proven in test_ml_dsa_backends). dilithium-py is slower but fine for a client.
+try:
+    from pqcrypto.sign.ml_dsa_65 import (
+        generate_keypair as dilithium_generate_keypair,
+        sign as dilithium_sign,
+        verify as dilithium_verify,
+    )
+
+    ML_DSA_BACKEND = "pqcrypto"
+except Exception:  # pragma: no cover - exercised on Android (dilithium-py)
+    from dilithium_py.ml_dsa import ML_DSA_65 as _ML_DSA_65
+
+    def dilithium_generate_keypair():
+        return _ML_DSA_65.keygen()
+
+    def dilithium_sign(secret_key, message):
+        return _ML_DSA_65.sign(secret_key, message)
+
+    def dilithium_verify(public_key, message, signature):
+        return _ML_DSA_65.verify(public_key, message, signature)
+
+    ML_DSA_BACKEND = "dilithium-py"
 
 
 class KEM_X25519:

@@ -16,9 +16,9 @@ sources = ["src/tenet"]
 requires = [
     "/Users/mac/tenet-android/dist/android-wheels/cffi-2.0.0-cp313-cp313-android_21_arm64_v8a.whl",
     "/Users/mac/tenet-android/dist/android-wheels/msgpack-1.1.2-cp313-cp313-android_21_arm64_v8a.whl",
-    "/Users/mac/tenet-android/dist/android-wheels/pqcrypto-0.4.0-cp313-cp313-android_21_arm64_v8a.whl",
     "/Users/mac/tenet-android/dist/android-wheels/pynacl-1.6.2-cp313-cp313-android_21_arm64_v8a.whl",
-    "/Users/mac/tenet-android/dist/android-wheels/pyaes-1.6.1-py3-none-any.whl"
+    "/Users/mac/tenet-android/dist/android-wheels/pyaes-1.6.1-py3-none-any.whl",
+    "/Users/mac/tenet-android/dist/android-wheels/dilithium_py-1.4.0-py3-none-any.whl"
 ]
 
 [tool.briefcase.app.tenet.android]

@@ -9,7 +9,9 @@
 # these four installed (no aioquic, no pylsqpack).
 pynacl
 msgpack
-pqcrypto
+# pqcrypto's cffi build won't cross-compile cleanly for Android; the runtime
+# falls back to pure-Python dilithium-py (FIPS 204 ML-DSA-65, wire-compatible).
+dilithium-py
 # Pure-Python AES-CTR (byte-identical). Used on Android: pycryptodome's
 # ctypes .so loader is broken by Chaquopy, so the runtime falls through to this.
 pyaes

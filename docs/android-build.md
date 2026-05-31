@@ -172,3 +172,27 @@ Next options to close it:
    `CC`/`AR`/sysroot), or
 3. Compile the cffi-generated `.c` for each algorithm directly with the NDK
    clang into correctly-named Android `.so`.
+
+## Blocker RESOLVED (2026-05-31) — pure-Python ML-DSA fallback
+
+Closed via option 2: the runtime now falls back from `pqcrypto` to pure-Python
+**`dilithium-py`** for ML-DSA-65, selected automatically when pqcrypto can't load
+(Android). Both are FIPS 204 ML-DSA-65 with identical key/signature encodings,
+so they are **wire-interoperable** — a dilithium-py client's signatures verify
+under a PQClean node and vice versa (proven in `tests/test_ml_dsa_backends.py`).
+
+**The APK now runs the complete tenet crypto stack on an arm64 emulator** under
+Python 3.13 — logcat:
+
+```
+TENET-SELFTEST msgpack ok
+TENET-SELFTEST libsodium/x25519 ok
+TENET-SELFTEST aes-ctr/pyaes ok
+TENET-SELFTEST ml_dsa_65 sign/verify ok
+TENET-NATIVE-STACK-OK
+```
+
+Android dep set (UDP-only v0): cross-compiled C wheels `msgpack`, `pynacl`
+(libsodium), `cffi` (libffi); pure-Python `pyaes` (AES-CTR) and `dilithium-py`
+(ML-DSA-65). No Rust, no pqcrypto, no pycryptodome. pqcrypto's cffi cross-compile
+remains a nice-to-have (native speed) but is no longer on the critical path.

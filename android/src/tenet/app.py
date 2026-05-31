@@ -13,7 +13,7 @@ def selftest() -> bool:
     import cffi  # noqa: F401  (pulls libffi)
     import nacl.bindings as nb
     import pyaes
-    from pqcrypto.sign.ml_dsa_65 import generate_keypair, sign, verify
+    from dilithium_py.ml_dsa import ML_DSA_65
 
     # msgpack round-trip
     assert msgpack.unpackb(msgpack.packb({"tenet": 1})) == {"tenet": 1}
@@ -30,10 +30,10 @@ def selftest() -> bool:
     assert len(ct) == 5
     print("TENET-SELFTEST aes-ctr/pyaes ok", flush=True)
 
-    # ML-DSA-65 (PQClean via pqcrypto) sign/verify
-    pub, sec = generate_keypair()
-    sig = sign(sec, b"tenet")
-    assert verify(pub, b"tenet", sig)
+    # ML-DSA-65 (pure-Python dilithium-py; wire-interoperable with PQClean) sign/verify
+    pub, sec = ML_DSA_65.keygen()
+    sig = ML_DSA_65.sign(sec, b"tenet")
+    assert ML_DSA_65.verify(pub, b"tenet", sig)
     print("TENET-SELFTEST ml_dsa_65 sign/verify ok", flush=True)
 
     return True
