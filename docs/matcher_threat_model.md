@@ -223,6 +223,14 @@ tenet," not what or with whom. Hiding that needs uniform cover traffic, which by
 
 ## 8. Build order
 
+**Principle (do not leave this on the floor): build the wire with plain
+stand-ins, harden the boxes after.** Get the sealed query → top-K opaque
+handles → deliver → answer shape working end-to-end in `tests/harness.py` with
+plain components first. The transport never changes; only the boxes harden
+(plain process → confidential VM, plain k-NN → oblivious k-NN, plain resolve map
+→ oblivious route, no-op credential → ARC). Hardening drops into the same boxes
+without rewiring.
+
 1. **Opaque handle as a token (#4)** — small, foundational; unblocks oblivious
    routing and keeps the Matcher unable to reverse a handle to an IP.
 2. **Enclave Matcher** — oblivious k-NN over coarse opaque-embedding manifests in
