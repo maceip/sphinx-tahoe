@@ -25,6 +25,7 @@ from .handles import (
     OpaqueHandleRecord,
 )
 from .memory_index import MemoryManifest, score_manifest
+from .oblivious import DUMMY_INDEX, oblivious_top_k
 from .peer_address import ROUTE_RELAY, build_dial_plan, peer_address_record_from_dict
 from .transport_dial import DialTarget, resolve_dial_target
 
@@ -86,18 +87,20 @@ class PlainMatcher:
             raise ValueError(f"unsupported matcher mode: {request.mode!r}")
 
         query = request.intent.query_text()
-        scored = []
-        for entry in self.entries:
-            score = score_manifest(entry.candidate.manifest, query)
-            if score <= 0:
-                continue
-            scored.append((score, entry.handle.token, entry.candidate))
-        scored.sort(key=lambda item: (-item[0], item[1]))
-
         limit = self.top_k
         if request.max_records is not None:
             limit = min(limit, request.max_records)
-        candidates = tuple(item[2] for item in scored[:limit])
+
+        # Oblivious selection: score every entry (no data-dependent skip/sort),
+        # then pick top-K via a uniform-access primitive (por.oblivious). The
+        # selection access pattern no longer depends on which entry matched. The
+        # residual count leak (returning <K real candidates) is closed later by
+        # cover handles; hardware constant-time + ORAM are the in-TEE port.
+        scores = [score_manifest(entry.candidate.manifest, query) for entry in self.entries]
+        selected = oblivious_top_k(scores, limit) if limit > 0 else []
+        candidates = tuple(
+            self.entries[i].candidate for i in selected if i != DUMMY_INDEX
+        )
         return DiscoveryResult(
             candidates=candidates,
             mode=PLAIN_MATCHER_V1,
@@ -106,8 +109,8 @@ class PlainMatcher:
             private_query_used=False,
             generated_at=datetime.now(timezone.utc).isoformat(),
             note=(
-                "plain matcher stand-in returned top-K opaque handles; "
-                "no TEE or oblivious access guarantees in this mode"
+                "oblivious top-K selection (uniform access pattern); output-count "
+                "hiding via cover handles + hardware-CT/ORAM still ahead"
             ),
         )
 
