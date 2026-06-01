@@ -39,7 +39,11 @@ def outfox_process(params, sk, pk, packet, is_last=False, on_circuit=None):
       If not last: (routing_info, flag, (next_header, next_payload))
       If last:     (routing_info, flag, msg, surb_info)
                    surb_info is ((surb_header, surb_key)) or None
-      Returns None on expired timestamp or integrity failure.
+
+    Failure modes (callers must handle both):
+      - Returns ``None`` on KEM decapsulation failure or expired timestamp.
+      - Raises ``ValueError`` on AEAD integrity failure (a tampered header);
+        this is intentional and asserted by test_outfox's tampering test.
 
     on_circuit: optional callback(inbound_cid, circuit_key, next_hop, outbound_cid, ttl)
       called when circuit setup fields are present in the routing metadata.
@@ -89,9 +93,8 @@ def outfox_process(params, sk, pk, packet, is_last=False, on_circuit=None):
         if not _hmac.compare_digest(next_payload[:params.k], b'\x00' * params.k):
             return None
 
-        from struct import unpack as struct_unpack
         inner = next_payload[params.k:]
-        surb_len = struct_unpack(">H", inner[:2])[0]
+        surb_len = _struct.unpack(">H", inner[:2])[0]
         surb_field = inner[2:2 + params.surb_size]
         msg_start = 2 + params.surb_size
 

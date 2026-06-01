@@ -147,6 +147,13 @@ class KEM_X25519:
 
     @staticmethod
     def decapsulate(c, sk):
+        # libsodium's crypto_scalarmult clamps the scalar and masks the high
+        # bit of the input point (RFC 7748), so non-canonical ciphertexts are
+        # normalised rather than exploitable. We additionally reject degenerate
+        # *outputs*: an all-zero shared secret (the small-subgroup / low-order
+        # point result) and any value outside the canonical field range
+        # (x >= 2^255 - 19). Together these cover the small-subgroup attack
+        # without a separate in_group check on the input.
         try:
             shk = crypto_scalarmult(sk, c)
         except Exception:
