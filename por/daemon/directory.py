@@ -94,8 +94,7 @@ def run_directory_from_daemon(daemon, por_config=None) -> int:
     snapshot_json = None
     if por_config is not None:
         supernodes = por_config.supernode_directory_records()
-        peer_address_records = por_config.peer_address_directory_records()
-        if supernodes or peer_address_records:
+        if supernodes:
             if daemon.directory.snapshot_path is None:
                 snapshot = DirectorySnapshot(
                     records=(),
@@ -104,10 +103,7 @@ def run_directory_from_daemon(daemon, por_config=None) -> int:
                 )
             else:
                 snapshot = DirectorySnapshot.load(daemon.directory.snapshot_path)
-            if supernodes:
-                snapshot = snapshot.with_supernodes(supernodes)
-            if peer_address_records:
-                snapshot = snapshot.with_peer_address_records(peer_address_records)
+            snapshot = snapshot.with_supernodes(supernodes)
             snapshot_json = snapshot.to_json() + "\n"
     if daemon.directory.snapshot_path is None and snapshot_json is None:
         raise SystemExit("por run: directory role requires directory.snapshot_path in config")

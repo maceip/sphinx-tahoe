@@ -12,6 +12,9 @@ from por.config import (
     TrustedReachabilityRelayConfig,
 )
 from por.directory import PublicManifestDirectory
+from por.expert_mode import ExpertModeConfig
+from por.handles import OpaqueHandleIssuer
+from por.matcher import PLAIN_MATCHER_V1, PlainEnclavePlaneDiscoveryProvider, PlainMailbox, PlainMatcher
 from por.peer_address import PeerAddressRelay, UdpEndpoint
 from por.provider import ProviderError
 from tests.helpers import (
@@ -39,11 +42,18 @@ def test_client_fallback_does_not_touch_wire(tmp_path):
         )
 
 
-def test_client_uses_peer_address_record_to_plan_relay_path(monkeypatch, tmp_path):
+def test_client_uses_handle_resolver_to_plan_relay_path(monkeypatch, tmp_path):
     config_path, _harness, _node_ids = _write_cluster(tmp_path, node_count=4)
     cluster = ClusterConfig.load(config_path)
     directory = demo_directory(tmp_path)
+    art_record = _record_by_peer(directory, "expert_art")
     secret = b"client-peer-address-secret"
+    handle_record = OpaqueHandleIssuer(b"client-handle-secret").record(
+        peer_id="expert_art",
+        manifest_digest=art_record.manifest.index_digest,
+        mailbox_id="mailbox-a",
+        now=1000.0,
+    )
     address_relay = PeerAddressRelay(
         relay_id="relay1",
         relay_endpoint=UdpEndpoint("127.0.0.1", 7001),
@@ -51,11 +61,21 @@ def test_client_uses_peer_address_record_to_plan_relay_path(monkeypatch, tmp_pat
     )
     now = time.time()
     challenge = address_relay.request_registration(
-        peer_id="expert_art",
+        peer_id=handle_record.handle,
         observed_endpoint=UdpEndpoint("127.0.0.1", 7003),
         now=now,
     )
     record = address_relay.confirm_registration(challenge, now=now + 1).to_public_dict()
+    mailbox = PlainMailbox()
+    mailbox.add(
+        record=handle_record,
+        routing_kem_pk_hex=cluster.node("expert_art").kem_pk_hex,
+        peer_address=record,
+    )
+    discovery_provider = PlainEnclavePlaneDiscoveryProvider(
+        PlainMatcher.from_records([art_record], {"expert_art": handle_record}),
+        mailbox,
+    )
     seen = {}
 
     def recording_send_prepared_envelope(**kwargs):
@@ -67,14 +87,15 @@ def test_client_uses_peer_address_record_to_plan_relay_path(monkeypatch, tmp_pat
 
     result = run_client_once(
         cluster=cluster,
-        discovery_provider=directory,
+        discovery_provider=discovery_provider,
         prompt="What did Monet change about modern painting?",
         requested_expertise="Impressionist art history",
-        relay_path=("relay2",),
-        peer_address_config=PeerAddressConfig(
-            enabled=True,
-            records={"expert_art": record},
+        expert_mode_config=ExpertModeConfig(
+            discovery_mode=PLAIN_MATCHER_V1,
+            min_pool_size=1,
         ),
+        relay_path=("relay2",),
+        peer_address_config=PeerAddressConfig(enabled=True),
         trusted_reachability_relays=(
             TrustedReachabilityRelayConfig(
                 relay_id="relay1",
@@ -87,11 +108,12 @@ def test_client_uses_peer_address_record_to_plan_relay_path(monkeypatch, tmp_pat
     )
 
     assert result.fallback_used is False
-    assert seen["forward_path"] == ("relay1", "expert_art")
+    assert seen["forward_path"] == ("relay1", handle_record.handle)
     assert seen["dial_target"].relay_id == "relay1"
     assert seen["dial_target"].host == cluster.node("relay1").host
     assert seen["dial_target"].port == cluster.node("relay1").port
     assert "event=peer_address_plan" in result.client_logs
+    assert "event=handle_resolved" in result.client_logs
     assert "event=dial_target" in result.client_logs
     assert "event=peer_address_ignored_static_relay_path" in result.client_logs
     assert "event=peer_address_relay_path" in result.client_logs
@@ -101,17 +123,34 @@ def test_client_rejects_untrusted_peer_address_relay_before_send(monkeypatch, tm
     config_path, _harness, _node_ids = _write_cluster(tmp_path, node_count=4)
     cluster = ClusterConfig.load(config_path)
     directory = demo_directory(tmp_path)
+    art_record = _record_by_peer(directory, "expert_art")
+    handle_record = OpaqueHandleIssuer(b"client-handle-secret").record(
+        peer_id="expert_art",
+        manifest_digest=art_record.manifest.index_digest,
+        mailbox_id="mailbox-a",
+        now=1000.0,
+    )
     address_relay = PeerAddressRelay(
         relay_id="untrusted-relay",
         relay_endpoint=UdpEndpoint("203.0.113.55", 4433),
         secret=b"untrusted-peer-address-secret",
     )
     challenge = address_relay.request_registration(
-        peer_id="expert_art",
+        peer_id=handle_record.handle,
         observed_endpoint=UdpEndpoint("127.0.0.1", 7003),
         now=time.time(),
     )
     record = address_relay.confirm_registration(challenge).to_public_dict()
+    mailbox = PlainMailbox()
+    mailbox.add(
+        record=handle_record,
+        routing_kem_pk_hex=cluster.node("expert_art").kem_pk_hex,
+        peer_address=record,
+    )
+    discovery_provider = PlainEnclavePlaneDiscoveryProvider(
+        PlainMatcher.from_records([art_record], {"expert_art": handle_record}),
+        mailbox,
+    )
 
     def forbidden_send_prepared_envelope(**_kwargs):
         raise AssertionError("untrusted peer-address record must not touch socket send")
@@ -121,10 +160,14 @@ def test_client_rejects_untrusted_peer_address_relay_before_send(monkeypatch, tm
     with pytest.raises(ProviderError, match="POR_PROVIDER or daemon.provider is required"):
         run_client_once(
             cluster=cluster,
-            discovery_provider=directory,
+            discovery_provider=discovery_provider,
             prompt="What did Monet change about modern painting?",
             requested_expertise="Impressionist art history",
-            peer_address_config=PeerAddressConfig(enabled=True, records={"expert_art": record}),
+            expert_mode_config=ExpertModeConfig(
+                discovery_mode=PLAIN_MATCHER_V1,
+                min_pool_size=1,
+            ),
+            peer_address_config=PeerAddressConfig(enabled=True),
             trusted_reachability_relays=(),
             random_seed=3,
         )
@@ -134,6 +177,13 @@ def test_client_rejects_tampered_peer_address_signature_before_send(monkeypatch,
     config_path, _harness, _node_ids = _write_cluster(tmp_path, node_count=4)
     cluster = ClusterConfig.load(config_path)
     directory = demo_directory(tmp_path)
+    art_record = _record_by_peer(directory, "expert_art")
+    handle_record = OpaqueHandleIssuer(b"client-handle-secret").record(
+        peer_id="expert_art",
+        manifest_digest=art_record.manifest.index_digest,
+        mailbox_id="mailbox-a",
+        now=1000.0,
+    )
     secret = b"client-peer-address-secret"
     address_relay = PeerAddressRelay(
         relay_id="relay1",
@@ -141,12 +191,22 @@ def test_client_rejects_tampered_peer_address_signature_before_send(monkeypatch,
         secret=secret,
     )
     challenge = address_relay.request_registration(
-        peer_id="expert_art",
+        peer_id=handle_record.handle,
         observed_endpoint=UdpEndpoint("127.0.0.1", 7003),
         now=time.time(),
     )
     record = address_relay.confirm_registration(challenge).to_public_dict()
     record["relay_candidates"][0]["endpoint"]["port"] = 65530
+    mailbox = PlainMailbox()
+    mailbox.add(
+        record=handle_record,
+        routing_kem_pk_hex=cluster.node("expert_art").kem_pk_hex,
+        peer_address=record,
+    )
+    discovery_provider = PlainEnclavePlaneDiscoveryProvider(
+        PlainMatcher.from_records([art_record], {"expert_art": handle_record}),
+        mailbox,
+    )
 
     def forbidden_send_prepared_envelope(**_kwargs):
         raise AssertionError("bad peer-address signature must not touch socket send")
@@ -156,10 +216,14 @@ def test_client_rejects_tampered_peer_address_signature_before_send(monkeypatch,
     with pytest.raises(ProviderError, match="POR_PROVIDER or daemon.provider is required"):
         run_client_once(
             cluster=cluster,
-            discovery_provider=directory,
+            discovery_provider=discovery_provider,
             prompt="What did Monet change about modern painting?",
             requested_expertise="Impressionist art history",
-            peer_address_config=PeerAddressConfig(enabled=True, records={"expert_art": record}),
+            expert_mode_config=ExpertModeConfig(
+                discovery_mode=PLAIN_MATCHER_V1,
+                min_pool_size=1,
+            ),
+            peer_address_config=PeerAddressConfig(enabled=True),
             trusted_reachability_relays=(
                 TrustedReachabilityRelayConfig(
                     relay_id="relay1",
@@ -226,3 +290,10 @@ def test_por_client_daemon_streams_over_process_nodes(tmp_path):
 
 def _write_cluster(tmp_path: Path, *, node_count: int):
     return write_process_wire_cluster(tmp_path, node_count=node_count)
+
+
+def _record_by_peer(directory, peer_id):
+    for record in directory.records:
+        if record.peer_id == peer_id:
+            return record
+    raise AssertionError(peer_id)

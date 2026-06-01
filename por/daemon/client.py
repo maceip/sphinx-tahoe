@@ -207,7 +207,6 @@ def run_send(
     relay_path: Sequence[str] = (),
     timeout: float = 8.0,
     peer_address_config=None,
-    peer_address_records=None,
     logging: LoggingConfig | None = None,
 ) -> int:
     logging = logging or LoggingConfig()
@@ -224,7 +223,6 @@ def run_send(
         relay_path=tuple(relay_path),
         timeout=timeout,
         peer_address_config=peer_address_config,
-        peer_address_records=peer_address_records,
     )
     _emit_client_log(
         logging,

@@ -10,7 +10,7 @@ import json
 import socket
 import time
 from dataclasses import dataclass
-from typing import Callable, Mapping, Sequence
+from typing import Callable, Iterable, Mapping, Sequence
 
 from sphinxmix.OutfoxClient import packet_create
 from sphinxmix.OutfoxNode import circuit_packet_decrypt
@@ -26,6 +26,7 @@ from .directory import DiscoveryProvider
 from .envelope import PromptRequestEnvelope
 from .expert_mode import ExpertModeConfig, prepare_expert_mode_request
 from .expert_route import RouteIntent
+from .handles import HandleResolution
 from .node_runtime import build_native_forward_plan
 from .peer_address import ROUTE_RELAY, build_dial_plan, peer_address_record_from_dict, verify_record_signature
 from .provider import stream_frontier_reply
@@ -61,7 +62,6 @@ def run_client_once(
     expert_mode_config: ExpertModeConfig | None = None,
     random_seed: int | None = None,
     peer_address_config: PeerAddressConfig | None = None,
-    peer_address_records: Mapping[str, dict[str, object]] | None = None,
     trusted_reachability_relays: Sequence[TrustedReachabilityRelayConfig] = (),
     dev_allow_untrusted_reachability_relays: bool = False,
     provider_config: ProviderConfig | None = None,
@@ -97,9 +97,8 @@ def run_client_once(
     ]
 
     if not prepared.use_expert or prepared.envelope is None:
-        response = "".join(
-            stream_frontier_reply(prompt, prepared.trace.fallback_reason, provider_config)
-        )
+        reason = prepared.trace.fallback_reason or "no expert selected"
+        response = "".join(stream_frontier_reply(prompt, reason, provider_config))
         return ClientRunResult(
             selected_peer_id=None,
             degraded_anonymity=prepared.plan.pool.degraded_anonymity,
@@ -109,17 +108,30 @@ def run_client_once(
         )
 
     selected_peer_id = prepared.envelope.selected_peer_id
-    route_result = _plan_relay_path_from_peer_address(
-        selected_peer_id=selected_peer_id,
+    route_result = _plan_relay_path_for_mailbox_delivery(
+        selected_handle=selected_peer_id,
         relay_path=tuple(relay_path),
         peer_address_config=peer_address_config,
-        peer_address_records=(
-            peer_address_records
-            or _peer_address_records_from_discovery_provider(discovery_provider)
-        ),
-        trusted_reachability_relays=tuple(trusted_reachability_relays),
-        dev_allow_untrusted_reachability_relays=dev_allow_untrusted_reachability_relays,
+        discovery_provider=discovery_provider,
     )
+    if route_result is None:
+        route_result = _plan_relay_path_from_handle(
+            selected_handle=selected_peer_id,
+            relay_path=tuple(relay_path),
+            peer_address_config=peer_address_config,
+            discovery_provider=discovery_provider,
+            trusted_reachability_relays=tuple(trusted_reachability_relays),
+            dev_allow_untrusted_reachability_relays=dev_allow_untrusted_reachability_relays,
+        )
+    if route_result is None:
+        if peer_address_config is not None and peer_address_config.enabled:
+            route_result = _PeerAddressRouteResult(
+                relay_path=tuple(relay_path),
+                logs=("client event=handle_resolver_missing",),
+                blocked_reason="handle_resolver_required",
+            )
+        else:
+            route_result = _PeerAddressRouteResult(relay_path=tuple(relay_path), logs=())
     logs.extend(route_result.logs)
     if route_result.blocked_reason is not None:
         response = "".join(stream_frontier_reply(prompt, route_result.blocked_reason, provider_config))
@@ -196,12 +208,6 @@ def send_prepared_envelope(
     params = OutfoxParams(**cluster.params.outfox_kwargs())
     client_addr = (cluster.client.host, cluster.client.port)
 
-    owns_client_sock = client_sock is None
-    if client_sock is None:
-        client_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        client_sock.bind(client_addr)
-    client_sock.settimeout(0.5)
-
     route_infos, circuit_setup, client_peel_keys = build_native_forward_plan(
         tuple(forward_path))
     kem_keys = [
@@ -225,44 +231,108 @@ def send_prepared_envelope(
         first_addr = (first_node.host, first_node.port)
         dial_note = f"cluster_node={forward_path[0]}"
 
+    mailbox_delivery = _mailbox_delivery(discovery_provider)
+    datagram = encode_forward(header, payload)
+    if mailbox_delivery is not None and envelope.selected_peer_id == forward_path[-1]:
+        logs = [
+            f"client event=send_prepared_envelope selected={envelope.selected_peer_id or 'none'} "
+            f"forward_path={'/'.join(forward_path)} wire=binary via=mailbox"
+        ]
+        packets = mailbox_delivery(
+            envelope.selected_peer_id,
+            datagram,
+            timeout=timeout,
+        )
+        response, stream_logs = _read_stream_from_datagrams(
+            params=params,
+            client_peel_keys=client_peel_keys,
+            datagrams=packets,
+            on_chunk=on_chunk,
+        )
+        logs.extend(stream_logs)
+        return response, logs
+
+    owns_client_sock = client_sock is None
+    if client_sock is None:
+        client_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        client_sock.bind(client_addr)
+    client_sock.settimeout(0.5)
+
     send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        send_sock.sendto(encode_forward(header, payload), first_addr)
+        send_sock.sendto(datagram, first_addr)
 
-        chunks: list[str] = []
         logs = [
             f"client event=send_prepared_envelope selected={envelope.selected_peer_id or 'none'} "
             f"forward_path={'/'.join(forward_path)} wire=binary {dial_note}"
         ]
+        response, stream_logs = _read_stream_from_socket(
+            params=params,
+            client_peel_keys=client_peel_keys,
+            client_sock=client_sock,
+            timeout=timeout,
+            on_chunk=on_chunk,
+        )
+        logs.extend(stream_logs)
+        return response, logs
+    finally:
+        if owns_client_sock:
+            client_sock.close()
+        send_sock.close()
+
+
+def _read_stream_from_socket(
+    *,
+    params: OutfoxParams,
+    client_peel_keys: Sequence[bytes],
+    client_sock: socket.socket,
+    timeout: float,
+    on_chunk: Callable[[dict[str, object]], None] | None,
+) -> tuple[str, list[str]]:
+    def datagrams() -> Iterable[bytes]:
         deadline = time.time() + timeout
         while time.time() < deadline:
             try:
                 data, _addr = client_sock.recvfrom(65535)
             except socket.timeout:
                 continue
-            kind, body, _ = decode_datagram(data, params.payload_size)
-            if kind != "circuit":
-                continue
-            plain = circuit_packet_decrypt(params, client_peel_keys, body)
-            if plain is None:
-                logs.append("client event=stream_corrupt")
-                continue
-            chunk = json.loads(plain.decode("utf-8"))
-            logs.append(f"client event=stream_chunk seq={chunk['seq']} bytes={len(chunk['data'])}")
-            if chunk.get("done"):
-                if on_chunk is not None:
-                    on_chunk(chunk)
-                break
+            yield data
+
+    return _read_stream_from_datagrams(
+        params=params,
+        client_peel_keys=client_peel_keys,
+        datagrams=datagrams(),
+        on_chunk=on_chunk,
+    )
+
+
+def _read_stream_from_datagrams(
+    *,
+    params: OutfoxParams,
+    client_peel_keys: Sequence[bytes],
+    datagrams: Iterable[bytes],
+    on_chunk: Callable[[dict[str, object]], None] | None,
+) -> tuple[str, list[str]]:
+    chunks: list[str] = []
+    logs: list[str] = []
+    for data in datagrams:
+        kind, body, _ = decode_datagram(data, params.payload_size)
+        if kind != "circuit":
+            continue
+        plain = circuit_packet_decrypt(params, client_peel_keys, body)
+        if plain is None:
+            logs.append("client event=stream_corrupt")
+            continue
+        chunk = json.loads(plain.decode("utf-8"))
+        logs.append(f"client event=stream_chunk seq={chunk['seq']} bytes={len(chunk['data'])}")
+        if chunk.get("done"):
             if on_chunk is not None:
                 on_chunk(chunk)
-            chunks.append(chunk["data"])
-        else:
-            raise TimeoutError("timed out waiting for streamed return path")
-        return "".join(chunks), logs
-    finally:
-        if owns_client_sock:
-            client_sock.close()
-        send_sock.close()
+            return "".join(chunks), logs
+        if on_chunk is not None:
+            on_chunk(chunk)
+        chunks.append(chunk["data"])
+    raise TimeoutError("timed out waiting for streamed return path")
 
 
 def _plan_relay_path_from_peer_address(
@@ -270,7 +340,7 @@ def _plan_relay_path_from_peer_address(
     selected_peer_id: str | None,
     relay_path: tuple[str, ...],
     peer_address_config: PeerAddressConfig | None,
-    peer_address_records: Mapping[str, dict[str, object]] | None,
+    peer_address_records: Mapping[str, dict[str, object]],
     trusted_reachability_relays: Sequence[TrustedReachabilityRelayConfig],
     dev_allow_untrusted_reachability_relays: bool = False,
 ) -> _PeerAddressRouteResult:
@@ -284,8 +354,7 @@ def _plan_relay_path_from_peer_address(
     ):
         return _PeerAddressRouteResult(relay_path=relay_path, logs=tuple(logs))
 
-    records = peer_address_records or peer_address_config.records
-    raw_record = records.get(selected_peer_id)
+    raw_record = peer_address_records.get(selected_peer_id)
     if raw_record is None:
         logs.append(f"client event=peer_address_missing peer_id={selected_peer_id}")
         return _PeerAddressRouteResult(relay_path=relay_path, logs=tuple(logs))
@@ -395,6 +464,134 @@ def _plan_relay_path_from_peer_address(
     return _PeerAddressRouteResult(relay_path=planned, logs=tuple(logs), dial_target=dial_target)
 
 
+def _plan_relay_path_for_mailbox_delivery(
+    *,
+    selected_handle: str | None,
+    relay_path: tuple[str, ...],
+    peer_address_config: PeerAddressConfig | None,
+    discovery_provider: DiscoveryProvider,
+) -> _PeerAddressRouteResult | None:
+    if (
+        selected_handle is None
+        or peer_address_config is None
+        or not peer_address_config.enabled
+        or not bool(getattr(discovery_provider, "mailbox_delivery_enabled", False))
+    ):
+        return None
+    planner = getattr(discovery_provider, "relay_path_for_handle", None)
+    if not callable(planner):
+        return _PeerAddressRouteResult(
+            relay_path=relay_path,
+            logs=(f"client event=mailbox_delivery_missing handle={selected_handle}",),
+            blocked_reason="mailbox_delivery_missing",
+        )
+    try:
+        planned = tuple(str(node_id) for node_id in planner(selected_handle))
+    except ValueError as exc:
+        return _PeerAddressRouteResult(
+            relay_path=relay_path,
+            logs=(f"client event=mailbox_delivery_rejected handle={selected_handle} reason={exc}",),
+            blocked_reason=str(exc),
+        )
+    if not planned:
+        return _PeerAddressRouteResult(
+            relay_path=relay_path,
+            logs=(f"client event=mailbox_delivery_rejected handle={selected_handle} reason=no_relay_path",),
+            blocked_reason="mailbox_delivery_no_relay_path",
+        )
+    if relay_path and relay_path != planned:
+        return _PeerAddressRouteResult(
+            relay_path=relay_path,
+            logs=(f"client event=mailbox_delivery_rejected handle={selected_handle} reason=static_relay_path_conflict",),
+            blocked_reason="mailbox_delivery_static_relay_path_conflict",
+        )
+    return _PeerAddressRouteResult(
+        relay_path=planned,
+        logs=(
+            "client event=mailbox_delivery_plan handle={handle} relay_path={path}".format(
+                handle=selected_handle,
+                path="/".join(planned),
+            ),
+        ),
+    )
+
+
+def _plan_relay_path_from_handle(
+    *,
+    selected_handle: str | None,
+    relay_path: tuple[str, ...],
+    peer_address_config: PeerAddressConfig | None,
+    discovery_provider: DiscoveryProvider,
+    trusted_reachability_relays: Sequence[TrustedReachabilityRelayConfig],
+    dev_allow_untrusted_reachability_relays: bool = False,
+) -> _PeerAddressRouteResult | None:
+    if (
+        selected_handle is None
+        or peer_address_config is None
+        or not peer_address_config.enabled
+    ):
+        return None
+    resolver = getattr(discovery_provider, "resolve_handle", None)
+    if not callable(resolver):
+        return None
+    resolution = resolver(selected_handle)
+    if resolution is None:
+        return _PeerAddressRouteResult(
+            relay_path=relay_path,
+            logs=(f"client event=handle_missing handle={selected_handle}",),
+            blocked_reason="handle_unresolved",
+        )
+    if not isinstance(resolution, HandleResolution):
+        try:
+            resolution = HandleResolution(
+                handle=str(resolution["handle"]),
+                routing_kem_pk_hex=str(resolution["routing_kem_pk_hex"]),
+                peer_address=dict(resolution["peer_address"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return _PeerAddressRouteResult(
+                relay_path=relay_path,
+                logs=(f"client event=handle_rejected handle={selected_handle} reason=bad_resolution",),
+                blocked_reason=f"bad_handle_resolution: {exc}",
+            )
+    if resolution.handle != selected_handle:
+        return _PeerAddressRouteResult(
+            relay_path=relay_path,
+            logs=(f"client event=handle_rejected handle={selected_handle} reason=mismatch",),
+            blocked_reason="handle_resolution_mismatch",
+        )
+    result = _plan_relay_path_from_peer_address(
+        selected_peer_id=selected_handle,
+        relay_path=relay_path,
+        peer_address_config=peer_address_config,
+        peer_address_records={selected_handle: resolution.peer_address},
+        trusted_reachability_relays=trusted_reachability_relays,
+        dev_allow_untrusted_reachability_relays=dev_allow_untrusted_reachability_relays,
+    )
+    return _PeerAddressRouteResult(
+        relay_path=result.relay_path,
+        logs=(
+            f"client event=handle_resolved handle={selected_handle}",
+            *result.logs,
+        ),
+        dial_target=result.dial_target,
+        blocked_reason=result.blocked_reason,
+    )
+
+
+def _mailbox_delivery(
+    discovery_provider: DiscoveryProvider | None,
+) -> Callable[[str, bytes], Iterable[bytes]] | None:
+    if discovery_provider is None:
+        return None
+    if not bool(getattr(discovery_provider, "mailbox_delivery_enabled", False)):
+        return None
+    delivery = getattr(discovery_provider, "deliver_to_handle", None)
+    if not callable(delivery):
+        return None
+    return delivery
+
+
 def _routing_node_available(
     cluster: ClusterConfig,
     discovery_provider: DiscoveryProvider,
@@ -444,15 +641,3 @@ def _validate_forward_path(
     ]
     if missing:
         raise ValueError(f"forward_path contains unknown nodes: {', '.join(missing)}")
-
-
-def _peer_address_records_from_discovery_provider(
-    discovery_provider: DiscoveryProvider,
-) -> Mapping[str, dict[str, object]] | None:
-    getter = getattr(discovery_provider, "peer_address_records", None)
-    if not callable(getter):
-        return None
-    records = getter()
-    if isinstance(records, Mapping):
-        return records
-    return None

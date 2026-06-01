@@ -1,7 +1,10 @@
 """In-process packet crypto/routing tests."""
 
+from http.server import BaseHTTPRequestHandler
+import json
 import struct
 from tests.mixnet_test_network import MixnetTestNetwork, Client, CircuitCorrupted
+from tests.harness import mixnet_harness
 from sphinxmix.OutfoxParams import (
     FLAG_REAL, FLAG_DUMMY, verify_payload, generate_signing_keypair,
 )
@@ -282,51 +285,84 @@ def test_capability_based_routing():
 
 def test_exit_with_api_call():
     """Exit node selected by capability makes the actual LLM call."""
-    providers = {
-        2: [{"name": "anthropic", "models": ["claude-sonnet-4-20250514"],
-             "api_base": "http://127.0.0.1:8000"}],
-    }
-    sim = MixnetTestNetwork(num_nodes=6, payload_size=32768, node_providers=providers)
-    client = sim.create_client(b"alice")
-
-    import json
     from urllib.request import Request, urlopen
 
-    path = client.select_path(provider="anthropic", num_hops=3)
-    request_body = json.dumps({
-        "model": "claude-sonnet-4-20250514",
-        "max_tokens": 16,
-        "messages": [{"role": "user", "content": "say ok"}],
-    }).encode()
+    with mixnet_harness() as net:
+        api_server = net.serve_http(_anthropic_test_handler())
+        api_base = f"http://127.0.0.1:{api_server.server_address[1]}"
+        providers = {
+            2: [{"name": "anthropic", "models": ["claude-sonnet-4-20250514"],
+                 "api_base": api_base}],
+        }
+        sim = MixnetTestNetwork(num_nodes=6, payload_size=32768, node_providers=providers)
+        client = sim.create_client(b"alice")
 
-    fwd_path = path
-    rply_relays = [nid for nid in sim.node_ids() if nid not in path][:2]
-    header, payload = client.create_repliable(fwd_path, rply_relays, request_body)
+        path = client.select_path(provider="anthropic", num_hops=3)
+        request_body = json.dumps({
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": 16,
+            "messages": [{"role": "user", "content": "say ok"}],
+        }).encode()
 
-    result = sim.route_forward(fwd_path, header, payload)
-    assert result is not None
-    routing, flag, msg, surb_info = result
-    assert msg == request_body
+        fwd_path = path
+        rply_relays = [nid for nid in sim.node_ids() if nid not in path][:2]
+        header, payload = client.create_repliable(fwd_path, rply_relays, request_body)
 
-    exit_node = sim.nodes[path[-1]]
-    api_base = exit_node.providers[0]["api_base"]
-    req = Request(api_base + "/v1/messages", data=msg, method="POST", headers={
-        "Content-Type": "application/json",
-        "x-api-key": "none",
-        "anthropic-version": "2023-06-01",
-    })
-    resp = urlopen(req, timeout=30)
-    resp_body = resp.read()
-    assert resp.status == 200
+        result = sim.route_forward(fwd_path, header, payload)
+        assert result is not None
+        routing, flag, msg, surb_info = result
+        assert msg == request_body
 
-    surb_header, surb_key = surb_info
-    from sphinxmix.OutfoxClient import surb_use
-    reply_header, reply_payload = surb_use(sim.params, (surb_header, surb_key), resp_body)
-    reply_header, reply_payload = sim.route_reply(rply_relays, reply_header, reply_payload)
-    decrypted = client.receive_reply(reply_header, reply_payload)
-    assert decrypted == resp_body
+        exit_node = sim.nodes[path[-1]]
+        api_base = exit_node.providers[0]["api_base"]
+        req = Request(api_base + "/v1/messages", data=msg, method="POST", headers={
+            "Content-Type": "application/json",
+            "x-api-key": "none",
+            "anthropic-version": "2023-06-01",
+        })
+        resp = urlopen(req, timeout=30)
+        resp_body = resp.read()
+        assert resp.status == 200
+
+        surb_header, surb_key = surb_info
+        from sphinxmix.OutfoxClient import surb_use
+        reply_header, reply_payload = surb_use(sim.params, (surb_header, surb_key), resp_body)
+        reply_header, reply_payload = sim.route_reply(rply_relays, reply_header, reply_payload)
+        decrypted = client.receive_reply(reply_header, reply_payload)
+        assert decrypted == resp_body
 
     print(f"[PASS] Exit with API: capability-selected exit called LLM, response verified.")
+
+
+def _anthropic_test_handler():
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            if self.path != "/v1/messages":
+                self.send_error(404)
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            request_body = json.loads(self.rfile.read(length))
+            body = json.dumps(
+                {
+                    "id": "msg-test-local",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": request_body["model"],
+                    "content": [{"type": "text", "text": "ok"}],
+                    "stop_reason": "end_turn",
+                    "usage": {"input_tokens": 1, "output_tokens": 1},
+                }
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format, *_args):
+            return
+
+    return Handler
 
 
 def test_network_stats():

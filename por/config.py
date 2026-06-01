@@ -843,18 +843,6 @@ class PorConfig:
             )
         return tuple(records)
 
-    def peer_address_directory_records(self) -> dict[str, dict[str, object]]:
-        """Return expert peer-address records published from daemon config."""
-
-        records: dict[str, dict[str, object]] = {}
-        for daemon in self.daemons.values():
-            if daemon.role != ROLE_EXPERT:
-                continue
-            raw = daemon.peer_address.records.get(daemon.node_id)
-            if raw is not None:
-                records[daemon.node_id] = dict(raw)
-        return records
-
 
 def load_config(path: str | Path) -> PorConfig:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))

@@ -47,7 +47,7 @@ class PeerRecord:
     manifest: MemoryManifest
     observation: PeerObservation | None = None
     descriptor: dict[str, object] | None = None
-    peer_address: dict[str, object] | None = None
+    handle: dict[str, object] | None = None
 
     @property
     def peer_id(self) -> str:
@@ -199,19 +199,19 @@ class DirectorySnapshot:
             version=self.version,
         )
 
-    def with_peer_address_records(
+    def with_handle_records(
         self,
-        peer_address_records: Mapping[str, dict[str, object]],
+        handle_records: Mapping[str, dict[str, object]],
     ) -> "DirectorySnapshot":
         records = []
         for record in self.records:
-            peer_address = peer_address_records.get(record.peer_id, record.peer_address)
+            handle = handle_records.get(record.peer_id, record.handle)
             records.append(
                 PeerRecord(
                     manifest=record.manifest,
                     observation=record.observation,
                     descriptor=record.descriptor,
-                    peer_address=dict(peer_address) if peer_address is not None else None,
+                    handle=dict(handle) if handle is not None else None,
                 )
             )
         return DirectorySnapshot(
@@ -260,11 +260,11 @@ class PublicManifestDirectory:
     def save_snapshot(self, path: str | Path, generated_at: str | None = None) -> None:
         self.snapshot(generated_at=generated_at).save(path)
 
-    def peer_address_records(self) -> dict[str, dict[str, object]]:
+    def handle_records(self) -> dict[str, dict[str, object]]:
         return {
-            record.peer_id: dict(record.peer_address)
+            record.peer_id: dict(record.handle)
             for record in self.records
-            if record.peer_address is not None
+            if record.handle is not None
         }
 
     def routing_kem_pk_hex(self, peer_id: str) -> str | None:
@@ -369,8 +369,8 @@ def _peer_record_to_dict(record: PeerRecord) -> dict[str, Any]:
         data["observation"] = asdict(record.observation)
     if record.descriptor is not None:
         data["descriptor"] = record.descriptor
-    if record.peer_address is not None:
-        data["peer_address"] = record.peer_address
+    if record.handle is not None:
+        data["handle"] = record.handle
     return data
 
 
@@ -396,15 +396,17 @@ def _peer_record_from_dict(raw: object) -> PeerRecord:
     descriptor = raw.get("descriptor")
     if descriptor is not None and not isinstance(descriptor, dict):
         raise DirectorySnapshotFormatError("record descriptor must be an object")
-    peer_address = raw.get("peer_address")
-    if peer_address is not None and not isinstance(peer_address, dict):
-        raise DirectorySnapshotFormatError("record peer_address must be an object")
+    if "peer_address" in raw:
+        raise DirectorySnapshotFormatError("record peer_address is not an asker-facing field")
+    handle = raw.get("handle")
+    if handle is not None and not isinstance(handle, dict):
+        raise DirectorySnapshotFormatError("record handle must be an object")
 
     record = PeerRecord(
         manifest=manifest,
         observation=observation,
         descriptor=descriptor,
-        peer_address=peer_address,
+        handle=handle,
     )
     try:
         record.candidate()

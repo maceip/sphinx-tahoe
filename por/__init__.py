@@ -36,7 +36,13 @@ __all__ = (
     "LocalHttpConfig",
     "LocalMemoryIndex",
     "LoggingConfig",
+    "HandleResolution",
+    "MailboxEntry",
     "MemoryManifest",
+    "NoopArcCredential",
+    "OpaqueHandle",
+    "OpaqueHandleIssuer",
+    "OpaqueHandleRecord",
     "PacketConfig",
     "PeerCandidate",
     "PeerAddressConfig",
@@ -44,6 +50,11 @@ __all__ = (
     "PeerEndpointConfig",
     "PeerRecord",
     "PersistentClientSession",
+    "PlainEnclavePlaneHttpClient",
+    "PlainEnclavePlaneDiscoveryProvider",
+    "PlainMailboxDelivery",
+    "PlainMailbox",
+    "PlainMatcher",
     "PorConfig",
     "PorLogEvent",
     "PrivateDiscoveryUnavailable",
@@ -76,9 +87,12 @@ __all__ = (
     "load_directory_snapshot",
     "load_public_snapshot_directory",
     "load_records_from_snapshot_file",
+    "noop_arc_credential_from_dict",
     "plan_expert_route",
     "prepare_expert_mode_request",
     "peer_address_record_from_dict",
+    "make_plain_enclave_plane_handler",
+    "opaque_handle_record_from_dict",
     "resolve_dial_target",
     "run_client_once",
     "send_prepared_envelope",
@@ -92,6 +106,13 @@ __all__ = (
 
 def __getattr__(name):
     if name in __all__:
+        if name in {
+            "NoopArcCredential",
+            "noop_arc_credential_from_dict",
+        }:
+            from . import arc
+
+            return getattr(arc, name)
         if name in {
             "ClientRunResult",
             "ClientSessionStats",
@@ -163,6 +184,13 @@ def __getattr__(name):
 
             return getattr(envelope, name)
         if name in {
+            "PlainEnclavePlaneHttpClient",
+            "make_plain_enclave_plane_handler",
+        }:
+            from . import enclave_plane
+
+            return getattr(enclave_plane, name)
+        if name in {
             "AddressChallenge",
             "AddressExposurePolicy",
             "DialPlan",
@@ -206,6 +234,26 @@ def __getattr__(name):
             from . import log_events
 
             return getattr(log_events, name)
+        if name in {
+            "HandleResolution",
+            "OpaqueHandleRecord",
+            "opaque_handle_record_from_dict",
+        }:
+            from . import handles
+
+            return getattr(handles, name)
+        if name in {
+            "MailboxEntry",
+            "OpaqueHandle",
+            "OpaqueHandleIssuer",
+            "PlainEnclavePlaneDiscoveryProvider",
+            "PlainMailboxDelivery",
+            "PlainMailbox",
+            "PlainMatcher",
+        }:
+            from . import matcher
+
+            return getattr(matcher, name)
         if name in {
             "ExpertModeConfig",
             "ExpertModePreparedRequest",
