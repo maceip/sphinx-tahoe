@@ -6,6 +6,12 @@ envelopes. Relays should not import this package to process packets.
 """
 
 __all__ = (
+    "AttestedEnclavePlaneClient",
+    "EnclaveAttestationError",
+    "EnclaveTrustPolicy",
+    "RuncardVerifier",
+    "SubprocessRuncardVerifier",
+    "VerifiedAttestation",
     "CandidatePool",
     "CandidateScore",
     "ChunkProof",
@@ -254,6 +260,17 @@ def __getattr__(name):
             from . import matcher
 
             return getattr(matcher, name)
+        if name in {
+            "AttestedEnclavePlaneClient",
+            "EnclaveAttestationError",
+            "EnclaveTrustPolicy",
+            "RuncardVerifier",
+            "SubprocessRuncardVerifier",
+            "VerifiedAttestation",
+        }:
+            from . import enclave_attest
+
+            return getattr(enclave_attest, name)
         if name in {
             "ExpertModeConfig",
             "ExpertModePreparedRequest",
