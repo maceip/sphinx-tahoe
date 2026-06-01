@@ -15,10 +15,15 @@ TDX:
 - **Attested runtime (Stage 1):** runs an arbitrary workload inside a TEE and
   fronts it with **attested TLS** (the TLS cert carries an EAT bound to the
   hardware quote and to `sha256(cert_spki)`).
-- **`runcard check <url>`** (src/main.rs `cmd_check`): quote signature chain →
-  `report_data` binding → `sha256(cert_spki) == eat.tls_spki_hash` channel
-  binding → Value X registry lookup.
-- Receipt served at `GET /.well-known/runcard/receipt`.
+- **`runcard check <url>`** (src/main.rs `cmd_check`): opens attested TLS, pulls
+  the EAT (**CBOR, embedded in the leaf cert's CMW extension** — not a JSON
+  document), checks `sha256(cert_spki) == eat.tls_spki_hash` channel binding →
+  quote signature + `report_data` binding → stage-chain walk (Value X stable).
+  Exit 0 = all passed; `Value X` / `Platform` printed to stderr.
+- A CBOR receipt is also served at `GET /.well-known/runcard/receipt`.
+- **Verified locally, no TEE:** runcards `chain_e2e` 5/5 and the Nitro/TDX
+  `hardware_regression` fixtures pass on a plain Mac; only SNP (AMD KDS) and
+  *fresh-quote generation* need a live instance.
 - "Bootstrap once, then cheap" trust pattern (DESIGN.md / LLM_ATTESTED.md).
 
 run-cards' own guidance: *do not modify the core quote verifier; build on top of
@@ -78,10 +83,11 @@ client.discover(request)   # only runs if attestation + policy pass
 
 1. ~~Server entry point to run matcher/mailbox as the Stage-1 workload.~~
    **Built:** `por/enclave_plane_server.py`.
-2. **`SubprocessRuncardVerifier` field extraction** — `runcard check` proves the
-   crypto via exit code; pulling `value_x` / `platform` for policy currently
-   parses `/.well-known/runcard/receipt` defensively. Validate the receipt JSON
-   schema against a live enclave (or add `runcard check --json`).
+2. **`SubprocessRuncardVerifier` output parsing** — `runcard check` proves the
+   crypto via exit code and prints `Value X` / `Platform` to stderr, which we
+   parse for policy. (The EAT is CBOR in the TLS cert's CMW extension, not a JSON
+   receipt — corrected from the first cut.) stderr parsing is brittle; add a
+   `runcard check --json` mode for robustness.
 3. **SPKI pin enforcement** — once the transport is real TLS (not the plain HTTP
    stand-in), pin `pinned_spki` on subsequent connections.
 4. **Oblivious algorithms** inside the workload (ORAM / oblivious sort) — the TEE

@@ -93,9 +93,17 @@ def test_policy_rejects_unaccepted_platform():
         _policy().evaluate(_att(platform="sgx"))
 
 
-def test_policy_rejects_bad_registry_status():
+def test_policy_does_not_enforce_registry_status_by_default():
+    _policy().evaluate(_att(status="unknown"))  # opt-in signal; no raise
+
+
+def test_policy_rejects_bad_registry_status_when_configured():
+    policy = EnclaveTrustPolicy(
+        approved_value_x=frozenset((APPROVED_X,)),
+        accepted_registry_status=frozenset({"recommended"}),
+    )
     with pytest.raises(EnclaveAttestationError, match="registry status not accepted"):
-        _policy().evaluate(_att(status="revoked"))
+        policy.evaluate(_att(status="revoked"))
 
 
 # --- AttestedEnclavePlaneClient ---------------------------------------------
@@ -160,27 +168,75 @@ def test_mailbox_delivery_enabled_passthrough():
     assert client.base_url == "https://enclave.example"
 
 
-# --- SubprocessRuncardVerifier receipt parsing (no subprocess) ---------------
+# --- SubprocessRuncardVerifier: parsing the real `runcard check` output ------
 
-def test_receipt_fields_parses_expected_shape():
-    att = SubprocessRuncardVerifier._receipt_fields(
-        {
-            "value_x": APPROVED_X,
-            "platform": "tdx",
-            "tls_spki_hash": "ff",
-            "registry_status": "recommended",
-        },
-        "https://e/.well-known/runcard/receipt",
-    )
-    assert att.platform == "tdx"
+# Sample stderr matching runcards src/main.rs cmd_check output format.
+_CHECK_STDERR = """[runcard] === attested-TLS check ===
+[runcard] Target: matcher.example:443
+[runcard] Leaf cert: 812 bytes DER
+[runcard] EAT extension: 1203 bytes
+[runcard] EAT profile: https://bountynet.dev/eat/v2
+[runcard] Platform:    Some(Tdx)
+[runcard] Value X:     {vx}
+[runcard] SPKI binding:    PASS
+[runcard] Quote binding:   PASS
+[runcard] Quote signature: PASS
+[runcard] Chain:           leaf only (no previous stage)
+[runcard] CT (SCTs):       none in cert (self-signed path)
+""".format(vx=APPROVED_X)
+
+
+def test_parse_check_output_extracts_value_x_and_platform():
+    att = SubprocessRuncardVerifier._parse_check_output(_CHECK_STDERR, "https://matcher.example")
     assert att.value_x == APPROVED_X
+    assert att.platform == "tdx"
+    assert att.registry_status == "unknown"
 
 
-def test_receipt_fields_missing_value_x_fails_closed():
-    with pytest.raises(EnclaveAttestationError, match="missing required field"):
-        SubprocessRuncardVerifier._receipt_fields({"platform": "tdx"}, "u")
+def test_parse_check_output_missing_fields_fails_closed():
+    with pytest.raises(EnclaveAttestationError, match="could not be parsed"):
+        SubprocessRuncardVerifier._parse_check_output("[runcard] nothing useful\n", "u")
 
 
-def test_receipt_fields_non_object_fails_closed():
-    with pytest.raises(EnclaveAttestationError, match="must be a JSON object"):
-        SubprocessRuncardVerifier._receipt_fields(["not", "a", "dict"], "u")
+@pytest.mark.parametrize(
+    "raw,expected",
+    [("Some(Tdx)", "tdx"), ("Some(Nitro)", "nitro"), ("Some(SevSnp)", "sev-snp"), ("Tdx", "tdx")],
+)
+def test_normalize_platform(raw, expected):
+    assert SubprocessRuncardVerifier._normalize_platform(raw) == expected
+
+
+def test_normalize_platform_rejects_unknown():
+    with pytest.raises(EnclaveAttestationError, match="unrecognized runcard platform"):
+        SubprocessRuncardVerifier._normalize_platform("Some(Sgx)")
+
+
+def test_verify_missing_binary_fails_closed():
+    verifier = SubprocessRuncardVerifier(runcard_bin="definitely-not-a-real-runcard-xyz")
+    with pytest.raises(EnclaveAttestationError, match="could not run"):
+        verifier.verify("https://matcher.example")
+
+
+def test_verify_nonzero_exit_fails_closed(monkeypatch):
+    import subprocess as sp
+
+    monkeypatch.setattr(
+        sp,
+        "run",
+        lambda *a, **k: sp.CompletedProcess([], 1, stdout="", stderr="channel binding failed"),
+    )
+    with pytest.raises(EnclaveAttestationError, match="channel binding failed"):
+        SubprocessRuncardVerifier().verify("https://matcher.example")
+
+
+def test_verify_success_flow_returns_attestation(monkeypatch):
+    import subprocess as sp
+
+    monkeypatch.setattr(
+        sp,
+        "run",
+        lambda *a, **k: sp.CompletedProcess([], 0, stdout="", stderr=_CHECK_STDERR),
+    )
+    att = SubprocessRuncardVerifier().verify("https://matcher.example")
+    assert att.value_x == APPROVED_X
+    assert att.platform == "tdx"

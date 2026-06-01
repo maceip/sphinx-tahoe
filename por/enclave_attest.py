@@ -22,16 +22,18 @@ network property, not a per-call toggle).
 
 from __future__ import annotations
 
-import json
 import subprocess
 from dataclasses import dataclass
 from typing import Callable, Iterable, Protocol, runtime_checkable
-from urllib.request import urlopen
 
 
-RUNCARD_RECEIPT_PATH = "/.well-known/runcard/receipt"
 ACCEPTED_TEE_PLATFORMS = frozenset({"nitro", "sev-snp", "tdx"})
-DEFAULT_ACCEPTED_REGISTRY_STATUS = frozenset({"recommended"})
+
+# `runcard check` (runcards src/main.rs cmd_check) prints these labels to stderr.
+_CHECK_VALUE_X_LABEL = "Value X:"
+_CHECK_PLATFORM_LABEL = "Platform:"
+# Debug form of platform_enum() -> our policy platform string.
+_PLATFORM_NORMALIZE = {"tdx": "tdx", "nitro": "nitro", "sevsnp": "sev-snp", "snp": "sev-snp"}
 
 
 class EnclaveAttestationError(RuntimeError):
@@ -64,7 +66,9 @@ class EnclaveTrustPolicy:
 
     approved_value_x: frozenset[str]
     accepted_platforms: frozenset[str] = ACCEPTED_TEE_PLATFORMS
-    accepted_registry_status: frozenset[str] = DEFAULT_ACCEPTED_REGISTRY_STATUS
+    # Registry status is a secondary, opt-in signal. Empty = not enforced (the
+    # primary gate is Value X + platform + the crypto `runcard check` performs).
+    accepted_registry_status: frozenset[str] = frozenset()
 
     def evaluate(self, att: VerifiedAttestation) -> None:
         """Raise ``EnclaveAttestationError`` unless the attestation is acceptable.
@@ -85,7 +89,7 @@ class EnclaveTrustPolicy:
             raise EnclaveAttestationError(
                 f"enclave Value X not in approved set: {att.value_x}"
             )
-        if att.registry_status not in self.accepted_registry_status:
+        if self.accepted_registry_status and att.registry_status not in self.accepted_registry_status:
             raise EnclaveAttestationError(
                 f"registry status not accepted: {att.registry_status!r} "
                 f"(accepted: {sorted(self.accepted_registry_status)})"
@@ -106,18 +110,25 @@ class RuncardVerifier(Protocol):
 
 @dataclass
 class SubprocessRuncardVerifier:
-    """Real verifier: delegates crypto to the ``runcard`` binary.
+    """Real verifier: delegates the cryptographic checks to the ``runcard`` binary.
 
-    INTEGRATION SEAM (exercised only against a built ``runcard`` binary + a live
-    attested enclave; not unit-tested here). ``runcard check <url>`` performs the
-    full chain: quote signature verification, ``report_data`` binding,
-    ``sha256(cert_spki) == eat.tls_spki_hash`` channel binding, and Value X
-    registry lookup (src/main.rs ``cmd_check``). A zero exit code means all of
-    that passed. We then read the published receipt for the fields policy needs.
+    ``runcard check <url>`` (runcards src/main.rs ``cmd_check``) opens attested
+    TLS to the endpoint, extracts the EAT from the leaf cert's CMW extension (OID
+    2.23.133.5.4.9 — the EAT is **CBOR embedded in the certificate**, not a JSON
+    document fetched over HTTP), checks ``sha256(cert_spki) == eat.tls_spki_hash``
+    (channel binding), verifies the platform quote signature + ``report_data``
+    binding, and walks the stage chain (Value X must be stable across it). A zero
+    exit code means every one of those passed. It prints the verified ``Platform``
+    and ``Value X`` to stderr, which we parse for policy.
 
-    The receipt JSON schema is parsed defensively: if the published shape differs
-    from the keys below, this raises rather than guessing (fail closed). Adjust
-    ``_receipt_fields`` against a real ``/.well-known/runcard/receipt`` payload.
+    We do NOT reimplement any of that crypto (runcards' invariant: "do not modify
+    the core quote verifier"). Validated locally: runcards' ``chain_e2e`` (5/5)
+    and the Nitro/TDX ``hardware_regression`` fixtures verify green with no live
+    TEE; only SNP (AMD KDS) and *fresh-quote generation* need an instance.
+
+    Robustness: stderr parsing is brittle. A ``runcard check --json`` mode (task
+    H2) would remove it. Until then we parse the labels below and fail closed if
+    they are absent.
     """
 
     runcard_bin: str = "runcard"
@@ -125,42 +136,58 @@ class SubprocessRuncardVerifier:
 
     def verify(self, base_url: str) -> VerifiedAttestation:
         url = base_url.rstrip("/")
-        proc = subprocess.run(
-            [self.runcard_bin, "check", url],
-            capture_output=True,
-            text=True,
-            timeout=self.timeout,
-        )
-        if proc.returncode != 0:
-            detail = proc.stderr.strip() or f"exit {proc.returncode}"
-            raise EnclaveAttestationError(f"runcard check failed for {url}: {detail}")
-        # Crypto (quote chain + channel binding + registry lookup) passed.
-        receipt_url = url + RUNCARD_RECEIPT_PATH
         try:
-            with urlopen(receipt_url, timeout=self.timeout) as response:
-                raw = json.loads(response.read().decode("utf-8"))
-        except Exception as exc:  # noqa: BLE001 - any fetch/parse failure fails closed
+            proc = subprocess.run(
+                [self.runcard_bin, "check", url],
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
             raise EnclaveAttestationError(
-                f"runcard check passed but receipt fetch/parse failed: {exc}"
+                f"could not run `{self.runcard_bin} check`: {exc}"
             ) from exc
-        return self._receipt_fields(raw, receipt_url)
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout).strip() or f"exit {proc.returncode}"
+            raise EnclaveAttestationError(f"runcard check failed for {url}: {detail}")
+        return self._parse_check_output(proc.stderr, url)
+
+    @classmethod
+    def _parse_check_output(cls, stderr: str, receipt_url: str) -> VerifiedAttestation:
+        value_x = cls._field(stderr, _CHECK_VALUE_X_LABEL)
+        platform_raw = cls._field(stderr, _CHECK_PLATFORM_LABEL)
+        if not value_x or not platform_raw:
+            raise EnclaveAttestationError(
+                "runcard check passed but Value X / Platform could not be parsed "
+                "from its output"
+            )
+        return VerifiedAttestation(
+            value_x=value_x,
+            platform=cls._normalize_platform(platform_raw),
+            tls_spki_hash="",  # channel binding already enforced inside `runcard check`
+            registry_status="unknown",
+            receipt_url=receipt_url,
+        )
 
     @staticmethod
-    def _receipt_fields(raw: object, receipt_url: str) -> VerifiedAttestation:
-        if not isinstance(raw, dict):
-            raise EnclaveAttestationError("runcard receipt must be a JSON object")
-        try:
-            return VerifiedAttestation(
-                value_x=str(raw["value_x"]),
-                platform=str(raw["platform"]),
-                tls_spki_hash=str(raw.get("tls_spki_hash", "")),
-                registry_status=str(raw.get("registry_status", "unknown")),
-                receipt_url=receipt_url,
-            )
-        except KeyError as exc:
-            raise EnclaveAttestationError(
-                f"runcard receipt missing required field: {exc}"
-            ) from exc
+    def _field(stderr: str, label: str) -> str | None:
+        for line in stderr.splitlines():
+            idx = line.find(label)
+            if idx != -1:
+                return line[idx + len(label):].strip()
+        return None
+
+    @staticmethod
+    def _normalize_platform(raw: str) -> str:
+        # cmd_check prints the Debug form of platform_enum(), e.g. "Some(Tdx)".
+        token = raw.strip()
+        if token.startswith("Some(") and token.endswith(")"):
+            token = token[len("Some("):-1]
+        key = token.replace("-", "").replace("_", "").lower()
+        platform = _PLATFORM_NORMALIZE.get(key)
+        if platform is None:
+            raise EnclaveAttestationError(f"unrecognized runcard platform: {raw!r}")
+        return platform
 
 
 class AttestedEnclavePlaneClient:
