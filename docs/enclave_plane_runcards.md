@@ -38,10 +38,14 @@ verifier ── attested TLS:443 ──▶ [run-cards Stage 1, in TEE]
                                    └─ vsock → 127.0.0.1:<port> ──▶ por.enclave_plane (matcher+mailbox)
 ```
 
-Outstanding to make this runnable:
-- A standalone entry point that builds `PlainMatcher` + `PlainMailbox` +
-  `PlainEnclavePlaneDiscoveryProvider` and serves
-  `make_plain_enclave_plane_handler` on a configurable loopback bind. (Next task.)
+Built:
+- `por/enclave_plane_server.py` — `python3 -m por.enclave_plane_server
+  --snapshot <public snapshot> --mailbox <private resolution file>` builds the
+  matcher (from the public snapshot) + mailbox (from a private file the enclave
+  holds, since handle→reachability is not public by #4) and serves the handler
+  on a loopback bind. Verified over HTTP in `tests/test_enclave_plane_server.py`.
+
+Outstanding:
 - Stage-0 build of that entry point → a Value X to approve in the registry.
 
 ## Client side — the attestation gate (built: `por/enclave_attest.py`)
@@ -72,7 +76,8 @@ client.discover(request)   # only runs if attestation + policy pass
 
 ## Remaining hardening items (tracked)
 
-1. **Server entry point** to run matcher/mailbox as the Stage-1 workload.
+1. ~~Server entry point to run matcher/mailbox as the Stage-1 workload.~~
+   **Built:** `por/enclave_plane_server.py`.
 2. **`SubprocessRuncardVerifier` field extraction** — `runcard check` proves the
    crypto via exit code; pulling `value_x` / `platform` for policy currently
    parses `/.well-known/runcard/receipt` defensively. Validate the receipt JSON
