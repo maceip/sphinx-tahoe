@@ -22,6 +22,7 @@ network property, not a per-call toggle).
 
 from __future__ import annotations
 
+import json
 import subprocess
 from dataclasses import dataclass
 from typing import Callable, Iterable, Protocol, runtime_checkable
@@ -126,9 +127,9 @@ class SubprocessRuncardVerifier:
     and the Nitro/TDX ``hardware_regression`` fixtures verify green with no live
     TEE; only SNP (AMD KDS) and *fresh-quote generation* need an instance.
 
-    Robustness: stderr parsing is brittle. A ``runcard check --json`` mode (task
-    H2) would remove it. Until then we parse the labels below and fail closed if
-    they are absent.
+    Output: prefers ``runcard check --json`` (one structured line on stdout);
+    falls back to parsing the human stderr log for an older ``runcard`` without
+    the flag. Fails closed if neither yields Value X + Platform.
     """
 
     runcard_bin: str = "runcard"
@@ -138,7 +139,7 @@ class SubprocessRuncardVerifier:
         url = base_url.rstrip("/")
         try:
             proc = subprocess.run(
-                [self.runcard_bin, "check", url],
+                [self.runcard_bin, "check", "--json", url],
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
@@ -150,7 +151,38 @@ class SubprocessRuncardVerifier:
         if proc.returncode != 0:
             detail = (proc.stderr or proc.stdout).strip() or f"exit {proc.returncode}"
             raise EnclaveAttestationError(f"runcard check failed for {url}: {detail}")
+        att = self._parse_json_output(proc.stdout, url)
+        if att is not None:
+            return att
+        # Fallback: an older runcard without --json prints only the stderr log.
         return self._parse_check_output(proc.stderr, url)
+
+    @classmethod
+    def _parse_json_output(cls, stdout: str, receipt_url: str) -> "VerifiedAttestation | None":
+        for line in stdout.splitlines():
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                raw = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(raw, dict) or raw.get("schema") != "runcard.check.v1":
+                continue
+            value_x = str(raw.get("value_x", ""))
+            platform_raw = str(raw.get("platform", ""))
+            if not value_x or not platform_raw:
+                raise EnclaveAttestationError(
+                    "runcard check --json missing value_x / platform"
+                )
+            return VerifiedAttestation(
+                value_x=value_x,
+                platform=cls._normalize_platform(platform_raw),
+                tls_spki_hash="",
+                registry_status=str(raw.get("registry_status", "unknown")),
+                receipt_url=receipt_url,
+            )
+        return None
 
     @classmethod
     def _parse_check_output(cls, stderr: str, receipt_url: str) -> VerifiedAttestation:

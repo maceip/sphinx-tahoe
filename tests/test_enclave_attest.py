@@ -240,3 +240,35 @@ def test_verify_success_flow_returns_attestation(monkeypatch):
     att = SubprocessRuncardVerifier().verify("https://matcher.example")
     assert att.value_x == APPROVED_X
     assert att.platform == "tdx"
+
+
+# --- `runcard check --json` structured output (preferred over stderr) ---------
+
+_CHECK_JSON = (
+    '{"schema":"runcard.check.v1","host":"matcher.example",'
+    '"platform":"Tdx","value_x":"%s","verified":true}' % APPROVED_X
+)
+
+
+def test_parse_json_output_extracts_fields():
+    att = SubprocessRuncardVerifier._parse_json_output(_CHECK_JSON + "\n", "https://m")
+    assert att is not None
+    assert att.value_x == APPROVED_X
+    assert att.platform == "tdx"
+
+
+def test_parse_json_output_ignores_non_json_lines():
+    assert SubprocessRuncardVerifier._parse_json_output("[runcard] log only\n", "u") is None
+
+
+def test_verify_prefers_json_stdout(monkeypatch):
+    import subprocess as sp
+
+    monkeypatch.setattr(
+        sp,
+        "run",
+        lambda *a, **k: sp.CompletedProcess([], 0, stdout=_CHECK_JSON, stderr="noise"),
+    )
+    att = SubprocessRuncardVerifier().verify("https://matcher.example")
+    assert att.platform == "tdx"
+    assert att.value_x == APPROVED_X
