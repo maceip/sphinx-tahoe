@@ -1,0 +1,24 @@
+# Real-matcher Nitro EIF: the actual por.PlainMatcher (oblivious selection +
+# cover-handle padding) as the in-enclave workload, fronted by bountynet's
+# app-proxy over attested TLS. Validated on real Nitro hardware 2026-06-02.
+#
+# CROSS-REPO build context (assemble before building):
+#   bountynet-bin          <- bountynet-genesis: cargo build --release; cp target/release/bountynet
+#   src/                   <- bountynet-genesis/v2/src   (the enclave shim sources)
+#   app/por/               <- sphinx-tahoe/por
+#   app/run_matcher.py     <- sphinx-tahoe/deploy/run_matcher.py
+#   entry-matcher.sh       <- this dir
+#
+#   docker build -t matcher-real -f Dockerfile.matcher-real .
+#   nitro-cli build-enclave --docker-uri matcher-real:latest --output-file matcher-real.eif
+FROM public.ecr.aws/amazonlinux/amazonlinux:2023-minimal
+# python + the one third-party dep the matcher import chain needs (manylinux wheel,
+# no compile); iproute for loopback bring-up.
+RUN dnf install -y python3 python3-pip iproute && dnf clean all
+RUN pip3 install --no-cache-dir cryptography
+COPY bountynet-bin /usr/local/bin/bountynet
+COPY src/ /src/
+COPY app/ /app/
+COPY entry-matcher.sh /entry-matcher.sh
+RUN chmod +x /entry-matcher.sh
+CMD ["/entry-matcher.sh"]
