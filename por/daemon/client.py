@@ -251,6 +251,95 @@ def run_send(
     return 0
 
 
+def run_pool_send(
+    *,
+    config_path: str,
+    advertisements_path: str,
+    topic: str,
+    prompt: str,
+    relay_path: Sequence[str] = (),
+    timeout: float = 8.0,
+    min_pool_size: int = 8,
+    max_pool_size: int = 20,
+    matcher_id: str = "matcher-local",
+    matcher_key: str = "matcher-local-key",
+    request_id: str | None = None,
+    client_nonce: str | None = None,
+    now: float | None = None,
+    client_sock=None,
+    logging: LoggingConfig | None = None,
+) -> ClientRunResult:
+    from por.expert_mode import ExpertModeConfig
+    from por.expert_pool import (
+        ExpertMatcherIndex,
+        PoolBackedDiscoveryProvider,
+        load_expert_advertisements,
+    )
+
+    logging = logging or LoggingConfig()
+    ads = load_expert_advertisements(advertisements_path)
+    matcher = ExpertMatcherIndex.from_advertisements(
+        ads,
+        matcher_id=matcher_id,
+        signer_key=matcher_key,
+        now=now,
+    )
+    provider = PoolBackedDiscoveryProvider(
+        matcher=matcher,
+        min_pool_size=min_pool_size,
+        max_pool_size=max_pool_size,
+        now=now or time.time(),
+    )
+    request_id = request_id or uuid4().hex
+    client_nonce = client_nonce or uuid4().hex
+    provider.next_request_context(
+        request_id=request_id,
+        client_nonce=client_nonce,
+        now=now or time.time(),
+    )
+    _emit_client_log(
+        logging,
+        "pool_client_request_start",
+        request_id=request_id,
+        fields={
+            "topic": topic,
+            "ad_count": len(ads),
+            "min_pool_size": min_pool_size,
+            "max_pool_size": max_pool_size,
+        },
+    )
+    result = run_client_once(
+        cluster=ClusterConfig.load(config_path),
+        discovery_provider=provider,
+        prompt=prompt,
+        requested_expertise=topic,
+        relay_path=tuple(relay_path),
+        timeout=timeout,
+        expert_mode_config=ExpertModeConfig(min_pool_size=1),
+        client_sock=client_sock,
+    )
+    pool_id = provider.last_commitment.pool_id if provider.last_commitment else None
+    _emit_client_log(
+        logging,
+        "pool_client_request_complete",
+        request_id=request_id,
+        peer_id=result.selected_peer_id,
+        fields={
+            "pool_id": pool_id,
+            "fallback_used": result.fallback_used,
+            "degraded_anonymity": result.degraded_anonymity,
+        },
+    )
+    if client_sock is None:
+        print("client event=response_begin")
+        print(result.response_text)
+        print("client event=response_end")
+        print("client event=client_logs_begin")
+        print(result.client_logs)
+        print("client event=client_logs_end")
+    return result
+
+
 def run_client_from_daemon(daemon: DaemonConfig, por_config: PorConfig) -> int:
     """Run client role from one por.config.v1 file."""
 

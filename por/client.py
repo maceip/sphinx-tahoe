@@ -91,6 +91,16 @@ def run_client_once(
             pool_tier=prepared.trace.pool_tier,
         )
     ]
+    logs.append(
+        "client event=discovery mode={mode} candidate_count={count} exact_query_sent={exact} "
+        "private_query_used={private} note={note!r}".format(
+            mode=prepared.discovery.mode,
+            count=prepared.trace.candidate_count,
+            exact=str(prepared.trace.exact_query_sent).lower(),
+            private=str(prepared.trace.private_query_used).lower(),
+            note=prepared.discovery.note,
+        )
+    )
 
     if not prepared.use_expert or prepared.envelope is None:
         response = "".join(stream_frontier_reply(prompt, prepared.trace.fallback_reason))

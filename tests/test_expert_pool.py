@@ -1,9 +1,17 @@
+import json
+
 from por.expert_pool import (
     ExpertAdvertisement,
     ExpertMatcherIndex,
+    PoolBackedDiscoveryProvider,
     select_pool_index,
     simulate_expert_pool_routing,
 )
+from por.client import run_client_once
+from por.daemon.client import run_pool_send
+from por.expert_mode import ExpertModeConfig
+from por.node_runtime import WireNodeRuntime
+from tests.harness import mixnet_harness
 
 
 def test_pool_commitment_selects_verifiable_member():
@@ -141,3 +149,115 @@ def test_1000_client_simulation_has_bounded_fast_pools():
     assert result.average_pool_size == 20
     assert result.p95_lookup_ms < 15
     assert result.max_expert_share < 0.04
+
+
+def test_pool_backed_provider_runs_through_real_por_wire_client():
+    now = 1000.0
+    matcher = ExpertMatcherIndex(matcher_id="matcher-a", signer_key="matcher-secret")
+    matcher.ingest(
+        ExpertAdvertisement.v0(
+            expert_peer_id="expert_art",
+            manifest_digest="manifest-art",
+            topic_keys=("topic-x",),
+            capability_keys=("expert_session",),
+            reachability_ref="cluster://expert_art",
+            quality_score=0.9,
+            availability_score=0.9,
+            issued_at=now,
+            expires_at=now + 60,
+            sequence=1,
+            signer_key="expert-secret",
+        ),
+        now=now,
+    )
+    provider = PoolBackedDiscoveryProvider(
+        matcher=matcher,
+        min_pool_size=1,
+        max_pool_size=1,
+        now=now,
+    )
+    provider.next_request_context(
+        request_id="request-wire",
+        client_nonce="client-wire",
+        now=now,
+    )
+
+    with mixnet_harness() as net:
+        cluster, nodes, client_sock = net.wire_cluster(
+            ("relay1", "relay"),
+            ("expert_art", "expert"),
+            payload_size=2048,
+            routing_size=96,
+        )
+        net.serve(WireNodeRuntime(cluster, "relay1", role="relay"), nodes["relay1"].sock)
+        net.serve(WireNodeRuntime(cluster, "expert_art", role="expert"), nodes["expert_art"].sock)
+
+        result = run_client_once(
+            cluster=cluster,
+            discovery_provider=provider,
+            prompt="Need expert for topic-x",
+            requested_expertise="topic-x",
+            relay_path=("relay1",),
+            expert_mode_config=ExpertModeConfig(min_pool_size=1),
+            timeout=6.0,
+            client_sock=client_sock,
+        )
+
+    assert result.fallback_used is False
+    assert result.selected_peer_id == "expert_art"
+    assert "[wire-harness expert_reply]" in result.response_text
+    assert provider.last_commitment is not None
+    assert provider.last_proof is not None
+    assert provider.last_proof.verify(provider.last_commitment)
+
+
+def test_pool_send_runs_existing_client_wire_path(tmp_path):
+    now = 1000.0
+    with mixnet_harness() as net:
+        cluster, nodes, client_sock = net.wire_cluster(
+            ("relay1", "relay"),
+            ("expert_art", "expert"),
+            payload_size=2048,
+            routing_size=96,
+        )
+        cluster_path = tmp_path / "cluster.json"
+        cluster_path.write_text(json.dumps(cluster.to_harness_dict()), encoding="utf-8")
+        ad = ExpertAdvertisement.v0(
+            expert_peer_id="expert_art",
+            manifest_digest="manifest-art",
+            topic_keys=("topic-x",),
+            capability_keys=("expert_session",),
+            reachability_ref="cluster://expert_art",
+            quality_score=0.95,
+            availability_score=0.95,
+            issued_at=now,
+            expires_at=now + 60,
+            sequence=1,
+            signer_key="expert-secret",
+        )
+        ads_path = tmp_path / "ads.jsonl"
+        ads_path.write_text(json.dumps(ad.to_dict(), sort_keys=True) + "\n", encoding="utf-8")
+
+        net.serve(WireNodeRuntime(cluster, "relay1", role="relay"), nodes["relay1"].sock)
+        net.serve(WireNodeRuntime(cluster, "expert_art", role="expert"), nodes["expert_art"].sock)
+
+        result = run_pool_send(
+            config_path=str(cluster_path),
+            advertisements_path=str(ads_path),
+            topic="topic-x",
+            prompt="Need expert for topic-x",
+            relay_path=("relay1",),
+            min_pool_size=1,
+            max_pool_size=1,
+            request_id="request-wire",
+            client_nonce="client-wire",
+            now=now,
+            timeout=6.0,
+            client_sock=client_sock,
+        )
+
+    assert result.fallback_used is False
+    assert result.selected_peer_id == "expert_art"
+    assert "[wire-harness expert_reply]" in result.response_text
+    assert "mode=pool_commitment_v0" in result.client_logs
+    assert "pool_id=" in result.client_logs

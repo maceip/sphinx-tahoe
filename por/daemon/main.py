@@ -39,6 +39,18 @@ def build_parser() -> argparse.ArgumentParser:
     send.add_argument("--relay", action="append", default=[], help="Relay node id. Repeat in path order.")
     send.add_argument("--timeout", type=float, default=8.0)
 
+    pool_send = sub.add_parser("pool-send", help="Run one client request through expert pool discovery.")
+    pool_send.add_argument("--config", required=True, help="Cluster JSON config path")
+    pool_send.add_argument("--advertisements", required=True, help="ExpertAdvertisement JSONL/JSON file")
+    pool_send.add_argument("--topic", required=True)
+    pool_send.add_argument("--prompt", required=True)
+    pool_send.add_argument("--relay", action="append", default=[], help="Relay node id. Repeat in path order.")
+    pool_send.add_argument("--timeout", type=float, default=8.0)
+    pool_send.add_argument("--min-pool-size", type=int, default=8)
+    pool_send.add_argument("--max-pool-size", type=int, default=20)
+    pool_send.add_argument("--matcher-id", default="matcher-local")
+    pool_send.add_argument("--matcher-key", default="matcher-local-key")
+
     relay = sub.add_parser("relay", help="Run a relay node (supernode when promoted).")
     relay.add_argument("--config", required=True, help="Cluster JSON config path")
     relay.add_argument("--node-id", required=True, help="Node id from config.nodes")
@@ -102,6 +114,23 @@ def dispatch(args: argparse.Namespace) -> int:
         from por.daemon.relay import run_relay
 
         return run_relay(config_path=args.config, node_id=args.node_id)
+
+    if args.command == "pool-send":
+        from por.daemon.client import run_pool_send
+
+        run_pool_send(
+            config_path=args.config,
+            advertisements_path=args.advertisements,
+            topic=args.topic,
+            prompt=args.prompt,
+            relay_path=tuple(args.relay),
+            timeout=args.timeout,
+            min_pool_size=args.min_pool_size,
+            max_pool_size=args.max_pool_size,
+            matcher_id=args.matcher_id,
+            matcher_key=args.matcher_key,
+        )
+        return 0
 
     if args.command == "expert":
         from por.daemon.expert import run_expert

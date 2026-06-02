@@ -23,6 +23,7 @@ import time
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from hashlib import sha256
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 
@@ -98,8 +99,20 @@ class ExpertAdvertisement:
             signature=str(raw.get("signature", "")),
         ).validate()
 
+    @classmethod
+    def from_json(cls, data: str | bytes) -> "ExpertAdvertisement":
+        if isinstance(data, bytes):
+            data = data.decode("utf-8")
+        raw = json.loads(data)
+        if not isinstance(raw, dict):
+            raise ValueError("expert advertisement must be a JSON object")
+        return cls.from_dict(raw)
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), sort_keys=True, indent=2)
 
     def validate(self) -> "ExpertAdvertisement":
         if self.version != EXPERT_ADVERTISEMENT_VERSION:
@@ -245,6 +258,20 @@ class ExpertMatcherIndex:
         self._ads_by_peer[ad.expert_peer_id] = ad
         for topic in ad.topic_keys:
             self._topics[topic].add(ad.expert_peer_id)
+
+    @classmethod
+    def from_advertisements(
+        cls,
+        advertisements: Sequence[ExpertAdvertisement],
+        *,
+        matcher_id: str,
+        signer_key: str,
+        now: float | None = None,
+    ) -> "ExpertMatcherIndex":
+        matcher = cls(matcher_id=matcher_id, signer_key=signer_key)
+        for ad in advertisements:
+            matcher.ingest(ad, now=now)
+        return matcher
 
     def build_pool(
         self,
@@ -566,6 +593,23 @@ def select_pool_index(
         commitment.candidate_root.encode("utf-8"),
     )
     return int(digest, 16) % commitment.candidate_count
+
+
+def load_expert_advertisements(path: str | Path) -> tuple[ExpertAdvertisement, ...]:
+    data = Path(path).read_text(encoding="utf-8")
+    stripped = data.strip()
+    if not stripped:
+        return tuple()
+    if stripped.startswith("["):
+        raw = json.loads(stripped)
+        if not isinstance(raw, list):
+            raise ValueError("advertisement JSON array expected")
+        return tuple(ExpertAdvertisement.from_dict(item) for item in raw)
+    return tuple(
+        ExpertAdvertisement.from_json(line)
+        for line in data.splitlines()
+        if line.strip()
+    )
 
 
 def _peer_candidate_from_member(member: ExpertPoolMember, *, topic_key: str):
