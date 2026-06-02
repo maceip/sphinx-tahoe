@@ -244,9 +244,11 @@ def test_verify_success_flow_returns_attestation(monkeypatch):
 
 # --- `runcard check --json` structured output (preferred over stderr) ---------
 
+_SPKI = "c" * 64
 _CHECK_JSON = (
     '{"schema":"runcard.check.v1","host":"matcher.example",'
-    '"platform":"Tdx","value_x":"%s","verified":true}' % APPROVED_X
+    '"platform":"Tdx","value_x":"%s","tls_spki_hash":"%s","verified":true}'
+    % (APPROVED_X, _SPKI)
 )
 
 
@@ -255,6 +257,7 @@ def test_parse_json_output_extracts_fields():
     assert att is not None
     assert att.value_x == APPROVED_X
     assert att.platform == "tdx"
+    assert att.tls_spki_hash == _SPKI  # H3: pin value carried through from --json
 
 
 def test_parse_json_output_ignores_non_json_lines():
@@ -272,3 +275,64 @@ def test_verify_prefers_json_stdout(monkeypatch):
     att = SubprocessRuncardVerifier().verify("https://matcher.example")
     assert att.platform == "tdx"
     assert att.value_x == APPROVED_X
+
+
+# --- H3: SPKI pin application by the gate -------------------------------------
+
+class PinnableInner(FakeInner):
+    """Inner client that records the SPKI it was told to pin."""
+
+    def __init__(self):
+        super().__init__()
+        self.pinned = None
+
+    def set_tls_pin(self, spki_hex):
+        self.pinned = spki_hex
+
+
+def test_gate_applies_pin_to_inner_on_establish():
+    inner = PinnableInner()
+    client = AttestedEnclavePlaneClient(
+        inner, verifier=StubVerifier(_att()), policy=_policy()
+    )
+    client.discover("req")
+    assert inner.pinned == "b" * 64  # _att() carries tls_spki_hash="b"*64
+
+
+def test_gate_without_pin_capable_inner_still_works_when_not_required():
+    inner = FakeInner()  # no set_tls_pin
+    client = AttestedEnclavePlaneClient(
+        inner, verifier=StubVerifier(_att()), policy=_policy()
+    )
+    client.discover("req")  # require_spki_pin defaults off → no raise
+    assert inner.discover_calls == 1
+
+
+def test_gate_fails_closed_when_pin_required_but_inner_cannot_pin():
+    inner = FakeInner()  # no set_tls_pin
+    policy = EnclaveTrustPolicy(
+        approved_value_x=frozenset((APPROVED_X,)), require_spki_pin=True
+    )
+    client = AttestedEnclavePlaneClient(
+        inner, verifier=StubVerifier(_att()), policy=policy
+    )
+    with pytest.raises(EnclaveAttestationError, match="cannot pin its transport"):
+        client.discover("req")
+    assert inner.discover_calls == 0
+
+
+def test_gate_fails_closed_when_pin_required_but_attestation_has_none():
+    inner = PinnableInner()
+    policy = EnclaveTrustPolicy(
+        approved_value_x=frozenset((APPROVED_X,)), require_spki_pin=True
+    )
+    client = AttestedEnclavePlaneClient(
+        inner,
+        verifier=StubVerifier(VerifiedAttestation(
+            value_x=APPROVED_X, platform="nitro", tls_spki_hash=""
+        )),
+        policy=policy,
+    )
+    with pytest.raises(EnclaveAttestationError, match="attestation carried none"):
+        client.discover("req")
+    assert inner.pinned is None

@@ -27,6 +27,11 @@ import subprocess
 from dataclasses import dataclass
 from typing import Callable, Iterable, Protocol, runtime_checkable
 
+# The fail-closed error hierarchy lives in the leaf transport module so that
+# SpkiPinError can subclass EnclaveAttestationError without an import cycle.
+# Re-exported here so existing callers keep importing it from por.enclave_attest.
+from .attested_transport import EnclaveAttestationError, SpkiPinError
+
 
 ACCEPTED_TEE_PLATFORMS = frozenset({"nitro", "sev-snp", "tdx"})
 
@@ -35,14 +40,6 @@ _CHECK_VALUE_X_LABEL = "Value X:"
 _CHECK_PLATFORM_LABEL = "Platform:"
 # Debug form of platform_enum() -> our policy platform string.
 _PLATFORM_NORMALIZE = {"tdx": "tdx", "nitro": "nitro", "sevsnp": "sev-snp", "snp": "sev-snp"}
-
-
-class EnclaveAttestationError(RuntimeError):
-    """The enclave plane could not be trusted.
-
-    Raising this is the fail-closed path: callers must not fall back to an
-    unattested transport in response.
-    """
 
 
 @dataclass(frozen=True)
@@ -70,6 +67,12 @@ class EnclaveTrustPolicy:
     # Registry status is a secondary, opt-in signal. Empty = not enforced (the
     # primary gate is Value X + platform + the crypto `runcard check` performs).
     accepted_registry_status: frozenset[str] = frozenset()
+    # H3: require the verified attestation to carry the TLS SPKI hash so the
+    # client can pin subsequent connections. Off by default (the plain-HTTP
+    # stand-in carries no SPKI); turn on for real attested-TLS deployments. When
+    # on, an attestation without an SPKI, or an inner client that cannot pin,
+    # fails closed.
+    require_spki_pin: bool = False
 
     def evaluate(self, att: VerifiedAttestation) -> None:
         """Raise ``EnclaveAttestationError`` unless the attestation is acceptable.
@@ -177,8 +180,10 @@ class SubprocessRuncardVerifier:
                 )
             return VerifiedAttestation(
                 value_x=value_x,
+                # runcards emits `tls_spki_hash` (the SPKI it bound the EAT to);
+                # this is the value the client pins subsequent connections to (H3).
+                tls_spki_hash=str(raw.get("tls_spki_hash", "")),
                 platform=cls._normalize_platform(platform_raw),
-                tls_spki_hash="",
                 registry_status=str(raw.get("registry_status", "unknown")),
                 receipt_url=receipt_url,
             )
@@ -262,10 +267,10 @@ class AttestedEnclavePlaneClient:
     def pinned_spki(self) -> str | None:
         """SPKI hash bound by the verified receipt.
 
-        Channel binding to the TLS connection is enforced inside ``runcard
-        check``. Once the enclave-plane transport is real TLS (not the plain HTTP
-        stand-in), subsequent connections should also pin this value; that
-        enforcement is the remaining hardening item for this box.
+        On ``establish`` this is applied to the inner client's transport (H3) so
+        every subsequent connection is pinned to the TEE-resident TLS key that
+        ``runcard check`` bound to the quote. A connection to any other cert then
+        fails closed with ``SpkiPinError``.
         """
         return self._attestation.tls_spki_hash if self._attestation else None
 
@@ -275,13 +280,36 @@ class AttestedEnclavePlaneClient:
             return self._attestation
         att = self._verifier.verify(self._inner.base_url)
         self._policy.evaluate(att)
+        self._apply_spki_pin(att)
         self._attestation = att
         self._log(
             "client event=enclave_attested "
             f"platform={att.platform} value_x={att.value_x[:16]} "
-            f"status={att.registry_status}"
+            f"status={att.registry_status} pinned={bool(att.tls_spki_hash)}"
         )
         return att
+
+    def _apply_spki_pin(self, att: VerifiedAttestation) -> None:
+        """Pin the inner transport to the attested SPKI (H3), or fail closed.
+
+        The inner client opts in by exposing ``set_tls_pin(spki_hex)``. If the
+        policy requires pinning but the attestation carries no SPKI, or the inner
+        client cannot pin, we refuse rather than continue unpinned.
+        """
+        setter = getattr(self._inner, "set_tls_pin", None)
+        if att.tls_spki_hash and callable(setter):
+            setter(att.tls_spki_hash)
+            return
+        if self._policy.require_spki_pin:
+            if not att.tls_spki_hash:
+                raise EnclaveAttestationError(
+                    "policy requires an SPKI pin but the attestation carried none "
+                    "(use `runcard check --json`, which emits tls_spki_hash)"
+                )
+            raise EnclaveAttestationError(
+                "policy requires an SPKI pin but the enclave-plane client cannot "
+                "pin its transport (no set_tls_pin)"
+            )
 
     def _ensure(self) -> None:
         if self._attestation is not None:

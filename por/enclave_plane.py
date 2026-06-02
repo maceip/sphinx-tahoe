@@ -15,6 +15,7 @@ from typing import Callable, Iterable
 from urllib.request import Request, urlopen
 
 from .arc import NoopArcCredential, noop_arc_credential_from_dict
+from .attested_transport import EnclaveAttestationError, build_pinned_opener
 from .directory import DiscoveryRequest, DiscoveryResult
 from .expert_route import PeerCandidate, PeerObservation, RouteIntent
 from .memory_index import MemoryManifest
@@ -35,6 +36,27 @@ class PlainEnclavePlaneHttpClient:
         self.timeout = timeout
         self.mailbox_delivery_enabled = True
         self.arc_credential = arc_credential or NoopArcCredential.issue()
+        self._opener = None
+        self.tls_pin: str | None = None
+
+    def set_tls_pin(self, spki_hex: str) -> None:
+        """Pin every subsequent connection's TLS SPKI to ``spki_hex`` (H3).
+
+        Called by ``AttestedEnclavePlaneClient`` after attestation. Pinning is
+        only meaningful over TLS; refuse (fail closed) to pin a plaintext
+        ``http://`` transport rather than give a false sense of protection.
+        """
+        if not self.base_url.lower().startswith("https://"):
+            raise EnclaveAttestationError(
+                f"cannot pin SPKI on a non-TLS transport: {self.base_url}"
+            )
+        self.tls_pin = spki_hex
+        self._opener = build_pinned_opener(spki_hex)
+
+    def _open(self, req, *, timeout: float):
+        if self._opener is not None:
+            return self._opener.open(req, timeout=timeout)
+        return urlopen(req, timeout=timeout)
 
     def discover(self, request: DiscoveryRequest) -> DiscoveryResult:
         raw = self._post_json(
@@ -79,7 +101,7 @@ class PlainEnclavePlaneHttpClient:
         )
 
         def packets() -> Iterable[bytes]:
-            with urlopen(req, timeout=timeout + 1.0) as response:
+            with self._open(req, timeout=timeout + 1.0) as response:
                 for line in response:
                     if not line.startswith(b"data: "):
                         continue
@@ -95,7 +117,7 @@ class PlainEnclavePlaneHttpClient:
             method="POST",
             headers={"Content-Type": "application/json", "Accept": "application/json"},
         )
-        with urlopen(req, timeout=self.timeout) as response:
+        with self._open(req, timeout=self.timeout) as response:
             return json.loads(response.read().decode("utf-8"))
 
 
