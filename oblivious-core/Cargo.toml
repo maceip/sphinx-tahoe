@@ -1,0 +1,11 @@
+[package]
+name = "oblivious-core"
+version = "0.1.0"
+edition = "2021"
+description = "Constant-time oblivious top-K selection for the in-TEE matcher (Rust port of por/oblivious.py)"
+
+[dependencies]
+subtle = "2.5"
+
+[profile.release]
+opt-level = 3

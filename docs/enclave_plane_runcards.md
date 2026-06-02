@@ -168,10 +168,12 @@ client.discover(request)   # only runs if attestation + policy pass
    - **Done (security property):** the output *count* is hidden — the response is
      always exactly K, empty slots padded with cover handles (`por/cover.py`,
      `tests/test_cover_handles.py`); the asker drops covers, the operator cannot.
-   - **Remaining (language/hardware port, genuinely unbuilt):** Python's
-     value-select (`ct_select`) is not instruction-level constant-time; the
-     production path replaces it with branchless CMOV in the in-TEE Rust workload.
-     This needs the Rust port and is **not done**.
+   - **Done (constant-time port):** `oblivious-core/` is a Rust crate that ports
+     the selection to branchless `subtle` conditional selects (CMOV-level), so
+     the branch/timing trace is data-independent, not just the access order.
+     Tested + verified byte-for-byte identical to `por/oblivious.py`. **Remaining
+     integration:** the live enclave matcher still calls the Python version;
+     wiring the crate in (PyO3 or a Rust selection step) is the next step.
    - **Deferred (performance, not security):** ORAM / oblivious sort would make
      resolution sublinear, but they do **not** improve obliviousness over the
      full scan — they are a scale optimization, not a security gap.
