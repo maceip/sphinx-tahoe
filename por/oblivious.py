@@ -26,7 +26,7 @@ from typing import Callable, Sequence
 DUMMY_INDEX = -1
 
 
-def _ct_select(cond: bool, a, b):
+def ct_select(cond: bool, a, b):
     """Select ``a`` if ``cond`` else ``b`` without a data-dependent access.
 
     Both arms are already evaluated by the caller; the choice is made by a mask,
@@ -73,12 +73,12 @@ def oblivious_top_k(
             eligible = (not taken[i]) and (scores[i] > 0.0)
             better = scores[i] > best_score
             sel = eligible and better
-            best_score = _ct_select(sel, scores[i], best_score)
-            best_idx = _ct_select(sel, i, best_idx)
-            best_is_real = _ct_select(sel, True, best_is_real)
+            best_score = ct_select(sel, scores[i], best_score)
+            best_idx = ct_select(sel, i, best_idx)
+            best_is_real = ct_select(sel, True, best_is_real)
         for i in range(n):
             if on_access is not None:
                 on_access(i)
-            taken[i] = _ct_select(i == best_idx and best_is_real, True, taken[i])
+            taken[i] = ct_select(i == best_idx and best_is_real, True, taken[i])
         out.append(best_idx)
     return out

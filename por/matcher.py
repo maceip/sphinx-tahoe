@@ -8,12 +8,13 @@ to reachability records and routing keys.
 
 from __future__ import annotations
 
+import hmac
 import json
 import socket
 import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from typing import Iterator, Mapping, Sequence
+from typing import Callable, Iterator, Mapping, Sequence
 
 from .config import PeerAddressConfig, TrustedReachabilityRelayConfig
 from .directory import DiscoveryRequest, DiscoveryResult, PeerRecord
@@ -25,7 +26,7 @@ from .handles import (
     OpaqueHandleRecord,
 )
 from .memory_index import MemoryManifest, score_manifest
-from .oblivious import DUMMY_INDEX, oblivious_top_k
+from .oblivious import DUMMY_INDEX, ct_select, oblivious_top_k
 from .peer_address import ROUTE_RELAY, build_dial_plan, peer_address_record_from_dict
 from .transport_dial import DialTarget, resolve_dial_target
 
@@ -148,14 +149,30 @@ class PlainMailbox:
             peer_address=dict(peer_address),
         )
 
-    def resolve_handle(self, handle: str) -> HandleResolution | None:
-        entry = self._entries.get(handle)
-        if entry is None:
+    def resolve_handle(
+        self, handle: str, *, on_access: Callable[[str], None] | None = None
+    ) -> HandleResolution | None:
+        # Oblivious scan: touch every stored entry in a fixed (insertion) order
+        # regardless of which handle is requested, so the access pattern does not
+        # reveal the target. Handle comparison is constant-time and the matching
+        # entry is chosen via constant-time select. (Hardware-CT/ORAM is the
+        # in-TEE port; this is the algorithm + access-pattern invariance.)
+        found = False
+        found_kem: str | None = None
+        found_addr: dict | None = None
+        for stored_handle, entry in self._entries.items():
+            if on_access is not None:
+                on_access(stored_handle)
+            match = hmac.compare_digest(stored_handle, handle)
+            found = ct_select(match, True, found)
+            found_kem = ct_select(match, entry.routing_kem_pk_hex, found_kem)
+            found_addr = ct_select(match, entry.peer_address, found_addr)
+        if not found:
             return None
         return HandleResolution(
             handle=handle,
-            routing_kem_pk_hex=entry.routing_kem_pk_hex,
-            peer_address=dict(entry.peer_address),
+            routing_kem_pk_hex=found_kem,
+            peer_address=dict(found_addr),
         )
 
     def routing_kem_pk_hex(self, handle: str) -> str | None:
