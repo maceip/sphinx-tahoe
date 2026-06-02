@@ -29,6 +29,13 @@ from pathlib import Path
 from typing import Iterable, Iterator, Sequence
 
 
+# Marker key, set in a manifest's ``privacy`` map, that flags a candidate as a
+# cover (decoy) emitted for output-count hiding (H4). It lives here, in the
+# lowest-level module, so both the cover producer (``por.cover``) and the client
+# routing scorer (``por.expert_route``) can share it without an import cycle.
+COVER_MARKER = "cover"
+
+
 MANIFEST_VERSION = "por.memory_manifest.v1"
 TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_'-]{2,}")
 DEFAULT_TEXT_EXTENSIONS = {

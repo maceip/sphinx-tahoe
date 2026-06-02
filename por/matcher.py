@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import os
 import socket
 import time
 from dataclasses import dataclass, replace
@@ -17,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Callable, Iterator, Mapping, Sequence
 
 from .config import PeerAddressConfig, TrustedReachabilityRelayConfig
+from .cover import cover_candidate
 from .directory import DiscoveryRequest, DiscoveryResult, PeerRecord
 from .expert_route import PeerCandidate
 from .handles import (
@@ -48,11 +50,19 @@ class PlainMatcher:
         entries: Sequence[MatcherEntry],
         *,
         top_k: int = 20,
+        pad_with_covers: bool = True,
+        cover_key: bytes | None = None,
     ) -> None:
         if top_k <= 0:
             raise ValueError("top_k must be positive")
         self.entries = tuple(entries)
         self.top_k = top_k
+        # H4: pad the result to a constant K with cover candidates so the
+        # operator cannot read the real-match count off the response. The
+        # cover_key seeds the (per-response-nonce'd) cover handles; a fresh
+        # random key per matcher is fine since covers need only be unlinkable.
+        self.pad_with_covers = pad_with_covers
+        self.cover_key = cover_key or os.urandom(32)
 
     @classmethod
     def from_records(
@@ -94,14 +104,10 @@ class PlainMatcher:
 
         # Oblivious selection: score every entry (no data-dependent skip/sort),
         # then pick top-K via a uniform-access primitive (por.oblivious). The
-        # selection access pattern no longer depends on which entry matched. The
-        # residual count leak (returning <K real candidates) is closed later by
-        # cover handles; hardware constant-time + ORAM are the in-TEE port.
+        # selection access pattern no longer depends on which entry matched.
         scores = [score_manifest(entry.candidate.manifest, query) for entry in self.entries]
         selected = oblivious_top_k(scores, limit) if limit > 0 else []
-        candidates = tuple(
-            self.entries[i].candidate for i in selected if i != DUMMY_INDEX
-        )
+        candidates = self._assemble(selected)
         return DiscoveryResult(
             candidates=candidates,
             mode=PLAIN_MATCHER_V1,
@@ -111,9 +117,34 @@ class PlainMatcher:
             generated_at=datetime.now(timezone.utc).isoformat(),
             note=(
                 "oblivious top-K selection (uniform access pattern); output-count "
-                "hiding via cover handles + hardware-CT/ORAM still ahead"
+                "hidden by cover-handle padding to constant K; hardware-CT/ORAM "
+                "and exact byte-length normalisation are the in-TEE port"
             ),
         )
+
+    def _assemble(self, selected: Sequence[int]) -> tuple[PeerCandidate, ...]:
+        """Turn selected indices into candidates.
+
+        With ``pad_with_covers`` (H4): every empty (``DUMMY_INDEX``) slot becomes
+        a cover candidate, so the result is always exactly ``len(selected)``
+        candidates and the real-match count never shows in the response. Without
+        it (legacy/plain wire), empty slots are simply dropped.
+        """
+        if not self.pad_with_covers:
+            return tuple(
+                self.entries[i].candidate for i in selected if i != DUMMY_INDEX
+            )
+        # A per-response nonce makes cover handles unlinkable across calls.
+        nonce = os.urandom(16)
+        template = self.entries[0].candidate.manifest if self.entries else None
+        out: list[PeerCandidate] = []
+        for slot, i in enumerate(selected):
+            if i != DUMMY_INDEX:
+                out.append(self.entries[i].candidate)
+            elif template is not None:
+                out.append(cover_candidate(template, self.cover_key, nonce, slot))
+            # No entries at all => nothing to template a cover from; emit nothing.
+        return tuple(out)
 
 
 @dataclass(frozen=True)

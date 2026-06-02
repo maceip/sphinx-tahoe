@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Sequence
 
-from .memory_index import MemoryManifest, score_manifest
+from .memory_index import COVER_MARKER, MemoryManifest, score_manifest
 
 
 POOL_STRONG = "strong"
@@ -151,6 +151,12 @@ def _score_candidates(
     scored = []
 
     for candidate in candidates:
+        # Cover (decoy) candidates pad the matcher response to a constant size to
+        # hide the real-match count from the oblivious operator (H4). They are
+        # never routing targets, so drop them before scoring. The operator could
+        # not read this marker; the asker can.
+        if candidate.manifest.privacy.get(COVER_MARKER):
+            continue
         observation = candidate.observation or PeerObservation(peer_id=candidate.manifest.peer_id)
         price = observation.price_units
         if intent.max_price_units is not None and price > intent.max_price_units:
