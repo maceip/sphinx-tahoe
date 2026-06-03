@@ -7,7 +7,7 @@
 # Usage (from anywhere):
 #   curl -fsSL .../nitro-matcher-all-in-one.sh | bash
 # Or clone sphinx-tahoe and:
-#   ATTESTED_WORKLOAD_SHA=e039216 ./deploy/nitro-matcher-all-in-one.sh
+#   ATTESTED_WORKLOAD_SHA=79a5ea2 ./deploy/nitro-matcher-all-in-one.sh
 #
 # Env:
 #   SPHINX_TAHOE_REPO   default: clone maceip/sphinx-tahoe
@@ -16,7 +16,7 @@
 #   SKIP_RUN=1          build EIF only, do not run enclave
 set -euo pipefail
 
-SHA="${ATTESTED_WORKLOAD_SHA:-e039216}"
+SHA="${ATTESTED_WORKLOAD_SHA:-79a5ea2328f2b30192e57b53913355dcd5e0201e}"
 WORK="${WORK:-$HOME/tenet-nitro-deploy}"
 SPHINX="${SPHINX_TAHOE_REPO:-$WORK/sphinx-tahoe}"
 AW="${ATTESTED_WORKLOAD_REPO:-$WORK/attested-workload}"

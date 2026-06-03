@@ -165,8 +165,18 @@ and Linux x86-64; an experimental Android job tracks the mobile target.
 ## Status
 
 tenet is pre-1.0. The expert-routing, directory, encrypted-path, and
-reachability-relay layers work and are tested. The remaining work before the
-`tenet` rename is automatic home-router traversal and persistent connections.
+reachability-relay layers work and are tested. The **attested matcher/mailbox**
+runs on **AWS Nitro** with production TLS — see [`STATUS.md`](STATUS.md) and
+[`DEPENDENCIES.md`](DEPENDENCIES.md).
+
+Live attestation check:
+
+```bash
+aw check --json https://d851588d3b41.aeon.site/
+```
+
+Remaining work before the `tenet` rename: automatic home-router traversal,
+persistent connections, and PyO3 wiring of `oblivious-core` into the live matcher.
 
 ## Testing
 

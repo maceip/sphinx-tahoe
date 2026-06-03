@@ -6,7 +6,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/deploy/eif-build"
-SHA="${ATTESTED_WORKLOAD_SHA:-e03921678055831e2f3bd24bda38ed4f53074a33}"
+SHA="${ATTESTED_WORKLOAD_SHA:-79a5ea2328f2b30192e57b53913355dcd5e0201e}"
 
 rm -rf "$OUT"
 mkdir -p "$OUT/app"

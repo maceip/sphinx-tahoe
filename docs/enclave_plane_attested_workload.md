@@ -1,8 +1,9 @@
 # Enclave plane — attested-workload integration
 
-**Engine:** [attested-workload](https://github.com/maceip/attested-workload) @ `e039216`  
+**Engine:** [attested-workload](https://github.com/maceip/attested-workload) @ `79a5ea2`  
 **Deploy:** `deploy/README.md`, `DEPENDENCIES.md`  
-**Threat model:** `docs/matcher_threat_model.md`
+**Threat model:** `docs/matcher_threat_model.md`  
+**Live validation:** `deploy/HARDWARE_VALIDATION_2026-06-03.md`, `STATUS.md`
 
 ## Architecture (Nitro)
 
@@ -27,24 +28,31 @@ TLS terminates **inside** the enclave. The parent only bridges ciphertext.
 
 Default verifier: `SubprocessAttestedWorkloadVerifier` (`por/enclave_attest.py`).
 
+After Let's Encrypt, the leaf cert has no CMW extension; `aw check` falls back to
+`GET /eat` and uses the EAT re-bound to the LE cert SPKI (`79a5ea2`).
+
 ## Build & deploy
 
 ```bash
-ATTESTED_WORKLOAD_SHA=e039216 ./deploy/assemble-matcher-eif.sh
+ATTESTED_WORKLOAD_SHA=79a5ea2 ./deploy/assemble-matcher-eif.sh
 # on Nitro instance:
 cd deploy/eif-build && docker build -t matcher-real . && ...
 ./deploy/nitro-deploy.sh
+# production TLS (when DNS for {value_x_prefix}.aeon.site points at parent):
+sudo bountynet proxy --cid <cid> --acme
 ```
 
 ## Status (2026-06-03)
 
 | Item | Status |
 |------|--------|
-| Quote verification (`aw check`) | Done — attested-workload tests green |
+| Quote verification (`aw check`) | **Live** — https://d851588d3b41.aeon.site/ |
 | Client gate + SPKI pin (H3) | Done — unit tested |
-| App-proxy `/v1/*` → loopback | Done — in attested-workload `vsock.rs` |
+| App-proxy `/v1/*` → loopback | Done — attested-workload `vsock.rs` |
 | Oblivious matcher (H4) | Done — Python + tests |
-| Fresh Nitro quote on EC2 | Needs hardware run (not claimed here) |
+| Fresh Nitro quote on EC2 | **Done** — eu-central-1, post-ACME rebind |
+| Production TLS (Let's Encrypt) | **Done** — TLS-ALPN-01, CT verified |
+| Engine consolidation | **Done** — single attested-workload pin |
 
 ## Legacy doc
 

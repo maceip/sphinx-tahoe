@@ -2,14 +2,16 @@
 
 > **Superseded for new work:** use `docs/enclave_plane_attested_workload.md` and pin
 > [attested-workload](https://github.com/maceip/attested-workload) (`DEPENDENCIES.md`).
+> **Live Nitro matcher (2026-06-03):** https://d851588d3b41.aeon.site/ — see `STATUS.md`.
 > This file is kept as historical context from the runcards/bountynet-genesis split.
 
 How the (plain, today) enclave-plane service becomes the **hardened, attested**
 central plane from `docs/matcher_threat_model.md`, by recycling the run-cards TEE
 engine (`/Users/mac/runcards`) instead of writing new enclave code.
 
-Status: **integration designed; client gate built + tested; hardware bring-up
-pending.** No matcher/mailbox Rust rewrite is required.
+Status: **superseded.** Client gate + SPKI pin + Nitro hardware + ACME are **live**
+(see `docs/enclave_plane_attested_workload.md`, `STATUS.md`). Historical runcards
+notes below.
 
 ## The recycle
 

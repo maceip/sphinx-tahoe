@@ -1,13 +1,7 @@
 #!/bin/sh
-# EIF entry point (H5). Starts the matcher workload on loopback and the bountynet
-# attestation server, then waits.
-#
-# HONEST STATUS: bountynet serves the EAT/attestation over the enclave vsock-TLS
-# (the channel-binding half works end to end). It does NOT yet reverse-proxy the
-# matcher's HTTP API onto that same attested channel — that is the tracked
-# `bountynet app-proxy` integration item. So today this brings up both processes;
-# the matcher API is reachable on loopback inside the enclave, and a client can
-# `runcard check` the attested endpoint, but the two are not yet joined.
+# Legacy EIF entry (stand-in plane). Superseded by `entry-matcher.sh` +
+# `Dockerfile.matcher-real`, which use attested-workload app-proxy (live Jun 3).
+# Kept for older `Dockerfile.enclave` recipes only.
 set -eu
 
 # 1) matcher/mailbox workload on loopback (our code; unit-tested)
