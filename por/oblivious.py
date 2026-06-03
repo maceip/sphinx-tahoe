@@ -7,15 +7,10 @@ Obliviousness closes that: every query touches every entry in the same order,
 the output length is constant, and every data-dependent choice is a constant-time
 select rather than a branch or early exit.
 
-This module implements that selection algorithm and is validated by an
-access-trace-invariance test (tests/test_oblivious.py): two different score
-vectors produce a byte-identical access trace.
-
-Honest scope: this is the *algorithm* + its access-pattern invariance. Hardware
-constant-time execution — branchless CMOV instead of Python's value-select, and
-ORAM for the manifest store so the property holds against an OS-level adversary
-rather than only at the Python level — is the in-TEE (Rust) hardening, still
-ahead. See docs/matcher_threat_model.md.
+Production path: when the ``oblivious_core`` PyO3 extension is installed
+(``./scripts/build-oblivious-core.sh``), ``oblivious_top_k`` delegates to the
+Rust CMOV implementation. Tests that record ``on_access`` traces always use the
+Python reference implementation.
 """
 
 from __future__ import annotations
@@ -25,39 +20,31 @@ from typing import Callable, Sequence
 
 DUMMY_INDEX = -1
 
+try:
+    from oblivious_core import DUMMY_INDEX as _RUST_DUMMY
+    from oblivious_core import oblivious_top_k_py as _rust_oblivious_top_k
+
+    DUMMY_INDEX = int(_RUST_DUMMY)
+    _RUST_AVAILABLE = True
+except ImportError:
+    _RUST_AVAILABLE = False
+
+
+def rust_backend_available() -> bool:
+    return _RUST_AVAILABLE
+
 
 def ct_select(cond: bool, a, b):
-    """Select ``a`` if ``cond`` else ``b`` without a data-dependent access.
-
-    Both arms are already evaluated by the caller; the choice is made by a mask,
-    so which value is kept does not change *which memory was touched*. Python
-    cannot guarantee hardware constant-time (the TEE port uses a real CMOV); what
-    this preserves is the data-independent access pattern the obliviousness test
-    checks.
-    """
+    """Select ``a`` if ``cond`` else ``b`` without a data-dependent access."""
     return a if (1 if cond else 0) else b
 
 
-def oblivious_top_k(
+def _python_oblivious_top_k(
     scores: Sequence[float],
     k: int,
     *,
     on_access: Callable[[int], None] | None = None,
 ) -> list[int]:
-    """Return ``k`` entry indices in descending score order, data-obliviously.
-
-    Guarantees that do not depend on the score values:
-
-    - exactly ``k`` full linear scans for selection + ``k`` for marking, each over
-      all ``n`` entries in index order (uniform access pattern);
-    - exactly ``k`` results; a position with no remaining positive entry is
-      ``DUMMY_INDEX``, so the count never leaks how many entries scored well;
-    - only entries with ``score > 0`` are ever selected (the matcher's relevance
-      threshold), enforced as a select, not a branch.
-
-    Ties break toward the lower index (deterministic). ``on_access(i)`` fires on
-    every entry touch so the obliviousness test can record the access trace.
-    """
     if k <= 0:
         raise ValueError("k must be positive")
     n = len(scores)
@@ -82,3 +69,17 @@ def oblivious_top_k(
             taken[i] = ct_select(i == best_idx and best_is_real, True, taken[i])
         out.append(best_idx)
     return out
+
+
+def oblivious_top_k(
+    scores: Sequence[float],
+    k: int,
+    *,
+    on_access: Callable[[int], None] | None = None,
+) -> list[int]:
+    """Return ``k`` entry indices in descending score order, data-obliviously."""
+    if on_access is not None:
+        return _python_oblivious_top_k(scores, k, on_access=on_access)
+    if _RUST_AVAILABLE:
+        return [int(i) for i in _rust_oblivious_top_k(list(scores), k)]
+    return _python_oblivious_top_k(scores, k)

@@ -1,27 +1,40 @@
 # tenet / sphinx-tahoe — status
 
-**Updated:** 2026-06-03  
-**Baseline:** `pytest -q` → **250 passed, 2 skipped** (optional crypto backends)
+**Updated:** 2026-06-04  
+**Baseline:** `make smoke` → **257 passed, 2 skipped** (optional crypto backends)
+
+## Battle plan progress
+
+| Priority | Item | Status |
+|----------|------|--------|
+| — | Tiered test scripts + `config/live-enclave.json` | **Done** (`c8ca57e`) |
+| — | Client policy + `por enclave check/match` | **Done** |
+| P2 | Elastic IP for Nitro parent | **Done** — `3.121.69.82` (`eipalloc-00ee832114956db7e`) |
+| P2b | DNS → new Elastic IP | **Action needed** — update `aeon.site` A records (was `63.178.62.239`) |
+| P1 | PyO3 `oblivious-core` in matcher | **Partial** — dev wired; EIF Docker image still uses Python selector |
+| P4 | Expert routing e2e (mixnet → live matcher) | **Partial** — `scripts/demo-live-product.sh` (attested match demo) |
+| OUT | Azure SNP, mpTLS, per-user tiers | Deferred |
 
 ## Milestone: live attested matcher on AWS Nitro
 
-The full H1–H5 trust stack is **validated on real hardware** with production TLS:
+The full H1–H5 trust stack is validated on real hardware with production TLS:
 
 | Item | Value |
 |------|-------|
 | **Live endpoint** | https://d851588d3b41.aeon.site/ |
 | **Instance** | `tenet-matcher-nitro` (`i-069a473107424b7df`, m5.xlarge, eu-central-1) |
-| **Public IP** | `63.178.62.239` (allocate Elastic IP before stop/start) |
+| **Elastic IP** | `3.121.69.82` (`eipalloc-00ee832114956db7e`) — stable across stop/start |
+| **Previous IP** | `63.178.62.239` (released when EIP associated) |
 | **Engine pin** | [attested-workload](https://github.com/maceip/attested-workload) @ `79a5ea2328f2b30192e57b53913355dcd5e0201e` |
 | **Value X** | `d851588d3b413cbf7513d9d5fa93d466b42ad1603e1c7fdfd408cfd635a7cf6882412ce99c8fbb3aeac197c3e6c5f361` |
 | **tls_spki_hash** (post-ACME) | `b880512378622821deebd4cb395a82eae271069acd491b805940145c97d1eab1` |
-| **EIF PCR0** | `e420380c20ab4b6b1bea5ca98a0627607f0f6075bc376296a964299f8b59ae3fd953af4ea6b14c6d0a1ee4507dc497ff` |
 
-**Verify from any machine:**
+**After DNS points at `3.121.69.82`:**
 
 ```bash
-aw check --json https://d851588d3b41.aeon.site/
-curl -s https://d851588d3b41.aeon.site/healthz
+./scripts/verify-live.sh
+python3 -m por enclave match --prompt "monet painting"
+./scripts/demo-live-product.sh
 ```
 
 Details: `deploy/HARDWARE_VALIDATION_2026-06-03.md`, `docs/enclave_plane_attested_workload.md`.
@@ -30,52 +43,45 @@ Details: `deploy/HARDWARE_VALIDATION_2026-06-03.md`, `docs/enclave_plane_atteste
 
 | Before | After |
 |--------|-------|
-| `runcards` verifier + `bountynet-genesis` enclave shim | Single pin: **attested-workload** |
-| `runcard check --json` | `aw check --json` (schema unchanged) |
-| Unpinned deploy binaries | `DEPENDENCIES.md` + CI gate |
-
-Do **not** mix legacy repos on the live path.
+| `runcards` + `bountynet-genesis` | Single pin: **attested-workload** |
+| `runcard check --json` | `aw check --json` |
+| Unpinned deploy | `DEPENDENCIES.md` + CI gate |
 
 ## Done (product + trust)
 
-- Outfox mixnet core, wire daemon, mixnet tests
-- Matcher/mailbox stand-in + oblivious selection (H4) + cover handles
+- Outfox mixnet, wire daemon, mixnet tests
+- Matcher/mailbox + oblivious selection (H4) + cover handles
 - Client attestation gate (H1–H2) → `aw check --json`
 - SPKI-pinned transport (H3)
 - Nitro EIF packaging + deploy scripts (H5)
-- App-proxy `/v1/*` → loopback matcher (in attested-workload)
-- Let's Encrypt via TLS-ALPN-01 + post-ACME EAT rebind (`79a5ea2`)
-- Expert groups, Android client + CI
+- Let's Encrypt + post-ACME EAT rebind (`79a5ea2`)
+- Tiered testing (`make smoke`, `verify-live`, `docs/testing.md`)
+- Live client config (`config/live-enclave.json`, `por enclave`)
+- Elastic IP + `deploy/associate-elastic-ip.sh`
+- PyO3 oblivious-core (local/dev via `./scripts/build-oblivious-core.sh`)
 
-## Open (post-milestone)
+## Next up
 
-| Priority | Item |
-|----------|------|
-| P1 | Wire `oblivious-core` into live matcher via PyO3 (Rust exists; Python selector still used in enclave) |
-| P2 | Elastic IP for Nitro parent (current IP is ephemeral) |
-| P3 | Client `EnclaveTrustPolicy` — **done:** `config/live-enclave.json` + `por enclave check/match` |
-| P4 | Azure SNP path (blocked by paravisor — documented defect) |
-| OUT | mpTLS / TLSNotary / per-user security tiers until post-ship |
+1. **DNS** — point `aeon.site`, `*.aeon.site`, `d851588d3b41.aeon.site` → `3.121.69.82`; re-run ACME if cert breaks.
+2. **EIF** — bake `oblivious_core` into `Dockerfile.matcher-real` for in-TEE Rust selector.
+3. **Mixnet e2e** — client prompt over Outfox path to attested `/v1/match` (full product demo).
 
 ## One command truth
 
 ```bash
-cd ~/sphinx-tahoe && make smoke              # default green gate (250 passed)
-./scripts/run-plain-matcher.sh               # local matcher, no TEE
-./scripts/install-aw.sh && ./scripts/verify-live.sh   # live attestation
-python3 -m por enclave match --prompt "monet painting"   # attested /v1/match
+make smoke                                    # unit gate
+./scripts/run-plain-matcher.sh                # local matcher
+./scripts/install-aw.sh && ./scripts/verify-live.sh   # live (after DNS)
+./scripts/demo-live-product.sh                # attested product demo
+./scripts/build-oblivious-core.sh             # optional Rust selector
 ```
 
 Full guide: `docs/testing.md`
 
-```bash
-cd ~/oblivious-core && cargo test       # Rust oblivious core (not wired to matcher yet)
-```
-
-## Doc map (read order)
+## Doc map
 
 1. `docs/matcher_threat_model.md` — architecture of record
-2. `STATUS.md` (this file) — what's live vs planned
-3. `docs/enclave_plane_attested_workload.md` — TEE integration
-4. `DEPENDENCIES.md` — external pins
+2. `STATUS.md` (this file) — live vs planned
+3. `docs/testing.md` — how to run each tier
+4. `DEPENDENCIES.md` — engine pin + live client pins
 5. `deploy/README.md` — Nitro bring-up

@@ -48,5 +48,14 @@ Matcher workload on `127.0.0.1:8080`; enclave forwards `/v1/*` and `/healthz`.
 
 ## Operational follow-ups
 
-- Allocate **Elastic IP** before instance stop/start (current IP is ephemeral).
+- **DNS:** `aeon.site`, `*.aeon.site`, `d851588d3b41.aeon.site` → **`3.121.69.82`** (Elastic IP).
 - Redeploy EIF when changing attested-workload pin or matcher workload tree (Value X changes).
+- Re-run ACME on parent after DNS propagates if Let's Encrypt cert needs refresh.
+
+## Elastic IP (2026-06-04)
+
+| Field | Value |
+|-------|-------|
+| Allocation | `eipalloc-00ee832114956db7e` |
+| Public IP | `3.121.69.82` |
+| Script | `./deploy/associate-elastic-ip.sh i-069a473107424b7df` |

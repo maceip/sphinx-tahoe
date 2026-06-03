@@ -25,6 +25,12 @@ install-aw:
 verify-live:
 	./scripts/verify-live.sh
 
+demo:
+	./scripts/demo-live-product.sh
+
+oblivious-core:
+	./scripts/build-oblivious-core.sh
+
 plain-matcher:
 	./scripts/run-plain-matcher.sh
 

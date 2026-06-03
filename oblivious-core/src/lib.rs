@@ -71,6 +71,50 @@ pub fn oblivious_top_k(scores: &[u64], k: usize) -> Vec<i64> {
     out
 }
 
+/// Quantise matcher float scores to `u64` for constant-time comparison.
+/// Preserves ordering among positive floats; non-positive → 0 (ineligible).
+pub fn quantise_scores(scores: &[f64]) -> Vec<u64> {
+    scores
+        .iter()
+        .map(|&s| {
+            if s <= 0.0 {
+                0
+            } else {
+                (s * 1_000_000.0).round() as u64
+            }
+        })
+        .collect()
+}
+
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
+#[cfg(feature = "python")]
+#[pyfunction]
+fn oblivious_top_k_py(scores: Vec<f64>, k: usize) -> PyResult<Vec<i64>> {
+    if k == 0 {
+        return Err(pyo3::exceptions::PyValueError::new_err("k must be positive"));
+    }
+    let quantised = quantise_scores(&scores);
+    Ok(oblivious_top_k(&quantised, k))
+}
+
+#[cfg(feature = "python")]
+#[pyfunction]
+fn using_rust_backend() -> bool {
+    true
+}
+
+#[cfg(feature = "python")]
+#[pymodule]
+fn oblivious_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(oblivious_top_k_py, m)?)?;
+    m.add_function(wrap_pyfunction!(using_rust_backend, m)?)?;
+    m.add("DUMMY_INDEX", DUMMY_INDEX)?;
+    m.add("oblivious_top_k", m.getattr("oblivious_top_k_py")?)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -10,7 +10,9 @@ Three tiers — pick the one that matches what you are trying to prove.
 | All unit tests | `make test` | same |
 | Integration / product | `./scripts/test.sh integration` / `product` | same |
 | Local matcher (no TEE) | `./scripts/run-plain-matcher.sh` | Python only |
-| Live attestation | `./scripts/install-aw.sh` then `./scripts/verify-live.sh` | `aw` + network |
+| Live attestation | `./scripts/install-aw.sh` then `./scripts/verify-live.sh` | `aw` + network + DNS → EIP |
+| Product demo | `./scripts/demo-live-product.sh` | attested verify + match |
+| Rust oblivious selector | `./scripts/build-oblivious-core.sh` | maturin + Rust toolchain |
 | Live match via client | `python3 -m por enclave match --prompt "monet painting"` | `aw` + network |
 | Live pytest (opt-in) | `./scripts/test.sh live` | `aw` + network |
 
