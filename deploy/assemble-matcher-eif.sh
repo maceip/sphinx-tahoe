@@ -16,6 +16,8 @@ ATTESTED_WORKLOAD_SHA="$SHA" "$ROOT/deploy/build-bountynet-bin.sh" "$OUT/bountyn
 
 echo "[assemble] matcher workload"
 cp -R "$ROOT/por" "$OUT/app/"
+cp "$ROOT/deploy/run_matcher_live.py" "$OUT/app/"
+cp -R "$ROOT/deploy/data" "$OUT/app/data"
 cp "$ROOT/deploy/run_matcher.py" "$OUT/app/"
 cp -R "$ROOT/oblivious-core" "$OUT/oblivious-core"
 rm -rf "$OUT/oblivious-core/target"

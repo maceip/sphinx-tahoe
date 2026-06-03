@@ -96,6 +96,21 @@ def build_parser() -> argparse.ArgumentParser:
     enclave_plan.add_argument("--expertise")
     enclave_plan.add_argument("--json", action="store_true", help="Print JSON result")
 
+    enclave_send = enclave_sub.add_parser(
+        "send",
+        help="Expert-mode send via attested enclave mailbox (live P4 path).",
+    )
+    enclave_send.add_argument("--config", default="config/live-enclave.json")
+    enclave_send.add_argument(
+        "--mailbox-config",
+        default="config/live-mailbox-client.json",
+        help="por.live_mailbox_client.v1 cluster + trusted relay pins",
+    )
+    enclave_send.add_argument("--prompt", required=True)
+    enclave_send.add_argument("--expertise")
+    enclave_send.add_argument("--timeout", type=float, default=30.0)
+    enclave_send.add_argument("--json", action="store_true", help="Print JSON result")
+
     return parser
 
 
@@ -193,6 +208,28 @@ def _run_enclave_command(args: argparse.Namespace) -> int:
                 f"candidates={result['candidate_count']}"
             )
         return 0
+
+    if args.enclave_command == "send":
+        from por.live_client import LiveMailboxClientConfig, send_live_enclave_summary
+
+        mailbox = LiveMailboxClientConfig.load(args.mailbox_config)
+        result = send_live_enclave_summary(
+            config,
+            mailbox,
+            prompt=args.prompt,
+            requested_expertise=args.expertise,
+            timeout=args.timeout,
+        )
+        if args.json:
+            print(json.dumps(result, indent=2, sort_keys=True))
+        else:
+            print(
+                "enclave send "
+                f"ok={result['ok']} selected={result['selected_peer_id']} "
+                f"via_mailbox={result['via_mailbox']} "
+                f"response={result['response_text']!r}"
+            )
+        return 0 if result["ok"] else 1
 
     raise ValueError(f"unknown enclave command: {args.enclave_command}")
 

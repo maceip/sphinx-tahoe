@@ -58,12 +58,15 @@ def test_live_enclave_match(live_config, require_aw):
     assert result["candidate_count"] >= 1
 
 
-def test_live_enclave_expert_plan(live_config, require_aw):
-    from por.live_expert import plan_live_expert
+def test_live_enclave_mailbox_send(live_config, require_aw):
+    from por.live_client import LiveMailboxClientConfig, send_live_enclave_summary
 
-    result = plan_live_expert(
+    mailbox = LiveMailboxClientConfig.load()
+    result = send_live_enclave_summary(
         live_config,
-        prompt="Explain Rust ownership and the borrow checker.",
+        mailbox,
+        prompt="Tell me about Monet and impressionist painting.",
     )
     assert result["ok"] is True
-    assert result["discovery_mode"] == "plain_matcher_v1"
+    assert result["via_mailbox"] is True
+    assert "matched via live attested mailbox" in str(result["response_text"])

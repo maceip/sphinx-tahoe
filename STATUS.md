@@ -1,6 +1,6 @@
 # tenet / sphinx-tahoe — status
 
-**Updated:** 2026-06-04 (autonomous battle-plan pass)  
+**Updated:** 2026-06-04 (P1b + live P4)  
 **Baseline:** `make smoke` → **257 passed, 2 skipped**
 
 ## Battle plan progress
@@ -10,22 +10,22 @@
 | — | Tiered test scripts + `config/live-enclave.json` | **Done** |
 | — | Client policy + `por enclave check/match` | **Done** |
 | P2 | Elastic IP + DNS | **Done** — `3.121.69.82` |
-| P1 | PyO3 `oblivious-core` | **Done (dev)** / **Done (EIF recipe)** — multi-stage `Dockerfile.matcher-real` |
-| P1b | Redeploy EIF with Rust selector on Nitro | **Built** — `matcher-rust.eif` on host (PCR0 `821a8dc7…`); **live swap pending** — use `deploy/redeploy-matcher-eif.sh` (changes Value X) |
-| P4 | Expert routing e2e | **Partial** — `por enclave plan` + live demos; **local** mixnet mailbox path via `./scripts/demo-mailbox-e2e.sh`; live mailbox delivery still open |
+| P1 | PyO3 `oblivious-core` | **Done** — dev + EIF (Rust selector in enclave) |
+| P1b | Redeploy EIF with Rust selector on Nitro | **Done** — see live endpoint pins below |
+| P4 | Expert routing e2e (live) | **Done** — `por enclave send` + `./scripts/demo-live-mailbox-e2e.sh` |
 | OUT | Azure SNP, mpTLS, per-user tiers | Deferred |
 
 ## Live endpoint
 
 | Item | Value |
-|------|-------|
-| **URL** | https://d851588d3b41.aeon.site/ |
+|------|------|
+| **URL** | _updated after redeploy — see `config/live-enclave.json`_ |
 | **Elastic IP** | `3.121.69.82` |
 | **Engine** | attested-workload @ `79a5ea2328f2b30192e57b53913355dcd5e0201e` |
-| **Value X** | `d851588d3b413cbf7513d9d5fa93d466b42ad1603e1c7fdfd408cfd635a7cf6882412ce99c8fbb3aeac197c3e6c5f361` |
-| **tls_spki_hash** | `b880512378622821deebd4cb395a82eae271069acd491b805940145c97d1eab1` |
+| **Workload** | `run_matcher_live.py` — matcher + in-enclave relay/expert mailbox fleet |
+| **Pins** | `config/live-enclave.json` + `config/live-mailbox-client.json` |
 
-Public DNS verified on 8.8.8.8 → `3.121.69.82`. Local resolver cache may lag; `verify-live.sh` uses `curl --resolve` for healthz.
+Public DNS: `{value_x_prefix}.aeon.site` → `3.121.69.82` (wildcard `*.aeon.site` recommended).
 
 ## Runnable demos (in order)
 
@@ -33,24 +33,19 @@ Public DNS verified on 8.8.8.8 → `3.121.69.82`. Local resolver cache may lag; 
 make smoke
 ./scripts/install-aw.sh && ./scripts/verify-live.sh
 python3 -m por enclave match --prompt "monet painting"
-python3 -m por enclave plan --prompt "monet painting"    # expert-mode plan
-./scripts/demo-live-product.sh                           # all of the above
-./scripts/demo-expert-plan-live.sh                       # plan only
-./scripts/demo-mailbox-e2e.sh                            # local mixnet envelope → expert (product test)
+python3 -m por enclave plan --prompt "monet painting"
+python3 -m por enclave send --prompt "monet painting"       # live P4 mailbox path
+./scripts/demo-live-mailbox-e2e.sh
+./scripts/demo-live-product.sh
+./scripts/demo-mailbox-e2e.sh                            # local harness only
 ```
-
-## Next up
-
-1. **Swap live EIF** — on Nitro: `EIF=~/tenet-nitro-deploy/matcher-rust.eif ./deploy/redeploy-matcher-eif.sh`; add new Value X + SPKI to `config/live-enclave.json` (wildcard `*.aeon.site` → EIP helps ACME).
-2. **Live mixnet mailbox** — wire reachability relay + expert fleet to attested enclave mailbox delivery (local path proven: `demo-mailbox-e2e.sh`).
-3. **Home-router / persistent connections** (product rename prep).
 
 ## One command truth
 
 ```bash
 make smoke
 ./scripts/verify-live.sh
-./scripts/demo-live-product.sh
+./scripts/demo-live-mailbox-e2e.sh
 ```
 
 Full guide: `docs/testing.md`
