@@ -26,7 +26,7 @@ RUN python3.11 --version \
 
 FROM public.ecr.aws/amazonlinux/amazonlinux:2023-minimal
 RUN dnf install -y python3.11 python3.11-pip iproute && dnf clean all
-RUN python3.11 -m pip install --no-cache-dir cryptography
+RUN python3.11 -m pip install --no-cache-dir cryptography pynacl
 COPY --from=oblivious-builder /wheels/*.whl /tmp/
 RUN python3.11 -m pip install --no-cache-dir /tmp/*.whl && rm -f /tmp/*.whl
 COPY bountynet-bin /usr/local/bin/bountynet
