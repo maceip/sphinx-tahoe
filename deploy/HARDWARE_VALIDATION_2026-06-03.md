@@ -30,18 +30,16 @@ curl -sk https://63.178.62.239/healthz
 | `--acme` permission denied as ec2-user | ACME path also needs root |
 | Shallow git clone + short SHA | Use full SHA or clone without `--depth 1` |
 
-## Production TLS (ACME)
+## Production TLS (ACME) — live 2026-06-03
 
-**Domain (from Value X):** `d851588d3b41.aeon.site`  
-**DNS:** A record → `63.178.62.239`
-
-After DNS propagates, the host runs `deploy/acme-wait-and-provision.sh` (already
-started on the instance). It restarts `bountynet proxy --acme` and completes
-Let's Encrypt TLS-ALPN-01 automatically.
-
-Verify:
+**Domain:** `https://d851588d3b41.aeon.site/`  
+**DNS:** `d851588d3b41.aeon.site` A → `63.178.62.239`  
+**TLS:** Let's Encrypt (TLS-ALPN-01 via `bountynet proxy --acme`)
 
 ```bash
 aw check --json https://d851588d3b41.aeon.site/
 curl -s https://d851588d3b41.aeon.site/healthz
+# {"ok": true, "schema": "por.plain_enclave_plane.health.v1"}
 ```
+
+ACME completed on the Nitro parent; cert CN=`d851588d3b41.aeon.site`, issuer=Let's Encrypt.
