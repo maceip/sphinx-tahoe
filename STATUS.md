@@ -53,16 +53,23 @@ Do **not** mix legacy repos on the live path.
 |----------|------|
 | P1 | Wire `oblivious-core` into live matcher via PyO3 (Rust exists; Python selector still used in enclave) |
 | P2 | Elastic IP for Nitro parent (current IP is ephemeral) |
-| P3 | Client `EnclaveTrustPolicy.approved_value_x` + pinned `tls_spki_hash` in tenet config docs |
+| P3 | Client `EnclaveTrustPolicy` — **done:** `config/live-enclave.json` + `por enclave check/match` |
 | P4 | Azure SNP path (blocked by paravisor — documented defect) |
 | OUT | mpTLS / TLSNotary / per-user security tiers until post-ship |
 
 ## One command truth
 
 ```bash
-cd ~/sphinx-tahoe && pytest -q          # default green gate
+cd ~/sphinx-tahoe && make smoke              # default green gate (250 passed)
+./scripts/run-plain-matcher.sh               # local matcher, no TEE
+./scripts/install-aw.sh && ./scripts/verify-live.sh   # live attestation
+python3 -m por enclave match --prompt "monet painting"   # attested /v1/match
+```
+
+Full guide: `docs/testing.md`
+
+```bash
 cd ~/oblivious-core && cargo test       # Rust oblivious core (not wired to matcher yet)
-aw check --json https://d851588d3b41.aeon.site/   # live attestation (needs `aw` from pinned SHA)
 ```
 
 ## Doc map (read order)

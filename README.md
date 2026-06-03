@@ -180,11 +180,16 @@ persistent connections, and PyO3 wiring of `oblivious-core` into the live matche
 
 ## Testing
 
+See [`docs/testing.md`](docs/testing.md) for tiered commands (`make smoke`, live verify, plain matcher).
+
 ```bash
-pytest -m product       # end-to-end acceptance paths
-pytest -m integration   # threaded / multi-process runtime checks
-pytest -m crypto        # low-level packet-format regressions
-pytest --cov=por        # coverage (floor enforced in pytest.ini)
+make smoke                                  # default unit gate
+./scripts/verify-live.sh                    # live Nitro (after install-aw.sh)
+python3 -m por enclave match --prompt "..." # attested match
+pytest -m product                           # end-to-end acceptance paths
+pytest -m integration                       # threaded / multi-process runtime checks
+pytest -m crypto                            # low-level packet-format regressions
+pytest --cov=por                            # coverage (floor enforced in pytest.ini)
 ```
 
 ## License

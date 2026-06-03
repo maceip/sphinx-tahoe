@@ -1,0 +1,13 @@
+{
+  "schema": "por.live_enclave.v1",
+  "description": "Pinned trust policy for the live Nitro matcher (Jun 2026).",
+  "url": "https://d851588d3b41.aeon.site/",
+  "approved_value_x": [
+    "d851588d3b413cbf7513d9d5fa93d466b42ad1603e1c7fdfd408cfd635a7cf6882412ce99c8fbb3aeac197c3e6c5f361"
+  ],
+  "tls_spki_hash": "b880512378622821deebd4cb395a82eae271069acd491b805940145c97d1eab1",
+  "require_spki_pin": true,
+  "aw_bin": "aw",
+  "attested_workload_sha": "79a5ea2328f2b30192e57b53913355dcd5e0201e",
+  "engine_repo": "https://github.com/maceip/attested-workload"
+}

@@ -60,6 +60,33 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--config", required=True, help="por.config.v1 JSON path")
     run.add_argument("--node-id", help="Daemon node id when config lists multiple")
 
+    enclave = sub.add_parser(
+        "enclave",
+        help="Attested enclave-plane tools (live Nitro matcher).",
+    )
+    enclave_sub = enclave.add_subparsers(dest="enclave_command", required=True)
+
+    enclave_check = enclave_sub.add_parser(
+        "check",
+        help="Verify attestation + EnclaveTrustPolicy from config/live-enclave.json.",
+    )
+    enclave_check.add_argument(
+        "--config",
+        default="config/live-enclave.json",
+        help="por.live_enclave.v1 JSON (default: config/live-enclave.json)",
+    )
+    enclave_check.add_argument("--json", action="store_true", help="Print JSON summary")
+
+    enclave_match = enclave_sub.add_parser(
+        "match",
+        help="Run attested /v1/match against the live matcher.",
+    )
+    enclave_match.add_argument("--config", default="config/live-enclave.json")
+    enclave_match.add_argument("--prompt", required=True)
+    enclave_match.add_argument("--expertise")
+    enclave_match.add_argument("--max-records", type=int, default=4)
+    enclave_match.add_argument("--json", action="store_true", help="Print JSON result")
+
     return parser
 
 
@@ -99,7 +126,46 @@ def dispatch(args: argparse.Namespace) -> int:
     if args.command == "run":
         return _run_from_daemon_config(args.config, node_id=args.node_id)
 
+    if args.command == "enclave":
+        return _run_enclave_command(args)
+
     raise ValueError(f"unknown command: {args.command}")
+
+
+def _run_enclave_command(args: argparse.Namespace) -> int:
+    import json
+
+    from por.live_enclave import LiveEnclaveConfig, check_live_enclave, match_live_enclave
+
+    config = LiveEnclaveConfig.load(args.config)
+    if args.enclave_command == "check":
+        summary = check_live_enclave(config)
+        if args.json:
+            print(json.dumps(summary, indent=2, sort_keys=True))
+        else:
+            print(
+                "enclave check ok "
+                f"platform={summary['platform']} "
+                f"value_x={summary['value_x'][:16]}... "
+                f"pinned={summary['pinned']}"
+            )
+        return 0
+
+    if args.enclave_command == "match":
+        result = match_live_enclave(
+            config,
+            prompt=args.prompt,
+            requested_expertise=args.expertise,
+            max_records=args.max_records,
+        )
+        if args.json:
+            print(json.dumps(result, indent=2, sort_keys=True))
+        else:
+            peers = ", ".join(item["peer_id"] for item in result["candidates"])
+            print(f"match ok mode={result['mode']} candidates={peers}")
+        return 0
+
+    raise ValueError(f"unknown enclave command: {args.enclave_command}")
 
 
 def _run_from_daemon_config(config_path: str, *, node_id: str | None) -> int:

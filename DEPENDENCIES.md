@@ -21,7 +21,12 @@ aw check --json https://d851588d3b41.aeon.site/
 
 ### Live deployment pins (tenet matcher, 2026-06-03)
 
-Use in `EnclaveTrustPolicy` after `aw check --json`:
+Use in `EnclaveTrustPolicy` after `aw check --json` (or load `config/live-enclave.json`):
+
+```bash
+python3 -m por enclave check
+python3 -m por enclave match --prompt "Tell me about Monet"
+```
 
 ```text
 value_x:       d851588d3b413cbf7513d9d5fa93d466b42ad1603e1c7fdfd408cfd635a7cf6882412ce99c8fbb3aeac197c3e6c5f361

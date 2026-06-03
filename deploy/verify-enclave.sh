@@ -11,7 +11,8 @@ AW_BIN="${AW_BIN:-aw}"
 
 if ! command -v "$AW_BIN" >/dev/null 2>&1; then
   echo "[verify] $AW_BIN not found; install from attested-workload:" >&2
-  echo "  cargo install --git https://github.com/maceip/attested-workload --tag v0.1.0 --bin aw" >&2
+  echo "  ./scripts/install-aw.sh" >&2
+  echo "  # or: cargo install --git https://github.com/maceip/attested-workload --rev 79a5ea2 --bin aw" >&2
   exit 1
 fi
 
