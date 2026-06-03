@@ -5,16 +5,16 @@ The wire shape from ``enclave_plane.py`` stays unchanged; this module decides
 *whether to trust* an enclave-plane endpoint before any matcher/mailbox call is
 issued.
 
-Trust model (runcards LLM_ATTESTED.md / DESIGN.md): "bootstrap once, then cheap".
+Trust model (attested-workload `docs/DESIGN.md`): "bootstrap once, then cheap".
 A client verifies the enclave's attested-TLS receipt once, binds it to the TLS
 channel, caches it, then trusts subsequent cheap calls.
 
-Division of labour — we do NOT reimplement quote verification (runcards'
+Division of labour — we do NOT reimplement quote verification (attested-workload
 invariant: "do not modify the core quote verifier"). The cryptographic checks
 (quote signature chain, ``report_data`` binding, ``sha256(cert_spki) ==
 eat.tls_spki_hash`` channel binding, Value X registry lookup) are delegated to
-runcards' own verifier via ``runcard check <url>`` (src/main.rs ``cmd_check``).
-What lives here is the policy sphinx-tahoe owns: which Value X builds we accept,
+``aw check <url>`` (attested-workload ``src/main.rs`` ``cmd_check``). What lives
+here is the policy sphinx-tahoe owns: which Value X builds we accept,
 which TEE platforms we accept, and **fail-closed** enforcement — the client never
 silently downgrades to an unattested transport (invariant I1: security level is a
 network property, not a per-call toggle).
@@ -35,7 +35,7 @@ from .attested_transport import EnclaveAttestationError, SpkiPinError
 
 ACCEPTED_TEE_PLATFORMS = frozenset({"nitro", "sev-snp", "tdx"})
 
-# `runcard check` (runcards src/main.rs cmd_check) prints these labels to stderr.
+# `aw check` (attested-workload src/main.rs cmd_check) prints these labels to stderr.
 _CHECK_VALUE_X_LABEL = "Value X:"
 _CHECK_PLATFORM_LABEL = "Platform:"
 # Debug form of platform_enum() -> our policy platform string.
@@ -65,7 +65,7 @@ class EnclaveTrustPolicy:
     approved_value_x: frozenset[str]
     accepted_platforms: frozenset[str] = ACCEPTED_TEE_PLATFORMS
     # Registry status is a secondary, opt-in signal. Empty = not enforced (the
-    # primary gate is Value X + platform + the crypto `runcard check` performs).
+    # primary gate is Value X + platform + the crypto `aw check` performs).
     accepted_registry_status: frozenset[str] = frozenset()
     # H3: require the verified attestation to carry the TLS SPKI hash so the
     # client can pin subsequent connections. Off by default (the plain-HTTP
@@ -114,9 +114,9 @@ class RuncardVerifier(Protocol):
 
 @dataclass
 class SubprocessRuncardVerifier:
-    """Real verifier: delegates the cryptographic checks to the ``runcard`` binary.
+    """Real verifier: delegates cryptographic checks to ``aw`` (or legacy ``runcard``).
 
-    ``runcard check <url>`` (runcards src/main.rs ``cmd_check``) opens attested
+    ``aw check <url>`` (attested-workload ``cmd_check``) opens attested TLS to the
     TLS to the endpoint, extracts the EAT from the leaf cert's CMW extension (OID
     2.23.133.5.4.9 — the EAT is **CBOR embedded in the certificate**, not a JSON
     document fetched over HTTP), checks ``sha256(cert_spki) == eat.tls_spki_hash``
@@ -125,17 +125,15 @@ class SubprocessRuncardVerifier:
     exit code means every one of those passed. It prints the verified ``Platform``
     and ``Value X`` to stderr, which we parse for policy.
 
-    We do NOT reimplement any of that crypto (runcards' invariant: "do not modify
-    the core quote verifier"). Validated locally: runcards' ``chain_e2e`` (5/5)
-    and the Nitro/TDX ``hardware_regression`` fixtures verify green with no live
-    TEE; only SNP (AMD KDS) and *fresh-quote generation* need an instance.
+    We do NOT reimplement any of that crypto. Validated via attested-workload
+    ``chain_e2e`` and Nitro/TDX ``hardware_regression`` fixtures (no live TEE for
+    verification; fresh quotes need hardware).
 
-    Output: prefers ``runcard check --json`` (one structured line on stdout);
-    falls back to parsing the human stderr log for an older ``runcard`` without
-    the flag. Fails closed if neither yields Value X + Platform.
+    Output: prefers ``aw check --json`` (schema ``runcard.check.v1``); falls back
+    to parsing human stderr for older verifiers without ``--json``.
     """
 
-    runcard_bin: str = "runcard"
+    runcard_bin: str = "aw"
     timeout: float = 30.0
 
     def verify(self, base_url: str) -> VerifiedAttestation:
@@ -153,7 +151,7 @@ class SubprocessRuncardVerifier:
             ) from exc
         if proc.returncode != 0:
             detail = (proc.stderr or proc.stdout).strip() or f"exit {proc.returncode}"
-            raise EnclaveAttestationError(f"runcard check failed for {url}: {detail}")
+            raise EnclaveAttestationError(f"aw check failed for {url}: {detail}")
         att = self._parse_json_output(proc.stdout, url)
         if att is not None:
             return att
@@ -335,3 +333,7 @@ class AttestedEnclavePlaneClient:
     def deliver_to_handle(self, handle: str, datagram: bytes, *, timeout: float) -> Iterable[bytes]:
         self._ensure()
         return self._inner.deliver_to_handle(handle, datagram, timeout=timeout)
+
+
+# Preferred name for new code; SubprocessRuncardVerifier kept for compatibility.
+SubprocessAttestedWorkloadVerifier = SubprocessRuncardVerifier

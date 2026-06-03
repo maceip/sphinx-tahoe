@@ -11,6 +11,7 @@ __all__ = (
     "EnclaveTrustPolicy",
     "RuncardVerifier",
     "SubprocessRuncardVerifier",
+    "SubprocessAttestedWorkloadVerifier",
     "VerifiedAttestation",
     "CandidatePool",
     "CandidateScore",
@@ -266,6 +267,7 @@ def __getattr__(name):
             "EnclaveTrustPolicy",
             "RuncardVerifier",
             "SubprocessRuncardVerifier",
+            "SubprocessAttestedWorkloadVerifier",
             "VerifiedAttestation",
         }:
             from . import enclave_attest

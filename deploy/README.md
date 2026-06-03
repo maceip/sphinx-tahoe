@@ -1,54 +1,73 @@
 # Enclave deploy (H5)
 
-Packaging + deploy path for running the matcher/mailbox plane inside a TEE and
-letting clients attest it. Recycles the runcards / bountynet-genesis engine; no
-new enclave code.
+Packaging + deploy for running the matcher/mailbox plane inside a TEE with
+client attestation. The TEE engine lives in
+**[attested-workload](https://github.com/maceip/attested-workload)** (pinned in
+`DEPENDENCIES.md`).
+
+## Build the enclave shim
+
+```bash
+ATTESTED_WORKLOAD_SHA=e039216 ./deploy/build-bountynet-bin.sh
+```
+
+Produces `./bountynet-bin` (same as `aw` / `bountynet` from attested-workload).
 
 ## Files
 
-- `Dockerfile.enclave` — builds the EIF: amazonlinux:2023-minimal (reproducible
-  PCR0), python3, the `por` + `sphinxmix` source, the `bountynet` attestation
-  shim, and the entry/launch scripts.
-- `enclave-workload.sh` — launches `por.enclave_plane_server` on loopback
-  (`127.0.0.1:9384`). This is our code; it is unit-tested
-  (`tests/test_enclave_plane_server.py`).
-- `enclave-entry.sh` — EIF PID 1: starts the workload + bountynet attestation.
-- `nitro-deploy.sh` — the AWS Nitro sequence (provision → build EIF → run-enclave
-  → parent vsock proxy), recovered from `bountynet-genesis/v2/BUILD.md`. The Nitro
-  path was never a committed script (it's EIF + nitro-cli + proxy, unlike the
-  SNP/TDX `deploy/*.sh` sisters in runcards); this commits it.
+| File | Role |
+|------|------|
+| `build-bountynet-bin.sh` | Build `bountynet-bin` from pinned attested-workload |
+| `assemble-matcher-eif.sh` | Stage build context for the real-matcher EIF |
+| `Dockerfile.matcher-real` | EIF with `por.PlainMatcher` + app-proxy on `:8080` |
+| `entry-matcher.sh` | PID 1: matcher on loopback, `bountynet enclave` with app-proxy |
+| `run_matcher.py` | Loopback HTTP server the app-proxy fronts |
+| `nitro-deploy.sh` | Nitro: build EIF → run enclave → parent proxy |
 
-## End-to-end path
+Legacy `Dockerfile.enclave` + `enclave_plane_server` remain for the older
+stand-in plane; new Nitro work should use `Dockerfile.matcher-real`.
 
-1. Build `bountynet` (`cargo build --release` in the runcards/bountynet-genesis
-   tree) → drop the binary in this build context as `./bountynet-bin`.
-2. `deploy/nitro-deploy.sh` on a Nitro-enabled instance: builds the EIF, prints
-   **PCR0**, runs the enclave, starts the parent `bountynet proxy` (TLS
-   terminates *inside* the enclave; the parent only bridges ciphertext).
-3. Approve PCR0 as the build's **Value X** in the trust registry, and set it as
-   `approved_value_x` in the client `EnclaveTrustPolicy`
-   (`por/enclave_attest.py`).
-4. Client: `runcard check --json https://<host>` → `AttestedEnclavePlaneClient`
-   verifies + pins the SPKI (H3) and only then issues matcher/mailbox calls.
+## End-to-end (Nitro)
+
+```bash
+# On your build machine
+ATTESTED_WORKLOAD_SHA=e039216 ./deploy/assemble-matcher-eif.sh
+# Copy deploy/eif-build/ to a Nitro-enabled instance, then:
+cd eif-build && ../nitro-deploy.sh   # or docker build + nitro-cli manually
+```
+
+Inside the enclave:
+
+1. Matcher listens on `127.0.0.1:8080`
+2. `bountynet enclave /app` measures the workload tree, serves attested TLS over vsock
+3. App-proxy forwards `/v1/*` and `/healthz` to the matcher (SSE streaming supported)
+
+On the parent: `bountynet proxy --cid <cid>` bridges TCP:443 → vsock (TLS terminates
+**inside** the enclave).
+
+## Client verification
+
+```bash
+aw check --json https://<host>/
+```
+
+Then `AttestedEnclavePlaneClient` in `por/enclave_attest.py` (default verifier:
+`SubprocessAttestedWorkloadVerifier` → `aw check --json`).
+
+Set `approved_value_x` in `EnclaveTrustPolicy` to the Value X from deploy (PCR0 /
+`aw check` output).
 
 ## What works without hardware
 
-runcards' **verification** runs green on a plain machine (its `chain_e2e` and the
-Nitro/TDX `hardware_regression` fixtures). The client gate, SPKI pinning, oblivious
-selection, and cover-handle count-hiding are all unit-tested here with no TEE.
+attested-workload verification (`cargo test` in that repo) and all sphinx-tahoe
+client gate / SPKI pinning / oblivious-selection tests run on a plain machine.
 
-## What genuinely needs a real instance / more work (no overclaiming)
+## What needs a real instance
 
-1. **Fresh-quote generation** — only obtainable inside a live Nitro/SNP/TDX
-   enclave at run time (NSM / `/dev/sev-guest` / configfs-tsm). Verification
-   works locally; *generation* does not. This is the literal H5 hardware step.
-2. **bountynet app-proxy (integration gap)** — bountynet-genesis v2 `cmd_enclave`
-   serves the attestation JSON + EAT over the enclave vsock-TLS
-   (`serve_tls_vsock`); it does **not** reverse-proxy a co-located app onto that
-   same attested channel. So the matcher API is not yet reachable over attested
-   TLS — the EAT/channel-binding half works, but joining the matcher's `/v1/*`
-   onto it needs a bountynet enclave-proxy mode. Tracked as its own task.
-3. **SNP/TDX variants** — `nitro-deploy.sh` is Nitro-specific; the SNP (Azure
-   CVM) and TDX (GCP) whole-VM paths reuse runcards' `deploy/azure-cvm.sh` /
-   `deploy/gcp-tdx.sh` and need no vsock bridge (see
-   `../docs/enclave_plane_runcards.md`).
+**Fresh quote generation** only — inside live Nitro/SNP/TDX at run time. Verification
+does not require hardware.
+
+## SNP / TDX
+
+Whole-VM paths use attested-workload `deploy/azure-cvm.sh` and `deploy/gcp-tdx.sh`
+(no vsock bridge). See `docs/enclave_plane_attested_workload.md`.
