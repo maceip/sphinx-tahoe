@@ -3,12 +3,12 @@
 ## attested-workload (TEE engine)
 
 **Repo:** https://github.com/maceip/attested-workload  
-**Pin:** `e039216` (initial release — TEE + attested TLS + Nitro app-proxy)
+**Pin:** `e03921678055831e2f3bd24bda38ed4f53074a33` (short: `e039216`)
 
 Build the enclave shim for EIF images:
 
 ```bash
-ATTESTED_WORKLOAD_SHA=e039216 ./deploy/build-bountynet-bin.sh
+ATTESTED_WORKLOAD_SHA=e03921678055831e2f3bd24bda38ed4f53074a33 ./deploy/build-bountynet-bin.sh
 ```
 
 Client verification uses the same repo:

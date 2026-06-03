@@ -23,6 +23,7 @@ if [[ ! -d "$REPO/.git" ]]; then
 fi
 
 pushd "$REPO" >/dev/null
+SAVED_REF="$(git rev-parse HEAD 2>/dev/null || true)"
 if [[ -n "$SHA" ]]; then
   git fetch --quiet origin 2>/dev/null || true
   git checkout "$SHA"
@@ -30,5 +31,8 @@ fi
 echo "[build-bountynet-bin] attested-workload $(git rev-parse --short HEAD)"
 cargo build --release --bin bountynet
 cp target/release/bountynet "$OUT"
+if [[ -n "$SHA" && -n "$SAVED_REF" ]]; then
+  git checkout "$SAVED_REF" 2>/dev/null || git checkout main 2>/dev/null || true
+fi
 popd >/dev/null
 echo "[build-bountynet-bin] wrote $OUT"
