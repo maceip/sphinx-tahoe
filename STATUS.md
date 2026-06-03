@@ -10,7 +10,7 @@
 | — | Tiered test scripts + `config/live-enclave.json` | **Done** (`c8ca57e`) |
 | — | Client policy + `por enclave check/match` | **Done** |
 | P2 | Elastic IP for Nitro parent | **Done** — `3.121.69.82` (`eipalloc-00ee832114956db7e`) |
-| P2b | DNS → new Elastic IP | **Action needed** — update `aeon.site` A records (was `63.178.62.239`) |
+| P2b | DNS → Elastic IP | **Done** — `d851588d3b41.aeon.site` / `aeon.site` → `3.121.69.82` (Google/Cloudflare DNS) |
 | P1 | PyO3 `oblivious-core` in matcher | **Partial** — dev wired; EIF Docker image still uses Python selector |
 | P4 | Expert routing e2e (mixnet → live matcher) | **Partial** — `scripts/demo-live-product.sh` (attested match demo) |
 | OUT | Azure SNP, mpTLS, per-user tiers | Deferred |
@@ -29,13 +29,15 @@ The full H1–H5 trust stack is validated on real hardware with production TLS:
 | **Value X** | `d851588d3b413cbf7513d9d5fa93d466b42ad1603e1c7fdfd408cfd635a7cf6882412ce99c8fbb3aeac197c3e6c5f361` |
 | **tls_spki_hash** (post-ACME) | `b880512378622821deebd4cb395a82eae271069acd491b805940145c97d1eab1` |
 
-**After DNS points at `3.121.69.82`:**
+**Verified 2026-06-04 (public DNS):**
 
 ```bash
-./scripts/verify-live.sh
-python3 -m por enclave match --prompt "monet painting"
-./scripts/demo-live-product.sh
+dig +short d851588d3b41.aeon.site @8.8.8.8   # 3.121.69.82
+curl --resolve d851588d3b41.aeon.site:443:3.121.69.82 https://d851588d3b41.aeon.site/healthz
+./scripts/verify-live.sh   # after local DNS catches up (or use --resolve above)
 ```
+
+Let's Encrypt cert on `d851588d3b41.aeon.site` still valid; `bountynet proxy --acme` running on instance.
 
 Details: `deploy/HARDWARE_VALIDATION_2026-06-03.md`, `docs/enclave_plane_attested_workload.md`.
 
@@ -62,7 +64,7 @@ Details: `deploy/HARDWARE_VALIDATION_2026-06-03.md`, `docs/enclave_plane_atteste
 
 ## Next up
 
-1. **DNS** — point `aeon.site`, `*.aeon.site`, `d851588d3b41.aeon.site` → `3.121.69.82`; re-run ACME if cert breaks.
+1. ~~**DNS**~~ — done (`3.121.69.82` on public resolvers).
 2. **EIF** — bake `oblivious_core` into `Dockerfile.matcher-real` for in-TEE Rust selector.
 3. **Mixnet e2e** — client prompt over Outfox path to attested `/v1/match` (full product demo).
 
