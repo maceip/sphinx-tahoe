@@ -11,7 +11,7 @@
 | — | Client policy + `por enclave check/match` | **Done** |
 | P2 | Elastic IP + DNS | **Done** — `3.121.69.82` |
 | P1 | PyO3 `oblivious-core` | **Done (dev)** / **Done (EIF recipe)** — multi-stage `Dockerfile.matcher-real` |
-| P1b | Redeploy EIF with Rust selector on Nitro | **Pending** — changes Value X; run when ready |
+| P1b | Redeploy EIF with Rust selector on Nitro | **Built** — `matcher-rust.eif` on host (PCR0 `821a8dc7…`); **live swap pending** — use `deploy/redeploy-matcher-eif.sh` (changes Value X) |
 | P4 | Expert routing e2e | **Partial** — `por enclave plan` + live demos; **local** mixnet mailbox path via `./scripts/demo-mailbox-e2e.sh`; live mailbox delivery still open |
 | OUT | Azure SNP, mpTLS, per-user tiers | Deferred |
 
@@ -41,7 +41,7 @@ python3 -m por enclave plan --prompt "monet painting"    # expert-mode plan
 
 ## Next up
 
-1. **Redeploy EIF** on Nitro with Rust oblivious selector (`assemble-matcher-eif.sh` → docker → nitro-cli); refresh pins in `config/live-enclave.json`.
+1. **Swap live EIF** — on Nitro: `EIF=~/tenet-nitro-deploy/matcher-rust.eif ./deploy/redeploy-matcher-eif.sh`; add new Value X + SPKI to `config/live-enclave.json` (wildcard `*.aeon.site` → EIP helps ACME).
 2. **Live mixnet mailbox** — wire reachability relay + expert fleet to attested enclave mailbox delivery (local path proven: `demo-mailbox-e2e.sh`).
 3. **Home-router / persistent connections** (product rename prep).
 
