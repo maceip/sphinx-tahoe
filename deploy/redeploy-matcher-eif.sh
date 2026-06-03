@@ -30,7 +30,7 @@ sleep 2
 if nitro-cli describe-enclaves 2>/dev/null | grep -q EnclaveCID; then
   ENCLAVE_ID=$(nitro-cli describe-enclaves | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["EnclaveID"])')
   echo "[redeploy] terminate $ENCLAVE_ID"
-  nitro-cli terminate-enclave --enclave-id "$ENCLAVE_ID"
+  sudo nitro-cli terminate-enclave --enclave-id "$ENCLAVE_ID" || sudo nitro-cli terminate-enclave --all
   sleep 5
 fi
 
