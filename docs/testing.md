@@ -12,6 +12,7 @@ Three tiers — pick the one that matches what you are trying to prove.
 | Local matcher (no TEE) | `./scripts/run-plain-matcher.sh` | Python only |
 | Live attestation | `./scripts/install-aw.sh` then `./scripts/verify-live.sh` | `aw` + network + DNS → EIP |
 | Product demo | `./scripts/demo-live-product.sh` | attested verify + match + plan |
+| Local mixnet mailbox e2e | `./scripts/demo-mailbox-e2e.sh` | in-process harness; no TEE/network |
 | Expert plan only | `./scripts/demo-expert-plan-live.sh` | route plan via live matcher |
 | Rust oblivious selector | `./scripts/build-oblivious-core.sh` | maturin + Rust toolchain |
 | Live match via client | `python3 -m por enclave match --prompt "monet painting"` | `aw` + network |

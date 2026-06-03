@@ -12,7 +12,7 @@
 | P2 | Elastic IP + DNS | **Done** — `3.121.69.82` |
 | P1 | PyO3 `oblivious-core` | **Done (dev)** / **Done (EIF recipe)** — multi-stage `Dockerfile.matcher-real` |
 | P1b | Redeploy EIF with Rust selector on Nitro | **Pending** — changes Value X; run when ready |
-| P4 | Expert routing e2e | **Partial** — `por enclave plan` + demos; mixnet delivery still open |
+| P4 | Expert routing e2e | **Partial** — `por enclave plan` + live demos; **local** mixnet mailbox path via `./scripts/demo-mailbox-e2e.sh`; live mailbox delivery still open |
 | OUT | Azure SNP, mpTLS, per-user tiers | Deferred |
 
 ## Live endpoint
@@ -36,12 +36,13 @@ python3 -m por enclave match --prompt "monet painting"
 python3 -m por enclave plan --prompt "monet painting"    # expert-mode plan
 ./scripts/demo-live-product.sh                           # all of the above
 ./scripts/demo-expert-plan-live.sh                       # plan only
+./scripts/demo-mailbox-e2e.sh                            # local mixnet envelope → expert (product test)
 ```
 
 ## Next up
 
 1. **Redeploy EIF** on Nitro with Rust oblivious selector (`assemble-matcher-eif.sh` → docker → nitro-cli); refresh pins in `config/live-enclave.json`.
-2. **Mixnet e2e** — `run_client_once` with envelope delivery to expert via attested mailbox path.
+2. **Live mixnet mailbox** — wire reachability relay + expert fleet to attested enclave mailbox delivery (local path proven: `demo-mailbox-e2e.sh`).
 3. **Home-router / persistent connections** (product rename prep).
 
 ## One command truth

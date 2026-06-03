@@ -12,15 +12,16 @@
 #   nitro-cli build-enclave --docker-uri matcher-real:latest --output-file matcher.eif
 
 FROM public.ecr.aws/amazonlinux/amazonlinux:2023 AS oblivious-builder
-RUN dnf install -y python3 python3-pip python3-devel gcc gcc-c++ openssl-devel \
+# oblivious-core requires Python >=3.10; AL2023 default python3 is often 3.9.
+RUN dnf install -y python3.11 python3.11-pip python3.11-devel gcc gcc-c++ openssl-devel \
     && dnf clean all
-RUN pip3 install --no-cache-dir maturin
+RUN python3.11 -m pip install --no-cache-dir maturin
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
 ENV PATH="/root/.cargo/bin:${PATH}"
 COPY oblivious-core /build/oblivious-core
 WORKDIR /build/oblivious-core
 ENV PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
-RUN maturin build --release --features python -o /wheels
+RUN python3.11 --version && python3.11 -m maturin build --release --features python -o /wheels
 
 FROM public.ecr.aws/amazonlinux/amazonlinux:2023-minimal
 RUN dnf install -y python3 python3-pip iproute && dnf clean all

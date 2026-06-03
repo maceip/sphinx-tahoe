@@ -30,5 +30,10 @@ echo "=== Step 4: expert-mode route plan (pre-mixnet) ==="
 python3 -m por enclave plan --prompt "Tell me about Monet and impressionist painting."
 
 echo
+echo "=== Step 5: local mixnet mailbox envelope path (product test) ==="
+"$ROOT/scripts/demo-mailbox-e2e.sh"
+
+echo
 echo "=== demo complete ==="
-echo "Next: mixnet-delivered envelope to attested /v1/match (full product path)."
+echo "Live Nitro: attested match/plan. Local: full mailbox envelope path green."
+echo "Next: wire reachability relay + expert fleet to live enclave mailbox delivery."

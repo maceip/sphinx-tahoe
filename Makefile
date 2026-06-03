@@ -1,4 +1,4 @@
-.PHONY: smoke test test-integration test-product test-live test-all install-aw verify-live plain-matcher enclave-check enclave-match
+.PHONY: smoke test test-integration test-product test-live test-all install-aw verify-live plain-matcher enclave-check enclave-match demo-mailbox-e2e
 
 ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
@@ -24,6 +24,9 @@ install-aw:
 
 verify-live:
 	./scripts/verify-live.sh
+
+demo-mailbox-e2e:
+	./scripts/demo-mailbox-e2e.sh
 
 demo:
 	./scripts/demo-live-product.sh
