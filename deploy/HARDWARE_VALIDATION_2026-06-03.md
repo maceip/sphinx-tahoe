@@ -30,6 +30,18 @@ curl -sk https://63.178.62.239/healthz
 | `--acme` permission denied as ec2-user | ACME path also needs root |
 | Shallow git clone + short SHA | Use full SHA or clone without `--depth 1` |
 
-## Client policy
+## Production TLS (ACME)
 
-Set `EnclaveTrustPolicy.approved_value_x` to the Value X above (not PCR0).
+**Domain (from Value X):** `d851588d3b41.aeon.site`  
+**DNS:** A record → `63.178.62.239`
+
+After DNS propagates, the host runs `deploy/acme-wait-and-provision.sh` (already
+started on the instance). It restarts `bountynet proxy --acme` and completes
+Let's Encrypt TLS-ALPN-01 automatically.
+
+Verify:
+
+```bash
+aw check --json https://d851588d3b41.aeon.site/
+curl -s https://d851588d3b41.aeon.site/healthz
+```
