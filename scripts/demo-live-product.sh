@@ -26,5 +26,9 @@ echo "=== Step 3: attested expert match (Rust domain) ==="
 python3 -m por enclave match --prompt "Explain Rust ownership and the borrow checker."
 
 echo
+echo "=== Step 4: expert-mode route plan (pre-mixnet) ==="
+python3 -m por enclave plan --prompt "Tell me about Monet and impressionist painting."
+
+echo
 echo "=== demo complete ==="
-echo "Next battleplan item: mixnet-delivered prompt to this same attested /v1/match path."
+echo "Next: mixnet-delivered envelope to attested /v1/match (full product path)."

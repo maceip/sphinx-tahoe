@@ -28,6 +28,9 @@ verify-live:
 demo:
 	./scripts/demo-live-product.sh
 
+expert-plan:
+	./scripts/demo-expert-plan-live.sh
+
 oblivious-core:
 	./scripts/build-oblivious-core.sh
 

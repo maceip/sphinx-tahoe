@@ -19,18 +19,34 @@ if ! command -v "$AW_BIN" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "[verify-live] attestation (pinned engine ${ATTESTED_WORKLOAD_SHORT})"
-AW_BIN="$AW_BIN" "$ROOT/deploy/verify-enclave.sh" "$URL"
+URL="${URL%/}/"
+HOST="${URL#https://}"
+HOST="${HOST%%/*}"
+PUBLIC_IP="$(dig +short "$HOST" @8.8.8.8 2>/dev/null | grep -E '^[0-9.]+$' | head -1 || true)"
+LOCAL_IP="$(dig +short "$HOST" 2>/dev/null | grep -E '^[0-9.]+$' | head -1 || true)"
+CURL_RESOLVE=()
+if [[ -n "$PUBLIC_IP" && "$LOCAL_IP" != "$PUBLIC_IP" ]]; then
+  echo "[verify-live] local DNS=${LOCAL_IP:-none} public DNS=${PUBLIC_IP}" >&2
+  echo "[verify-live] using curl --resolve; flush cache or add /etc/hosts for aw check" >&2
+  CURL_RESOLVE=(--resolve "${HOST}:443:${PUBLIC_IP}")
+fi
 
-URL="${URL%/}"
+echo "[verify-live] attestation (pinned engine ${ATTESTED_WORKLOAD_SHORT})"
+if ! AW_BIN="$AW_BIN" "$ROOT/deploy/verify-enclave.sh" "$URL"; then
+  if [[ -n "$PUBLIC_IP" ]]; then
+    echo "[verify-live] if aw failed: echo '${PUBLIC_IP} ${HOST}' | sudo tee -a /etc/hosts" >&2
+  fi
+  exit 1
+fi
+
 echo "[verify-live] healthz"
 if command -v curl >/dev/null 2>&1; then
-  curl -fsS "$URL/healthz"
+  curl -fsS "${CURL_RESOLVE[@]}" "${URL}healthz"
   echo
 else
   python3 - <<PY
 import json, urllib.request
-print(json.load(urllib.request.urlopen("${URL}/healthz", timeout=15)))
+print(json.load(urllib.request.urlopen("${URL}healthz", timeout=15)))
 PY
 fi
 

@@ -87,6 +87,15 @@ def build_parser() -> argparse.ArgumentParser:
     enclave_match.add_argument("--max-records", type=int, default=4)
     enclave_match.add_argument("--json", action="store_true", help="Print JSON result")
 
+    enclave_plan = enclave_sub.add_parser(
+        "plan",
+        help="Expert-mode route plan via attested enclave matcher (pre-mixnet product path).",
+    )
+    enclave_plan.add_argument("--config", default="config/live-enclave.json")
+    enclave_plan.add_argument("--prompt", required=True)
+    enclave_plan.add_argument("--expertise")
+    enclave_plan.add_argument("--json", action="store_true", help="Print JSON result")
+
     return parser
 
 
@@ -163,6 +172,26 @@ def _run_enclave_command(args: argparse.Namespace) -> int:
         else:
             peers = ", ".join(item["peer_id"] for item in result["candidates"])
             print(f"match ok mode={result['mode']} candidates={peers}")
+        return 0
+
+    if args.enclave_command == "plan":
+        from por.live_expert import plan_live_expert
+
+        result = plan_live_expert(
+            config,
+            prompt=args.prompt,
+            requested_expertise=args.expertise,
+        )
+        if args.json:
+            print(json.dumps(result, indent=2, sort_keys=True))
+        else:
+            print(
+                "enclave plan ok "
+                f"use_expert={result['use_expert']} "
+                f"selected={result['selected_peer_id']} "
+                f"pool={result['pool_tier']} "
+                f"candidates={result['candidate_count']}"
+            )
         return 0
 
     raise ValueError(f"unknown enclave command: {args.enclave_command}")

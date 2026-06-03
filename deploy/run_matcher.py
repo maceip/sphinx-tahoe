@@ -16,6 +16,7 @@ from por.expert_route import PeerCandidate
 from por.handles import OPAQUE_HANDLE_SIZE, OpaqueHandle
 from por.matcher import MatcherEntry, PlainEnclavePlaneDiscoveryProvider, PlainMailbox, PlainMatcher
 from por.memory_index import MemoryManifest
+from por.oblivious import rust_backend_available
 
 
 def _manifest(peer_id: str, terms: dict[str, int]) -> MemoryManifest:
@@ -57,7 +58,12 @@ def main() -> None:
     host = os.environ.get("MATCHER_HOST", "127.0.0.1")
     port = int(os.environ.get("MATCHER_PORT", "8080"))
     server = serve_enclave_plane(build_provider(), host=host, port=port)
-    print(f"real matcher workload serving on http://{host}:{port}", flush=True)
+    backend = "rust" if rust_backend_available() else "python"
+    print(
+        f"real matcher workload serving on http://{host}:{port} "
+        f"(oblivious selector: {backend})",
+        flush=True,
+    )
     server.serve_forever()
 
 

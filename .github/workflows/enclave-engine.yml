@@ -67,3 +67,5 @@ jobs:
           test -x deploy/eif-build/bountynet-bin
           test -f deploy/eif-build/Dockerfile
           test -f deploy/eif-build/app/run_matcher.py
+          test -d deploy/eif-build/oblivious-core
+          test -f deploy/eif-build/oblivious-core/Cargo.toml

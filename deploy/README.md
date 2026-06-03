@@ -33,6 +33,10 @@ Produces `./bountynet-bin` (same as `aw` / `bountynet` from attested-workload).
 Legacy `Dockerfile.enclave` + `enclave_plane_server` remain for the older
 stand-in plane; new Nitro work should use `Dockerfile.matcher-real`.
 
+The matcher EIF installs **oblivious_core** (Rust PyO3 selector) via a multi-stage
+Docker build. After redeploy, `run_matcher.py` logs `oblivious selector: rust`.
+Redeploy changes Value X — update `config/live-enclave.json` and client policy.
+
 ## End-to-end (Nitro)
 
 ```bash
