@@ -1,11 +1,11 @@
 {
   "schema": "por.live_enclave.v1",
-  "description": "Pinned trust policy for the live Nitro matcher (Jun 2026).",
-  "url": "https://d851588d3b41.aeon.site/",
+  "description": "Pinned trust policy for the live Nitro matcher (Jun 2026, live mailbox fleet).",
+  "url": "https://ba637abc5bc8.aeon.site/",
   "approved_value_x": [
-    "d851588d3b413cbf7513d9d5fa93d466b42ad1603e1c7fdfd408cfd635a7cf6882412ce99c8fbb3aeac197c3e6c5f361"
+    "ba637abc5bc82cef1fd41e20255560a40b8f5b0ee4a33d9bad8a5e128b52238a8392cddf6e0e5cc8dd764f5b4b697d5b"
   ],
-  "tls_spki_hash": "b880512378622821deebd4cb395a82eae271069acd491b805940145c97d1eab1",
+  "tls_spki_hash": "5e26392e52789a17798b4fb54b1bbf0714d7c233dadc8dc580b35c76a98c28e8",
   "require_spki_pin": true,
   "aw_bin": "aw",
   "attested_workload_sha": "79a5ea2328f2b30192e57b53913355dcd5e0201e",

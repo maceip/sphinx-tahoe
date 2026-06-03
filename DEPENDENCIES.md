@@ -16,23 +16,24 @@ Client verification uses the same repo and SHA:
 
 ```bash
 cargo install --git https://github.com/maceip/attested-workload --rev 79a5ea2 --bin aw
-aw check --json https://d851588d3b41.aeon.site/
+aw check --json https://ba637abc5bc8.aeon.site/
 ```
 
-### Live deployment pins (tenet matcher, 2026-06-03)
+### Live deployment pins (tenet matcher, 2026-06-04 — live mailbox fleet)
 
 Use in `EnclaveTrustPolicy` after `aw check --json` (or load `config/live-enclave.json`):
 
 ```bash
 python3 -m por enclave check
 python3 -m por enclave match --prompt "Tell me about Monet"
+python3 -m por enclave send --prompt "Tell me about Monet"
 ```
 
 ```text
-value_x:       d851588d3b413cbf7513d9d5fa93d466b42ad1603e1c7fdfd408cfd635a7cf6882412ce99c8fbb3aeac197c3e6c5f361
-tls_spki_hash: b880512378622821deebd4cb395a82eae271069acd491b805940145c97d1eab1
+value_x:       ba637abc5bc82cef1fd41e20255560a40b8f5b0ee4a33d9bad8a5e128b52238a8392cddf6e0e5cc8dd764f5b4b697d5b
+tls_spki_hash: 5e26392e52789a17798b4fb54b1bbf0714d7c233dadc8dc580b35c76a98c28e8
 platform:      nitro
-domain:        d851588d3b41.aeon.site   # first 12 hex chars of Value X + base domain
+domain:        ba637abc5bc8.aeon.site   # first 12 hex chars of Value X + base domain
 ```
 
 ### What moved here

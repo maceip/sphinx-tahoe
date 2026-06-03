@@ -58,6 +58,17 @@ def test_live_enclave_match(live_config, require_aw):
     assert result["candidate_count"] >= 1
 
 
+def test_live_enclave_expert_plan(live_config, require_aw):
+    from por.live_expert import plan_live_expert
+
+    result = plan_live_expert(
+        live_config,
+        prompt="Explain Rust ownership and the borrow checker.",
+    )
+    assert result["ok"] is True
+    assert result["discovery_mode"] == "plain_matcher_v1"
+
+
 def test_live_enclave_mailbox_send(live_config, require_aw):
     from por.live_client import LiveMailboxClientConfig, send_live_enclave_summary
 
