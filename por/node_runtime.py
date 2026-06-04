@@ -56,6 +56,8 @@ class WireNodeRuntime:
             routing_size=params.routing_size,
             max_hops=params.max_hops,
         )
+        if not self.identity.kem_sk_hex:
+            raise ValueError(f"{node_id} requires kem_sk_hex to run as a daemon")
         self.sk = bytes.fromhex(self.identity.kem_sk_hex)
         self.pk = bytes.fromhex(self.identity.kem_pk_hex)
         self.circuits: dict[str, dict[str, object]] = {}
@@ -106,6 +108,8 @@ class WireNodeRuntime:
         when set, the loop exits without relying on signal handlers.
         """
 
+        if self.supernode_daemon is not None:
+            self.supernode_daemon.attach_socket(sock)
         sock.settimeout(0.5)
 
         def _should_stop() -> bool:
@@ -375,11 +379,14 @@ class WireNodeRuntime:
         *,
         src_addr: tuple[str, int] | None = None,
     ) -> None:
+        sn = self.supernode_daemon
         if target_id == "client":
+            if sn is not None and src_addr is not None:
+                if sn.forward_return_from_peer(data, src_addr):
+                    return
             target = self.cluster.client
             sock.sendto(data, (target.host, target.port))
             return
-        sn = self.supernode_daemon
         if sn is not None:
             peer_addr = sn.forwarder.lookup_peer_addr(target_id)
             if peer_addr is not None:
@@ -389,6 +396,9 @@ class WireNodeRuntime:
                 else:
                     sock.sendto(data, peer_addr)
                 return
+        if self.role == "expert" and src_addr is not None:
+            sock.sendto(data, src_addr)
+            return
         # Relay must discover next hop via REACH forwarding table, not static config.
         # Fall back to cluster config ONLY for the client return address (which the
         # relay legitimately knows from the forward packet's source).

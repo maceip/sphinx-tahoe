@@ -72,7 +72,11 @@ class LiveEnclaveConfig:
 
 
 def build_attested_client(config: LiveEnclaveConfig) -> AttestedEnclavePlaneClient:
-    inner = PlainEnclavePlaneHttpClient(config.url, timeout=config.timeout)
+    inner = PlainEnclavePlaneHttpClient(
+        config.url,
+        timeout=config.timeout,
+        mailbox_datagram_delivery_enabled=False,
+    )
     policy = EnclaveTrustPolicy(
         approved_value_x=frozenset(config.approved_value_x),
         require_spki_pin=config.require_spki_pin,

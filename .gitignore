@@ -125,3 +125,18 @@ venv.bak/
 android/build/
 android/logs/
 android/dist/
+
+# Alpha network (materialized from local agent logs — do not commit)
+data/alpha/corpus/
+data/alpha/groups.json
+config/alpha-population.json
+
+# Live beta secrets/private-key configs (generated locally — do not commit)
+config/beta-secrets.env*
+config/live-reach-relay.json
+config/expert-laptop.json
+config/expert-laptop.json.bak
+peer-beta-test*.json
+peer000000*.json
+h82e37f663ae5ec7.json
+h85f6eb777d8fe11.json

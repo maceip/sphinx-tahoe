@@ -6,7 +6,7 @@
 #   ALLOCATION_ID=eipalloc-... ./deploy/associate-elastic-ip.sh i-069a473107424b7df
 #
 # After association the public IP changes to the Elastic IP. Update DNS:
-#   aeon.site, *.aeon.site, d851588d3b41.aeon.site → new EIP
+#   aeon.site, *.aeon.site, 7d90e638b585.aeon.site → new EIP
 set -euo pipefail
 
 INSTANCE_ID="${1:?usage: associate-elastic-ip.sh <instance-id>}"
@@ -35,5 +35,5 @@ else
 fi
 
 echo "[eip] public IP: $PUBLIC_IP"
-echo "[eip] update DNS A records (aeon.site, *.aeon.site, d851588d3b41.aeon.site) → $PUBLIC_IP"
+echo "[eip] update DNS A records (aeon.site, *.aeon.site, 7d90e638b585.aeon.site) → $PUBLIC_IP"
 echo "[eip] then: ./scripts/verify-live.sh"

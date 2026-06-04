@@ -1,4 +1,4 @@
-"""H4: cover-handle padding hides the real-match count.
+"""STATUS.md item 6: cover-handle padding hides the real-match count.
 
 The matcher returns a constant K candidates regardless of how many experts
 actually matched; the extras are covers (decoys). Covers are wire-indistinguishable

@@ -30,9 +30,10 @@ echo "=== Step 4: expert-mode route plan (pre-mixnet) ==="
 python3 -m por enclave plan --prompt "Tell me about Monet and impressionist painting."
 
 echo
-echo "=== Step 5: live attested mailbox send (P4) ==="
+echo "=== Step 5: TEE mailbox send (stub expert — not item 13) ==="
 "$ROOT/scripts/demo-live-mailbox-e2e.sh"
 
 echo
 echo "=== demo complete ==="
-echo "Live: attested verify + match + plan + mailbox envelope delivery."
+echo "Items 4, 5, 9: attested verify + match + plan."
+echo "Step 5 is an in-enclave stub path only — see STATUS.md Commands."

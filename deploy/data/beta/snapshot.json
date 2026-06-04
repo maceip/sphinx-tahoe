@@ -1,0 +1,61 @@
+{
+  "version": "por.directory_snapshot.v1",
+  "generated_at": "2026-06-04T00:08:01.137411+00:00",
+  "records": [
+    {
+      "manifest": {
+        "version": "por.memory_manifest.v1",
+        "peer_id": "expert",
+        "created_at": "2026-06-04T00:08:01.137411+00:00",
+        "roots": [
+          "77748abea1f4cfc7748f7696"
+        ],
+        "file_count": 1,
+        "byte_count": 42,
+        "chunk_count": 1,
+        "token_count": 5,
+        "file_types": {
+          ".md": 1
+        },
+        "top_terms": [
+          [
+            "monet",
+            1
+          ],
+          [
+            "impressionism",
+            1
+          ],
+          [
+            "light",
+            1
+          ],
+          [
+            "color",
+            1
+          ],
+          [
+            "painting",
+            1
+          ]
+        ],
+        "corpus_root": "7b2f8a628647189f516e1979547a47229662b2cbe231548b42f8d6b713ad3933",
+        "index_digest": "5ad383991a6891d0f22fb2a9c1ed8a1850d715ab60c4e8582160654bc05e2d44",
+        "privacy": {
+          "raw_text_published": false,
+          "sources_in_manifest": false,
+          "public_terms": true,
+          "commitment_note": "Merkle root commits to salted chunk hashes. Proofs show index commitment, not expertise or answer quality."
+        }
+      },
+      "handle": {
+        "version": "por.opaque_handle_record.v1",
+        "handle": "hb85f9afbccddfe5",
+        "mailbox_id": "mailbox-beta",
+        "issued_at": 1780531681.137627,
+        "expires_at": 1780531951.137627,
+        "signature": "769fb142041e1aa851fbcdb9c2a7ddbd3aee5429d3d55b21131e11facb83ac1b"
+      }
+    }
+  ]
+}

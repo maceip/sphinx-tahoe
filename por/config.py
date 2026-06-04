@@ -138,7 +138,7 @@ class ClusterNodeConfig:
     host: str
     port: int
     kem_pk_hex: str
-    kem_sk_hex: str
+    kem_sk_hex: str = ""
     role: str = "relay"
 
     def __post_init__(self) -> None:
@@ -164,8 +164,6 @@ class ClusterNodeConfig:
             raise ValueError("node port must be 0..65535")
         if not self.kem_pk_hex:
             raise ValueError("kem_pk_hex is required")
-        if not self.kem_sk_hex:
-            raise ValueError("kem_sk_hex is required")
         if self.role not in {ROLE_RELAY, ROLE_EXPERT, "any"}:
             raise ValueError(f"unsupported cluster node role: {self.role}")
         return self
@@ -566,6 +564,7 @@ class ClientConfig:
 class SupernodeConfig:
     enabled: bool = False
     public_ip: str | None = None
+    relay_secret_hex: str | None = None
     advertise_relay: bool = False
     register_directory: bool = False
     accept_inbound_mix: bool = False
@@ -580,6 +579,7 @@ class SupernodeConfig:
         return cls(
             enabled=_bool(raw.get("enabled", False)),
             public_ip=_optional_str(raw.get("public_ip")),
+            relay_secret_hex=_optional_str(raw.get("relay_secret_hex")),
             advertise_relay=_bool(raw.get("advertise_relay", False)),
             register_directory=_bool(raw.get("register_directory", False)),
             accept_inbound_mix=_bool(raw.get("accept_inbound_mix", False)),
@@ -597,6 +597,49 @@ class SupernodeConfig:
             raise ValueError("supernode promotion flags require supernode.enabled=true")
         if (self.advertise_relay or self.register_directory) and not self.public_ip:
             raise ValueError("supernode public_ip is required for relay advertisement or directory registration")
+        if self.relay_secret_hex:
+            try:
+                secret = bytes.fromhex(self.relay_secret_hex)
+            except ValueError as exc:
+                raise ValueError("supernode.relay_secret_hex must be hex") from exc
+            if len(secret) < 16:
+                raise ValueError("supernode.relay_secret_hex must be at least 16 bytes")
+        return self
+
+
+@dataclass(frozen=True)
+class ReachRegistrationConfig:
+    """Expert-side REACH registration against a public reachability relay (item 12)."""
+
+    enabled: bool = False
+    relay_host: str = ""
+    relay_port: int = 4433
+    peer_id: str | None = None
+    heartbeat_interval_seconds: float = 300.0
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, object] | None) -> "ReachRegistrationConfig":
+        raw = raw or {}
+        return cls(
+            enabled=_bool(raw.get("enabled", False)),
+            relay_host=str(raw.get("relay_host", "")),
+            relay_port=int(raw.get("relay_port", 4433)),
+            peer_id=_optional_str(raw.get("peer_id")),
+            heartbeat_interval_seconds=float(raw.get("heartbeat_interval_seconds", 300.0)),
+        ).validate()
+
+    def validate(self) -> "ReachRegistrationConfig":
+        if not self.enabled:
+            return self
+        if not self.relay_host:
+            raise ValueError("reach_registration.relay_host is required when enabled")
+        if not (1 <= self.relay_port <= 65535):
+            raise ValueError("reach_registration.relay_port must be 1..65535")
+        if self.heartbeat_interval_seconds <= 0:
+            raise ValueError("reach_registration.heartbeat_interval_seconds must be positive")
         return self
 
 
@@ -649,6 +692,7 @@ class DaemonConfig:
     provider: ProviderConfig | None = None
     peer_address: PeerAddressConfig = field(default_factory=PeerAddressConfig)
     supernode: SupernodeConfig = field(default_factory=SupernodeConfig)
+    reach_registration: ReachRegistrationConfig = field(default_factory=ReachRegistrationConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     peers: dict[str, PeerEndpointConfig] = field(default_factory=dict)
 
@@ -677,6 +721,9 @@ class DaemonConfig:
             ),
             peer_address=PeerAddressConfig.from_dict(_mapping_or_none(raw.get("peer_address"))),
             supernode=SupernodeConfig.from_dict(_mapping_or_none(raw.get("supernode"))),
+            reach_registration=ReachRegistrationConfig.from_dict(
+                _mapping_or_none(raw.get("reach_registration"))
+            ),
             logging=LoggingConfig.from_dict(_mapping_or_none(raw.get("logging"))),
             peers={
                 str(peer_id): PeerEndpointConfig.from_dict(str(peer_id), _mapping_or_empty(peer_raw))
@@ -698,6 +745,7 @@ class DaemonConfig:
             self.provider.validate()
         self.peer_address.validate()
         self.supernode.validate()
+        self.reach_registration.validate()
         self.logging.validate()
         for peer in self.peers.values():
             peer.validate()

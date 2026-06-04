@@ -1,6 +1,6 @@
 """Client-side attestation gate for the enclave plane.
 
-This is the sphinx-tahoe side of the TEE hardening (docs/matcher_threat_model.md).
+This is the sphinx-tahoe side of the TEE hardening (STATUS.md item 4).
 The wire shape from ``enclave_plane.py`` stays unchanged; this module decides
 *whether to trust* an enclave-plane endpoint before any matcher/mailbox call is
 issued.
@@ -16,7 +16,7 @@ eat.tls_spki_hash`` channel binding, Value X registry lookup) are delegated to
 ``aw check <url>`` (attested-workload ``src/main.rs`` ``cmd_check``). What lives
 here is the policy sphinx-tahoe owns: which Value X builds we accept,
 which TEE platforms we accept, and **fail-closed** enforcement — the client never
-silently downgrades to an unattested transport (invariant I1: security level is a
+silently downgrades to an unattested transport (rule R1: security level is a
 network property, not a per-call toggle).
 """
 
@@ -67,7 +67,7 @@ class EnclaveTrustPolicy:
     # Registry status is a secondary, opt-in signal. Empty = not enforced (the
     # primary gate is Value X + platform + the crypto `aw check` performs).
     accepted_registry_status: frozenset[str] = frozenset()
-    # H3: require the verified attestation to carry the TLS SPKI hash so the
+    # Item 5: require the verified attestation to carry the TLS SPKI hash so the
     # client can pin subsequent connections. Off by default (the plain-HTTP
     # stand-in carries no SPKI); turn on for real attested-TLS deployments. When
     # on, an attestation without an SPKI, or an inner client that cannot pin,
@@ -179,7 +179,7 @@ class SubprocessRuncardVerifier:
             return VerifiedAttestation(
                 value_x=value_x,
                 # runcards emits `tls_spki_hash` (the SPKI it bound the EAT to);
-                # this is the value the client pins subsequent connections to (H3).
+                # this is the value the client pins subsequent connections to (item 5).
                 tls_spki_hash=str(raw.get("tls_spki_hash", "")),
                 platform=cls._normalize_platform(platform_raw),
                 registry_status=str(raw.get("registry_status", "unknown")),
@@ -230,7 +230,8 @@ class AttestedEnclavePlaneClient:
 
     The inner client is any object exposing the enclave-plane interface
     (``discover``, ``routing_kem_pk_hex``, ``relay_path_for_handle``,
-    ``deliver_to_handle``, ``mailbox_delivery_enabled``, ``base_url``). On first
+    ``deliver_to_handle``, ``mailbox_delivery_enabled``,
+    ``mailbox_datagram_delivery_enabled``, ``base_url``). On first
     use it verifies the endpoint once (bootstrap-once) and caches the result; if
     verification or policy fails it raises and **never** calls the inner client.
     """
@@ -258,6 +259,10 @@ class AttestedEnclavePlaneClient:
         return bool(getattr(self._inner, "mailbox_delivery_enabled", False))
 
     @property
+    def mailbox_datagram_delivery_enabled(self) -> bool:
+        return bool(getattr(self._inner, "mailbox_datagram_delivery_enabled", True))
+
+    @property
     def attestation(self) -> VerifiedAttestation | None:
         return self._attestation
 
@@ -265,7 +270,7 @@ class AttestedEnclavePlaneClient:
     def pinned_spki(self) -> str | None:
         """SPKI hash bound by the verified receipt.
 
-        On ``establish`` this is applied to the inner client's transport (H3) so
+        On ``establish`` this is applied to the inner client's transport (item 5) so
         every subsequent connection is pinned to the TEE-resident TLS key that
         ``runcard check`` bound to the quote. A connection to any other cert then
         fails closed with ``SpkiPinError``.
@@ -288,7 +293,7 @@ class AttestedEnclavePlaneClient:
         return att
 
     def _apply_spki_pin(self, att: VerifiedAttestation) -> None:
-        """Pin the inner transport to the attested SPKI (H3), or fail closed.
+        """Pin the inner transport to the attested SPKI (item 5), or fail closed.
 
         The inner client opts in by exposing ``set_tls_pin(spki_hex)``. If the
         policy requires pinning but the attestation carries no SPKI, or the inner

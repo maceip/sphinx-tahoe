@@ -116,7 +116,7 @@ def _anthropic_reply(
         raise ProviderError(f"{env_name} is required for provider=anthropic")
     model = provider_config.model if provider_config and provider_config.model else os.environ.get(
         "POR_ANTHROPIC_MODEL",
-        "claude-sonnet-4-20250514",
+        "claude-sonnet-4-6",
     )
     body = json.dumps(
         {

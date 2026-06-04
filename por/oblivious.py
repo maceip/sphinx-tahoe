@@ -1,4 +1,4 @@
-"""Oblivious top-K selection for the matcher (H4 — the algorithm layer).
+"""Oblivious top-K selection for the matcher (STATUS.md item 6 — algorithm layer).
 
 Inside the TEE, the operator cannot *read* content — but it can watch *access
 patterns*. If the matcher's memory accesses depend on which expert matched, the

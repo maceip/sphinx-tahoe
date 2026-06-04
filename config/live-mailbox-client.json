@@ -1,21 +1,20 @@
 {
   "schema": "por.live_mailbox_client.v1",
-  "description": "Client cluster for live attested mailbox delivery (relay KEM + trusted reachability).",
+  "description": "Asker cluster for the current single-expert beta path — trusted public reachability relay.",
   "params": {
     "payload_size": 2048,
     "routing_size": 16,
     "max_hops": 5
   },
   "client": {
-    "host": "127.0.0.1",
+    "host": "0.0.0.0",
     "port": 0
   },
   "nodes": {
-    "bootstrap-1": {
-      "host": "127.0.0.1",
-      "port": 19001,
-      "kem_pk": "c4e5b012b37f4f14054cf044bca6612e41ab0331925444f0ca90c4771e400604",
-      "kem_sk": "0000000000000000000000000000000000000000000000000000000000000001",
+    "reach-beta-1": {
+      "host": "3.121.69.82",
+      "port": 4433,
+      "kem_pk": "bde1972d49cde9df33f2a24abe192400f3969951ef7528a433d70e52b1d44919",
       "role": "relay"
     }
   },
@@ -24,10 +23,10 @@
   },
   "trusted_reachability_relays": [
     {
-      "relay_id": "bootstrap-1",
-      "host": "127.0.0.1",
-      "port": 19001,
-      "verify_key": "6c6976652d64656d6f2d72656c61792d7365637265742121"
+      "relay_id": "reach-beta-1",
+      "host": "3.121.69.82",
+      "port": 4433,
+      "verify_key": "40cb87400feb91faffed67b3497d86987b0bf01e96da2ff06f508b2420e68fc3"
     }
   ]
 }

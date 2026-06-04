@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# AWS Nitro deploy for the tenet matcher enclave (H5).
+# AWS Nitro deploy for the tenet matcher TEE image (STATUS.md item 9).
 #
 # Prereqs: Nitro-enabled EC2, docker, aws-nitro-enclaves-cli, build context with
 # bountynet-bin (see assemble-matcher-eif.sh or build-bountynet-bin.sh).
 #
-# Engine: https://github.com/maceip/attested-workload (pin in DEPENDENCIES.md)
+# Engine: https://github.com/maceip/attested-workload (pin in STATUS.md item 9)
 set -euo pipefail
 
 IMAGE="${IMAGE:-matcher-real}"

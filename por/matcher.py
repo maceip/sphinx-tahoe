@@ -1,6 +1,6 @@
 """Plain matcher/mailbox linkage for the enclave-plane wire shape.
 
-This is intentionally a stand-in implementation. It proves the P0/P2/P3
+This is intentionally a stand-in implementation. It proves the wire-shape
 interfaces with ordinary Python objects while keeping the transport unchanged:
 the matcher returns opaque handles, and only the mailbox resolves those handles
 to reachability records and routing keys.
@@ -57,7 +57,7 @@ class PlainMatcher:
             raise ValueError("top_k must be positive")
         self.entries = tuple(entries)
         self.top_k = top_k
-        # H4: pad the result to a constant K with cover candidates so the
+        # Item 6: pad the result to a constant K with cover candidates so the
         # operator cannot read the real-match count off the response. The
         # cover_key seeds the (per-response-nonce'd) cover handles; a fresh
         # random key per matcher is fine since covers need only be unlinkable.
@@ -125,7 +125,7 @@ class PlainMatcher:
     def _assemble(self, selected: Sequence[int]) -> tuple[PeerCandidate, ...]:
         """Turn selected indices into candidates.
 
-        With ``pad_with_covers`` (H4): every empty (``DUMMY_INDEX``) slot becomes
+        With ``pad_with_covers`` (item 6): every empty (``DUMMY_INDEX``) slot becomes
         a cover candidate, so the result is always exactly ``len(selected)``
         candidates and the real-match count never shows in the response. Without
         it (legacy/plain wire), empty slots are simply dropped.
@@ -157,7 +157,7 @@ class MailboxEntry:
 class PlainMailbox:
     """Mailbox-side handle resolver.
 
-    This object is the only plain P0 component that knows how an opaque handle
+    This object is the only plain stand-in component that knows how an opaque handle
     maps to a reachability record and routing key.
     """
 
@@ -315,7 +315,14 @@ class PlainEnclavePlaneDiscoveryProvider:
 
     def relay_path_for_handle(self, handle: str) -> tuple[str, ...]:
         if self.delivery is None:
-            raise ValueError("mailbox_delivery_disabled")
+            resolution = self.mailbox.resolve_handle(handle)
+            if resolution is None:
+                raise ValueError("handle_unresolved")
+            record = peer_address_record_from_dict(dict(resolution.peer_address))
+            plan = build_dial_plan(record)
+            if plan.primary is None or plan.primary.kind != ROUTE_RELAY or not plan.primary.relay_id:
+                raise ValueError("mailbox_no_relay_path")
+            return (plan.primary.relay_id,)
         return self.delivery.relay_path_for_handle(handle)
 
     def deliver_to_handle(

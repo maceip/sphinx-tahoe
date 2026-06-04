@@ -258,9 +258,8 @@ def send_prepared_envelope(
         client_sock.bind(client_addr)
     client_sock.settimeout(0.5)
 
-    send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        send_sock.sendto(datagram, first_addr)
+        client_sock.sendto(datagram, first_addr)
 
         logs = [
             f"client event=send_prepared_envelope selected={envelope.selected_peer_id or 'none'} "
@@ -278,7 +277,6 @@ def send_prepared_envelope(
     finally:
         if owns_client_sock:
             client_sock.close()
-        send_sock.close()
 
 
 def _read_stream_from_socket(
@@ -583,6 +581,8 @@ def _mailbox_delivery(
     discovery_provider: DiscoveryProvider | None,
 ) -> Callable[[str, bytes], Iterable[bytes]] | None:
     if discovery_provider is None:
+        return None
+    if not bool(getattr(discovery_provider, "mailbox_datagram_delivery_enabled", True)):
         return None
     if not bool(getattr(discovery_provider, "mailbox_delivery_enabled", False)):
         return None

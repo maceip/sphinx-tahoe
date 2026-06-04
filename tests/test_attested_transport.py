@@ -1,4 +1,4 @@
-"""H3: the SPKI-pinned opener authenticates by public key, end-to-end.
+"""STATUS.md item 5: SPKI-pinned opener authenticates by public key, end-to-end.
 
 Stands up a real local HTTPS server with a self-signed cert (exactly the shape of
 attested TLS: no CA chain) and proves the pinned opener accepts the matching SPKI

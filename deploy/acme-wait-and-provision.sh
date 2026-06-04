@@ -2,8 +2,8 @@
 # Run on tenet-matcher-nitro after DNS for <value_x>.aeon.site → this host's public IP.
 set -euo pipefail
 
-DOMAIN="${1:-d851588d3b41.aeon.site}"
-EXPECTED_IP="${2:-63.178.62.239}"
+DOMAIN="${1:-7d90e638b585.aeon.site}"
+EXPECTED_IP="${2:-3.121.69.82}"
 CID="${3:-16}"
 LOG=~/acme-provision.log
 

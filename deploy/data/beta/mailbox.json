@@ -1,0 +1,43 @@
+{
+  "version": "por.enclave_mailbox_file.v1",
+  "entries": [
+    {
+      "record": {
+        "version": "por.opaque_handle_record.v1",
+        "handle": "hb85f9afbccddfe5",
+        "mailbox_id": "mailbox-beta",
+        "issued_at": 1780531681.137627,
+        "expires_at": 1780531951.137627,
+        "signature": "769fb142041e1aa851fbcdb9c2a7ddbd3aee5429d3d55b21131e11facb83ac1b"
+      },
+      "routing_kem_pk_hex": "bdb6daec3ffe22dc94d00be065bb5b38c21479477485e813c26f9a9d99eb976f",
+      "peer_address": {
+        "version": "por.peer_address_record.v1",
+        "peer_id": "hb85f9afbccddfe5",
+        "relay_candidates": [
+          {
+            "relay_id": "reach-beta-1",
+            "endpoint": {
+              "host": "3.121.69.82",
+              "port": 4433
+            },
+            "transport": "quic_datagram",
+            "inline_required": true
+          }
+        ],
+        "observed_udp_endpoints": [],
+        "nat_hints": [],
+        "supported_transports": [
+          "quic_datagram"
+        ],
+        "issued_at": 1780531678.0991604,
+        "expires_at": 1780618078.0991604,
+        "address_policy": {
+          "expose_direct_endpoint": false,
+          "stable_relay_only": true
+        },
+        "signature": "852da4e4328770a5b9177759bbb9c2a386c0b7ae712da6ec248696b5cd3f1da3"
+      }
+    }
+  ]
+}

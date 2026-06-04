@@ -3,7 +3,7 @@
 Any relay with a public IP can enable REACH forwarding. There is no special
 "supernode" role — this is relay behavior activated by config.
 
-Demux order (per docs/supernode_threat_model.md):
+Demux order (per STATUS.md product topology):
   1. REACH_* control → PeerAddressRelay (register/challenge/confirm/heartbeat)
   2. Outfox 0x00/0x01/0x02 → WireNodeRuntime (mix processing)
   3. Known peer addr → opaque forward to registered peer
@@ -15,10 +15,14 @@ on the forward path. Only moves opaque UDP bytes.
 
 from __future__ import annotations
 
+import json
+import os
 import socket
 import time
 from os import urandom
+from pathlib import Path
 from typing import Sequence
+from urllib.parse import quote
 
 from por.config import ClusterConfig, DaemonConfig, PorConfig
 from por.log_events import PorLogEvent, emit_log_event
@@ -45,6 +49,7 @@ class SupernodeDaemon:
         *,
         advertise_host: str | None = None,
         ttl: int = REGISTRATION_TTL_SECONDS,
+        export_dir: str | None = None,
     ):
         self.runtime = runtime
         bind = runtime.identity
@@ -63,6 +68,7 @@ class SupernodeDaemon:
         self._client_sessions: dict[str, tuple[str, int]] = {}
         self._sock: socket.socket | None = None
         self._last_purge = time.time()
+        self._export_dir = Path(export_dir or os.environ.get("POR_REACH_EXPORT_DIR", "") or "")
 
         runtime.on_reach_control = self._handle_reach
         runtime.on_opaque_forward = self._handle_opaque
@@ -95,12 +101,13 @@ class SupernodeDaemon:
                     cookie=action.cookie,
                     observed_endpoint=UdpEndpoint(*addr),
                 )
-                self.relay.confirm_registration(
+                record = self.relay.confirm_registration(
                     challenge,
                     supported_transports=action.transports,
                     address_policy=action.policy,
                 )
                 self.forwarder.register_peer(action.peer_id, addr)
+                self._export_peer_address(action.peer_id, record.to_public_dict())
                 self.runtime._log(
                     "reach_registered",
                     fields={"peer_id": action.peer_id},
@@ -116,22 +123,15 @@ class SupernodeDaemon:
             ok = self.forwarder.heartbeat(action.peer_id, addr)
             if ok:
                 endpoint = action.observed_endpoint or UdpEndpoint(*addr)
-                self.relay.heartbeat(
+                record = self.relay.heartbeat(
                     action.peer_id,
                     observed_endpoint=endpoint,
                 )
+                if record is not None:
+                    self._export_peer_address(action.peer_id, record.to_public_dict())
 
     def _handle_opaque(self, data: bytes, addr: tuple[str, int]) -> None:
-        peer_id = self.forwarder.lookup_peer_by_addr(addr)
-        if peer_id is not None:
-            session_key = f"{peer_id}:{addr[0]}:{addr[1]}"
-            client_addr = self._client_sessions.get(session_key)
-            if client_addr and self._sock:
-                self._sock.sendto(data, client_addr)
-                self.runtime._log(
-                    "opaque_forward_return",
-                    fields={"peer_id": peer_id, "bytes": len(data)},
-                )
+        if self.forward_return_from_peer(data, addr):
             return
 
         self.runtime._log(
@@ -152,9 +152,24 @@ class SupernodeDaemon:
         peer_addr = self.forwarder.lookup_peer_addr(peer_id)
         if peer_addr is None or self._sock is None:
             return False
-        self._sock.sendto(data, peer_addr)
         session_key = f"{peer_id}:{peer_addr[0]}:{peer_addr[1]}"
         self._client_sessions[session_key] = client_addr
+        self._sock.sendto(data, peer_addr)
+        return True
+
+    def forward_return_from_peer(self, data: bytes, peer_addr: tuple[str, int]) -> bool:
+        peer_id = self.forwarder.lookup_peer_by_addr(peer_addr)
+        if peer_id is None:
+            return False
+        session_key = f"{peer_id}:{peer_addr[0]}:{peer_addr[1]}"
+        client_addr = self._client_sessions.get(session_key)
+        if client_addr is None or self._sock is None:
+            return False
+        self._sock.sendto(data, client_addr)
+        self.runtime._log(
+            "opaque_forward_return",
+            fields={"peer_id": peer_id, "bytes": len(data)},
+        )
         return True
 
     def purge_if_due(self, interval: float = 60.0) -> None:
@@ -163,6 +178,16 @@ class SupernodeDaemon:
             self.forwarder.purge_expired()
             self.relay.purge_expired()
             self._last_purge = now
+
+    def _export_peer_address(self, peer_id: str, record: dict[str, object]) -> None:
+        if not str(self._export_dir):
+            return
+        self._export_dir.mkdir(parents=True, exist_ok=True)
+        name = quote(peer_id, safe="") + ".json"
+        path = self._export_dir / name
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        tmp.replace(path)
 
 
 def run_supernode_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
@@ -186,9 +211,14 @@ def run_supernode_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
         role="relay",
         logging=daemon.logging,
     )
+    relay_secret = None
+    if daemon.supernode.relay_secret_hex:
+        relay_secret = bytes.fromhex(daemon.supernode.relay_secret_hex)
     SupernodeDaemon(
         runtime,
+        relay_secret=relay_secret,
         advertise_host=daemon.supernode.public_ip,
+        ttl=daemon.peer_address.registration_ttl_seconds,
     )
     return runtime.serve_forever()
 

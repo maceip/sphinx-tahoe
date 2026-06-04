@@ -98,7 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     enclave_send = enclave_sub.add_parser(
         "send",
-        help="Expert-mode send via attested enclave mailbox (live P4 path).",
+        help="Expert-mode send via attested matcher and live reachability relay.",
     )
     enclave_send.add_argument("--config", default="config/live-enclave.json")
     enclave_send.add_argument(

@@ -64,6 +64,9 @@ class SupernodeForwarder:
 
     def register_peer(self, peer_id: str, addr: tuple[str, int]) -> None:
         now = time.time()
+        existing = self._peers.get(peer_id)
+        if existing is not None and existing.addr != addr:
+            self._addr_to_peer.pop(existing.addr, None)
         self._peers[peer_id] = _ForwardEntry(
             peer_id=peer_id,
             addr=addr,
@@ -80,6 +83,8 @@ class SupernodeForwarder:
         if now >= entry.expires:
             self._remove(peer_id)
             return False
+        if entry.addr != addr:
+            self._addr_to_peer.pop(entry.addr, None)
         entry.addr = addr
         entry.last_seen = now
         entry.expires = now + self.ttl

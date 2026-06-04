@@ -1,5 +1,5 @@
 //! Constant-time oblivious top-K selection — the in-TEE (Rust) hardening of
-//! `por/oblivious.py` (task H4-port / #18).
+//! `por/oblivious.py` (STATUS.md items 6 / 7).
 //!
 //! Inside the TEE the operator can't read content, but it can watch access
 //! patterns and timing. Python's `ct_select` keeps the access pattern

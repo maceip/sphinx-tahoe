@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Live P4: attested match + mailbox envelope delivery to in-enclave expert.
+# TEE deliver demo (item 9 shortcut — in-enclave stub expert).
+# Does NOT prove item 13. See STATUS.md Commands.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

@@ -24,11 +24,16 @@ HOST="${URL#https://}"
 HOST="${HOST%%/*}"
 PUBLIC_IP="$(dig +short "$HOST" @8.8.8.8 2>/dev/null | grep -E '^[0-9.]+$' | head -1 || true)"
 LOCAL_IP="$(dig +short "$HOST" 2>/dev/null | grep -E '^[0-9.]+$' | head -1 || true)"
-CURL_RESOLVE=()
+curl_healthz() {
+  if [[ -n "$PUBLIC_IP" && "$LOCAL_IP" != "$PUBLIC_IP" ]]; then
+    curl -fsS --resolve "${HOST}:443:${PUBLIC_IP}" "${URL}healthz"
+  else
+    curl -fsS "${URL}healthz"
+  fi
+}
 if [[ -n "$PUBLIC_IP" && "$LOCAL_IP" != "$PUBLIC_IP" ]]; then
   echo "[verify-live] local DNS=${LOCAL_IP:-none} public DNS=${PUBLIC_IP}" >&2
   echo "[verify-live] using curl --resolve; flush cache or add /etc/hosts for aw check" >&2
-  CURL_RESOLVE=(--resolve "${HOST}:443:${PUBLIC_IP}")
 fi
 
 echo "[verify-live] attestation (pinned engine ${ATTESTED_WORKLOAD_SHORT})"
@@ -41,7 +46,7 @@ fi
 
 echo "[verify-live] healthz"
 if command -v curl >/dev/null 2>&1; then
-  curl -fsS "${CURL_RESOLVE[@]}" "${URL}healthz"
+  curl_healthz
   echo
 else
   python3 - <<PY

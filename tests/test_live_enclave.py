@@ -69,6 +69,7 @@ def test_live_enclave_expert_plan(live_config, require_aw):
     assert result["discovery_mode"] == "plain_matcher_v1"
 
 
+@pytest.mark.network_beta
 def test_live_enclave_mailbox_send(live_config, require_aw):
     from por.live_client import LiveMailboxClientConfig, send_live_enclave_summary
 

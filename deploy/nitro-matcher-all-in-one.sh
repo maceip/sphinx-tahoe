@@ -11,7 +11,7 @@
 #
 # Env:
 #   SPHINX_TAHOE_REPO   default: clone maceip/sphinx-tahoe
-#   ATTESTED_WORKLOAD_* pin + path (see DEPENDENCIES.md)
+#   ATTESTED_WORKLOAD_* pin + path (see STATUS.md item 9)
 #   ACME_FLAG=""        skip Let's Encrypt (staging / self-signed)
 #   SKIP_RUN=1          build EIF only, do not run enclave
 set -euo pipefail

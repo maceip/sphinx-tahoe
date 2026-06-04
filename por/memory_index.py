@@ -30,7 +30,7 @@ from typing import Iterable, Iterator, Sequence
 
 
 # Marker key, set in a manifest's ``privacy`` map, that flags a candidate as a
-# cover (decoy) emitted for output-count hiding (H4). It lives here, in the
+# cover (decoy) emitted for output-count hiding (item 6). It lives here, in the
 # lowest-level module, so both the cover producer (``por.cover``) and the client
 # routing scorer (``por.expert_route``) can share it without an import cycle.
 COVER_MARKER = "cover"
@@ -159,6 +159,7 @@ class IndexConfig:
     chunk_overlap: int = 40
     max_public_terms: int = 64
     publish_terms: bool = True
+    created_at_iso: str | None = None
 
 
 @dataclass(frozen=True)
@@ -354,7 +355,7 @@ def build_memory_index(config: IndexConfig) -> LocalMemoryIndex:
     manifest = MemoryManifest(
         version=MANIFEST_VERSION,
         peer_id=config.peer_id,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=config.created_at_iso or datetime.now(timezone.utc).isoformat(),
         roots=tuple(_root_id(root) for root in config.roots),
         file_count=len(files),
         byte_count=byte_count,

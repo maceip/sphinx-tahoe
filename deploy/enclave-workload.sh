@@ -1,9 +1,9 @@
 #!/bin/sh
-# The in-TEE workload bountynet launches and fronts with attested TLS (H5).
+# The in-TEE workload bountynet launches and fronts with attested TLS (STATUS.md item 9).
 #
 # Binds the matcher/mailbox server to loopback; bountynet bridges vsock ->
 # 127.0.0.1:9384 and terminates TLS *inside* the enclave (so the cert SPKI the
-# EAT binds to is a TEE-resident key — see docs/enclave_plane_runcards.md).
+# EAT binds to is a TEE-resident key — see STATUS.md item 9).
 #
 # SNAPSHOT  public directory snapshot (URL or baked-in path) — matcher input
 # MAILBOX   private handle->reachability file the enclave holds (mailbox input;

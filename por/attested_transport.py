@@ -1,4 +1,4 @@
-"""SPKI-pinned TLS transport for the enclave plane (hardening item H3).
+"""SPKI-pinned TLS transport for the enclave plane (STATUS.md item 5).
 
 `runcard check` proves, at bootstrap, that the endpoint's TLS leaf cert is bound
 to the TEE quote: it recomputes ``sha256(cert_spki)`` and checks it equals
@@ -14,7 +14,7 @@ attested TLS authenticates by attestation, not by a public CA (mirroring
 runcards' ``build_unchecked_client_config`` / ``NoVerify``). Authentication is
 the SPKI pin alone. A mismatch raises ``SpkiPinError`` — a fail-closed error, so
 a caller never silently downgrades to an unpinned/unattested transport (invariant
-I1: security level is a network property, not a per-call toggle).
+R1: security level is a network property, not a per-call toggle).
 
 This is the leaf module of the enclave-trust error hierarchy: it owns
 ``EnclaveAttestationError`` (re-exported by ``por.enclave_attest`` for

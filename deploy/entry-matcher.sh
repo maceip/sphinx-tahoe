@@ -1,8 +1,14 @@
 #!/bin/sh
-# EIF entry: start the real matcher on loopback :8080, then bountynet (attestation
-# + app-proxy over vsock-TLS). bountynet's serve_tls_vsock forwards /v1/* here.
+# EIF entry (item 14): matcher-only workload — no in-TEE stub expert fleet.
 ip link set lo up 2>/dev/null || true
 ip addr add 127.0.0.1/8 dev lo 2>/dev/null || true
 cd /app
-PYTHONPATH=/app MATCHER_HOST=127.0.0.1 MATCHER_PORT=8080 python3.11 run_matcher_live.py &
+SNAPSHOT="${SNAPSHOT:-/app/data/beta/snapshot.json}"
+MAILBOX="${MAILBOX:-/app/data/beta/mailbox.json}"
+PORT="${ENCLAVE_PLANE_PORT:-8080}"
+PYTHONPATH=/app python3.11 -m por.enclave_plane_server \
+  --snapshot "${SNAPSHOT}" \
+  --mailbox "${MAILBOX}" \
+  --host 127.0.0.1 \
+  --port "${PORT}" &
 exec bountynet enclave /app --cmd true

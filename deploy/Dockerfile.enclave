@@ -1,4 +1,4 @@
-# Enclave image for the matcher/mailbox plane (H5 front-half).
+# TEE image for the matcher/mailbox plane (STATUS.md item 9).
 #
 # Packages `por.enclave_plane_server` as the in-TEE workload, fronted by the
 # bountynet attestation shim (recycled from runcards/bountynet-genesis). This is
@@ -14,7 +14,7 @@
 FROM public.ecr.aws/amazonlinux/amazonlinux:2023-minimal
 
 # Python runtime for the matcher workload (the security-critical oblivious core
-# is slated to move to Rust — task H4-port — but the wire shape runs in Python).
+# is slated to move to Rust (item 7) — but the wire shape runs in Python).
 RUN dnf install -y python3 && dnf clean all
 
 # The attestation shim: detects the TEE, computes Value X over the image, binds

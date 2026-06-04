@@ -3,11 +3,11 @@
 Runs the matcher + mailbox HTTP service (``por.enclave_plane`` handler) as a
 deployable workload — e.g. the run-cards Stage-1 process behind attested TLS,
 bound to loopback. This is the plain stand-in workload; obliviousness hardening
-(ORAM / oblivious sort) happens inside the same boxes later (wire-then-harden).
+(full hardware obliviousness per item 6) happens inside the same boxes later (wire-then-harden).
 
 The matcher is built from a public directory snapshot (manifests + opaque handle
 records). The mailbox resolution data (handle -> reachability + routing key) is
-*not* in the public snapshot by design (#4), so it is loaded separately from a
+*not* in the public snapshot by design (item 1), so it is loaded separately from a
 private mailbox file that only the enclave holds.
 """
 

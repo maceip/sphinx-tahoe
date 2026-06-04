@@ -257,7 +257,7 @@ def test_parse_json_output_extracts_fields():
     assert att is not None
     assert att.value_x == APPROVED_X
     assert att.platform == "tdx"
-    assert att.tls_spki_hash == _SPKI  # H3: pin value carried through from --json
+    assert att.tls_spki_hash == _SPKI  # item 5: pin value carried through from --json
 
 
 def test_parse_json_output_ignores_non_json_lines():
@@ -277,7 +277,7 @@ def test_verify_prefers_json_stdout(monkeypatch):
     assert att.value_x == APPROVED_X
 
 
-# --- H3: SPKI pin application by the gate -------------------------------------
+# --- item 5: SPKI pin application by the gate ---------------------------------
 
 class PinnableInner(FakeInner):
     """Inner client that records the SPKI it was told to pin."""

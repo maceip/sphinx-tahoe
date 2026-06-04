@@ -1,6 +1,6 @@
 name: enclave-engine
 
-# Gate tenet against the pinned attested-workload SHA (DEPENDENCIES.md).
+# Gate tenet against the pinned attested-workload SHA (STATUS.md item 9).
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
       - "por/enclave_attest.py"
       - "por/attested_transport.py"
       - "deploy/**"
-      - "DEPENDENCIES.md"
+      - "STATUS.md"
       - "tests/test_enclave_attest.py"
       - ".github/workflows/enclave-engine.yml"
   pull_request:
@@ -18,7 +18,7 @@ on:
       - "por/enclave_attest.py"
       - "por/attested_transport.py"
       - "deploy/**"
-      - "DEPENDENCIES.md"
+      - "STATUS.md"
       - "tests/test_enclave_attest.py"
       - ".github/workflows/enclave-engine.yml"
   workflow_dispatch:

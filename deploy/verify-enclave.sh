@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./deploy/verify-enclave.sh https://matcher.example/
-#   ATTESTED_WORKLOAD_SHA=79a5ea2 ./deploy/verify-enclave.sh https://d851588d3b41.aeon.site/
+#   ATTESTED_WORKLOAD_SHA=79a5ea2 ./deploy/verify-enclave.sh https://7d90e638b585.aeon.site/
 set -euo pipefail
 
 URL="${1:?usage: verify-enclave.sh https://host/}"

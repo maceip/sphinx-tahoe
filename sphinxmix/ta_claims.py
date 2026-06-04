@@ -101,8 +101,7 @@ def assert_honest_streaming_copy(text: str) -> None:
 # Docs scanned by scripts/check_ta_claims.py (TA-3 regression guard)
 TA_CLAIM_SCAN_PATHS = (
     "notes/hybrid_return_ta_requirements.md",
-    "docs/por_wire_protocol.md",
-    "docs/por_layer7_architecture.md",
+    "STATUS.md",
     "notes/HYBRID_RETURN_PATH_SPEC.txt",
     "tests/mixnet_test_network.py",
     "sphinxmix/OutfoxNode.py",

@@ -1,4 +1,4 @@
-"""Cover handles for output-count hiding (H4 — the output layer).
+"""Cover handles for output-count hiding (STATUS.md item 6 — output layer).
 
 Oblivious *selection* (``por.oblivious``) hides *which* expert matched by making
 the access pattern data-independent. But the matcher's response still leaked
@@ -18,7 +18,7 @@ Honest scope: this closes the *cardinality* leak (always K objects) and, by
 size-matching covers to a real manifest, approximately the *size* leak. Exact
 byte-length normalisation of the whole response, and the hardware-CT/ORAM port of
 the assembly step, remain the in-TEE (Rust) hardening. See
-docs/matcher_threat_model.md.
+STATUS.md architecture rules.
 """
 
 from __future__ import annotations

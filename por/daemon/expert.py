@@ -17,10 +17,12 @@ def run_expert(*, config_path: str, node_id: str) -> int:
 
 def run_expert_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
     upnp_mapping = _try_upnp_on_startup(daemon)
+    reach_state = _start_reach_registration(daemon)
     _emit_node_log(
         daemon, "daemon_start",
         fields={
             "supernode_enabled": daemon.supernode.enabled,
+            "reach_registration": daemon.reach_registration.enabled,
             "upnp": upnp_mapping.method if upnp_mapping else "none",
             "upnp_port": upnp_mapping.external_port if upnp_mapping else None,
         },
@@ -41,7 +43,62 @@ def run_expert_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
     if tls.dev_allow_insecure_tls:
         from por.quic_runtime import serve_quic_forever
         return serve_quic_forever(runtime, dev_localhost=True)
+    if reach_state is not None:
+        reach_heartbeat, reach_sock = reach_state
+        bound_host, bound_port = reach_sock.getsockname()
+        runtime._log(
+            "started",
+            fields={"wire": "binary", "addr": f"{bound_host}:{bound_port}"},
+        )
+        try:
+            return runtime.serve_on_socket(reach_sock)
+        finally:
+            reach_heartbeat.stop()
+            reach_sock.close()
     return runtime.serve_forever()
+
+
+def _start_reach_registration(daemon: DaemonConfig):
+    """Register expert opaque handle with a public reachability relay (item 12)."""
+    reg = daemon.reach_registration
+    if not reg.enabled:
+        return None
+    import socket
+
+    from por.reach_client import ReachHeartbeatThread, ReachRelayEndpoint, register_with_relay
+
+    peer_id = reg.peer_id or daemon.node_id
+    relay = ReachRelayEndpoint(reg.relay_host, reg.relay_port)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(2.0)
+    try:
+        register_with_relay(sock, relay, peer_id)
+        _emit_node_log(
+            daemon,
+            "reach_registered",
+            fields={"peer_id": peer_id, "relay": f"{relay.host}:{relay.port}"},
+        )
+    except (OSError, TimeoutError) as exc:
+        _emit_node_log(
+            daemon,
+            "reach_register_failed",
+            level="error",
+            fields={"reason": str(exc)},
+        )
+        raise
+
+    def _log(msg: str) -> None:
+        _emit_node_log(daemon, "reach_client", level="info", fields={"detail": msg})
+
+    thread = ReachHeartbeatThread(
+        sock,
+        relay,
+        peer_id,
+        interval_seconds=reg.heartbeat_interval_seconds,
+        log=_log,
+    )
+    thread.start()
+    return thread, sock
 
 
 def _try_upnp_on_startup(daemon: DaemonConfig):

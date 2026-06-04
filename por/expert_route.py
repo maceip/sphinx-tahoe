@@ -152,7 +152,7 @@ def _score_candidates(
 
     for candidate in candidates:
         # Cover (decoy) candidates pad the matcher response to a constant size to
-        # hide the real-match count from the oblivious operator (H4). They are
+        # hide the real-match count from the oblivious operator (item 6). They are
         # never routing targets, so drop them before scoring. The operator could
         # not read this marker; the asker can.
         if candidate.manifest.privacy.get(COVER_MARKER):

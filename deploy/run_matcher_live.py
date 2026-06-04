@@ -1,8 +1,12 @@
-"""In-enclave matcher with embedded relay + expert for live mailbox delivery.
+"""In-enclave matcher with embedded relay + expert — **engineering shortcut only**.
 
-Runs the attested matcher HTTP plane on loopback :8080 plus an internal Outfox
-relay/expert fleet on loopback UDP. External clients use attested HTTPS
-(/v1/match, /v1/deliver) while sealed datagrams traverse the in-enclave mixnet.
+NOT the product shape. The product runs experts on human laptops behind NAT;
+see STATUS.md item 9 engineering shortcut.
+
+This workload exists to prove /v1/deliver on Nitro without a remote expert
+online: attested HTTP on loopback :8080 plus an internal Outfox relay/expert
+fleet on loopback UDP. External clients use attested HTTPS (/v1/match,
+/v1/deliver) while sealed datagrams traverse the in-enclave mixnet.
 """
 
 from __future__ import annotations

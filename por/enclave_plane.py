@@ -31,16 +31,18 @@ class PlainEnclavePlaneHttpClient:
         *,
         timeout: float = DEFAULT_ENCLAVE_PLANE_TIMEOUT_SECONDS,
         arc_credential: NoopArcCredential | None = None,
+        mailbox_datagram_delivery_enabled: bool = True,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.mailbox_delivery_enabled = True
+        self.mailbox_datagram_delivery_enabled = mailbox_datagram_delivery_enabled
         self.arc_credential = arc_credential or NoopArcCredential.issue()
         self._opener = None
         self.tls_pin: str | None = None
 
     def set_tls_pin(self, spki_hex: str) -> None:
-        """Pin every subsequent connection's TLS SPKI to ``spki_hex`` (H3).
+        """Pin every subsequent connection's TLS SPKI to ``spki_hex`` (STATUS.md item 5).
 
         Called by ``AttestedEnclavePlaneClient`` after attestation. Pinning is
         only meaningful over TLS; refuse (fail closed) to pin a plaintext
