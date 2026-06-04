@@ -21,6 +21,10 @@
   "peer_address": {
     "enabled": true
   },
+  "expert_routing": {
+    "min_pool_size": 2,
+    "allow_degraded_pool": false
+  },
   "trusted_reachability_relays": [
     {
       "relay_id": "@REACH_RELAY_ID@",

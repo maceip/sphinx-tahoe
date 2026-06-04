@@ -18,4 +18,4 @@ fi
 
 PROMPT="${1:-Tell me about Monet and impressionist painting.}"
 echo "[live-mailbox] prompt: $PROMPT"
-python3 -m por enclave send --prompt "$PROMPT" --json
+python3 -m por enclave send --prompt "$PROMPT" --via-mailbox --json

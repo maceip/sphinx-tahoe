@@ -1,6 +1,8 @@
 import json
 import socket
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler
 
 import pytest
@@ -29,6 +31,7 @@ from por.matcher import (
 from por.memory_index import IndexConfig, build_memory_index
 from por.node_runtime import WireNodeRuntime
 from por.reach_wire import REACH_CHALLENGE, decode_reach_datagram, encode_confirm, encode_register
+from por.transport_dial import DialTarget
 from tests.harness import mixnet_harness
 
 
@@ -211,6 +214,59 @@ def test_plain_matcher_handle_to_mailbox_to_expert_round_trip(tmp_path, monkeypa
         assert relay_daemon.forwarder.lookup_peer_addr(handle) == expert_addr
 
 
+def test_plain_mailbox_delivery_uses_request_isolated_udp_sockets():
+    relay_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    relay_sock.bind(("127.0.0.1", 0))
+    relay_sock.settimeout(0.2)
+    relay_addr = relay_sock.getsockname()
+    seen_sources: list[tuple[str, int]] = []
+    stop = threading.Event()
+
+    def relay() -> None:
+        while not stop.is_set() and len(seen_sources) < 2:
+            try:
+                data, addr = relay_sock.recvfrom(65535)
+            except socket.timeout:
+                continue
+            seen_sources.append(addr)
+            if data == b"slow":
+                time.sleep(0.1)
+            relay_sock.sendto(b"reply:" + data, addr)
+
+    thread = threading.Thread(target=relay, daemon=True)
+    thread.start()
+    mailbox_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    mailbox_sock.bind(("127.0.0.1", 0))
+    delivery = _FixedTargetMailboxDelivery(
+        relay_addr,
+        PlainMailbox(),
+        mailbox_sock=mailbox_sock,
+    )
+
+    def first_packet(payload: bytes) -> bytes:
+        packets = delivery.deliver_to_handle("handle", payload, timeout=2.0)
+        try:
+            return next(packets)
+        finally:
+            packets.close()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = (
+                pool.submit(first_packet, b"slow"),
+                pool.submit(first_packet, b"fast"),
+            )
+            replies = {future.result(timeout=3.0) for future in futures}
+        assert replies == {b"reply:slow", b"reply:fast"}
+        assert len({source[1] for source in seen_sources}) == 2
+        assert mailbox_sock.getsockname() not in seen_sources
+    finally:
+        stop.set()
+        thread.join(timeout=1.0)
+        mailbox_sock.close()
+        relay_sock.close()
+
+
 def _register_handle_via_reach(
     expert_sock: socket.socket,
     relay_addr: tuple[str, int],
@@ -238,6 +294,22 @@ def _register_handle_via_reach(
             return
         time.sleep(0.01)
     raise AssertionError("handle never registered with supernode")
+
+
+class _FixedTargetMailboxDelivery(PlainMailboxDelivery):
+    def __init__(self, relay_addr, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._relay_addr = relay_addr
+
+    def _dial_target(self, handle: str) -> DialTarget:
+        return DialTarget(
+            peer_id=handle,
+            route_kind="relay",
+            transport="udp",
+            host=self._relay_addr[0],
+            port=self._relay_addr[1],
+            relay_id="relay-test",
+        )
 
 
 def _anthropic_handler(text: str):

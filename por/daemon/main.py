@@ -22,6 +22,7 @@ from por.config import (
     ROLE_RELAY,
     load_config,
 )
+from por.join_pack import resolve_join_pack_path
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -122,7 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask.add_argument(
         "--join-pack",
-        default=None,
+        default=str(resolve_join_pack_path()),
         help=(
             "por.join_pack.v1 JSON. Defaults to config/join-pack.json, "
             "or ./join-pack.json inside an asker bundle."

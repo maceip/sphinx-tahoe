@@ -11,7 +11,9 @@ import json
 import os
 import signal
 import socket
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from os import urandom
 from typing import Literal, Sequence
 
@@ -70,6 +72,13 @@ class WireNodeRuntime:
         self.supernode_daemon = None
         self._current_src_addr: tuple[str, int] | None = None
         self._response_cache: dict[str, dict[str, object]] = {}
+        workers = max(1, int(os.environ.get("POR_EXPERT_WORKERS", "4")))
+        self._expert_executor = ThreadPoolExecutor(
+            max_workers=workers,
+            thread_name_prefix=f"por-{self.node_id}-expert",
+        )
+        self._state_lock = threading.RLock()
+        self._response_inflight: set[str] = set()
 
     def install_signal_handlers(self) -> None:
         def _handle(_signum, _frame):
@@ -282,15 +291,24 @@ class WireNodeRuntime:
         exit_outbound = bytes.fromhex(exit_entry["outbound_cid"])
         return_next = exit_entry["next_id"]
 
-        cached = self._response_cache.get(exit_cid)
+        with self._state_lock:
+            cached = self._response_cache.get(exit_cid)
+            if cached is not None:
+                chunks = [str(chunk) for chunk in cached.get("chunks", ())]
+                start_nonce = int(cached.get("next_nonce", 0))
+                cached["next_nonce"] = start_nonce + self._response_packet_count(chunks)
+                cached["last_active"] = time.time()
+            else:
+                chunks = []
+                start_nonce = 0
         if cached is not None:
-            chunks = [str(chunk) for chunk in cached.get("chunks", ())]
             self._log(
                 "expert_exit_duplicate",
                 link_cid=exit_cid[:8],
                 fields={"return_next": return_next, "cached_chunks": len(chunks)},
             )
-            next_nonce = self._send_response_chunks(
+            self._expert_executor.submit(
+                self._send_response_chunks,
                 sock,
                 chunks,
                 exit_key,
@@ -298,12 +316,19 @@ class WireNodeRuntime:
                 return_next,
                 src_addr=src_addr,
                 link_cid=exit_cid[:8],
-                start_nonce=int(cached.get("next_nonce", 0)),
+                start_nonce=start_nonce,
                 replay=True,
             )
-            cached["next_nonce"] = next_nonce
-            cached["last_active"] = time.time()
             return
+        with self._state_lock:
+            if exit_cid in self._response_inflight:
+                self._log(
+                    "expert_exit_duplicate_inflight",
+                    link_cid=exit_cid[:8],
+                    fields={"return_next": return_next},
+                )
+                return
+            self._response_inflight.add(exit_cid)
 
         self._log(
             "expert_exit",
@@ -316,6 +341,28 @@ class WireNodeRuntime:
                 "degraded": degraded,
             },
         )
+        self._expert_executor.submit(
+            self._process_expert_exit_response,
+            sock,
+            envelope,
+            exit_key,
+            exit_outbound,
+            return_next,
+            src_addr,
+            exit_cid,
+        )
+        return
+
+    def _process_expert_exit_response(
+        self,
+        sock: socket.socket,
+        envelope: PromptRequestEnvelope,
+        exit_key: bytes,
+        exit_outbound: bytes,
+        return_next: str,
+        src_addr: tuple[str, int] | None,
+        exit_cid: str,
+    ) -> None:
         try:
             chunks = expert_reply_chunks(envelope, self.node_id, provider_config=self.provider)
         except ProviderError as exc:
@@ -326,16 +373,20 @@ class WireNodeRuntime:
             )
             chunks = [f"[provider_error] peer={self.node_id} message={exc}"]
 
-        next_nonce = self._send_response_chunks(
-            sock,
-            chunks,
-            exit_key,
-            exit_outbound,
-            return_next,
-            src_addr=src_addr,
-            link_cid=exit_cid[:8],
-        )
-        self._cache_response_chunks(exit_cid, chunks, next_nonce)
+        try:
+            next_nonce = self._send_response_chunks(
+                sock,
+                chunks,
+                exit_key,
+                exit_outbound,
+                return_next,
+                src_addr=src_addr,
+                link_cid=exit_cid[:8],
+            )
+            self._cache_response_chunks(exit_cid, chunks, next_nonce)
+        finally:
+            with self._state_lock:
+                self._response_inflight.discard(exit_cid)
 
     def _handle_circuit_binary(
         self,
@@ -393,6 +444,25 @@ class WireNodeRuntime:
     def _handle_circuit_prompt(self, sock, envelope, exit_key, exit_outbound_bytes,
                                 return_next, *, src_addr=None):
         """Process a follow-up prompt received via circuit reuse."""
+        self._expert_executor.submit(
+            self._process_circuit_prompt_response,
+            sock,
+            envelope,
+            exit_key,
+            exit_outbound_bytes,
+            return_next,
+            src_addr,
+        )
+
+    def _process_circuit_prompt_response(
+        self,
+        sock: socket.socket,
+        envelope: PromptRequestEnvelope,
+        exit_key: bytes,
+        exit_outbound_bytes: bytes,
+        return_next: str,
+        src_addr: tuple[str, int] | None,
+    ) -> None:
         try:
             chunks = expert_reply_chunks(envelope, self.node_id, provider_config=self.provider)
         except ProviderError as exc:
@@ -456,6 +526,12 @@ class WireNodeRuntime:
         )
         return nonce
 
+    @staticmethod
+    def _response_packet_count(chunks: Sequence[str]) -> int:
+        chunk_repeats = max(1, int(os.environ.get("POR_STREAM_CHUNK_REPEATS", "3")))
+        done_repeats = max(1, int(os.environ.get("POR_STREAM_DONE_REPEATS", "4")))
+        return (len(chunks) * chunk_repeats) + done_repeats
+
     def _cache_response_chunks(
         self,
         exit_cid: str,
@@ -464,28 +540,29 @@ class WireNodeRuntime:
     ) -> None:
         now = time.time()
         ttl = max(1, int(os.environ.get("POR_RESPONSE_CACHE_TTL", "300")))
-        for cid, cached in list(self._response_cache.items()):
-            last_active = float(cached.get("last_active", cached.get("created", now)))
-            if now - last_active > ttl:
-                self._response_cache.pop(cid, None)
-        self._response_cache[exit_cid] = {
-            "chunks": tuple(chunks),
-            "next_nonce": next_nonce,
-            "created": now,
-            "last_active": now,
-        }
-        max_entries = max(1, int(os.environ.get("POR_RESPONSE_CACHE_MAX", "256")))
-        while len(self._response_cache) > max_entries:
-            oldest = min(
-                self._response_cache,
-                key=lambda cid: float(
-                    self._response_cache[cid].get(
-                        "last_active",
-                        self._response_cache[cid].get("created", now),
-                    )
-                ),
-            )
-            self._response_cache.pop(oldest, None)
+        with self._state_lock:
+            for cid, cached in list(self._response_cache.items()):
+                last_active = float(cached.get("last_active", cached.get("created", now)))
+                if now - last_active > ttl:
+                    self._response_cache.pop(cid, None)
+            self._response_cache[exit_cid] = {
+                "chunks": tuple(chunks),
+                "next_nonce": next_nonce,
+                "created": now,
+                "last_active": now,
+            }
+            max_entries = max(1, int(os.environ.get("POR_RESPONSE_CACHE_MAX", "256")))
+            while len(self._response_cache) > max_entries:
+                oldest = min(
+                    self._response_cache,
+                    key=lambda cid: float(
+                        self._response_cache[cid].get(
+                            "last_active",
+                            self._response_cache[cid].get("created", now),
+                        )
+                    ),
+                )
+                self._response_cache.pop(oldest, None)
 
     def _send_binary(
         self,

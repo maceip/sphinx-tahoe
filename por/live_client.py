@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Mapping, Sequence
 
 from .client import ClientRunResult, run_client_once
-from .config import ClusterConfig, PeerAddressConfig, TrustedReachabilityRelayConfig
+from .config import (
+    ClusterConfig,
+    ExpertRoutingConfig,
+    PeerAddressConfig,
+    TrustedReachabilityRelayConfig,
+)
 from .expert_mode import ExpertModeConfig
 from .live_enclave import LiveEnclaveConfig, build_attested_client
 from .matcher import PLAIN_MATCHER_V1
@@ -24,6 +29,7 @@ class LiveMailboxClientConfig:
     cluster: ClusterConfig
     peer_address: PeerAddressConfig
     trusted_reachability_relays: tuple[TrustedReachabilityRelayConfig, ...]
+    expert_mode: ExpertModeConfig
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "LiveMailboxClientConfig":
@@ -44,10 +50,19 @@ class LiveMailboxClientConfig:
             for item in relays_raw
             if isinstance(item, Mapping)
         )
+        routing_raw = raw.get("expert_routing")
+        if routing_raw is not None and not isinstance(routing_raw, Mapping):
+            raise TypeError("expert_routing must be an object")
+        expert_mode = replace(
+            ExpertRoutingConfig.from_dict(routing_raw).to_expert_mode_config(),
+            discovery_mode=PLAIN_MATCHER_V1,
+            allow_public_discovery_fallback=False,
+        )
         return cls(
             cluster=cluster,
             peer_address=peer_address,
             trusted_reachability_relays=relays,
+            expert_mode=expert_mode,
         )
 
 
@@ -58,7 +73,7 @@ def send_live_enclave(
     prompt: str,
     requested_expertise: str | None = None,
     timeout: float = 30.0,
-    random_seed: int | None = 0,
+    random_seed: int | None = None,
     mailbox_datagram_delivery_enabled: bool | None = None,
 ) -> ClientRunResult:
     """Attest, plan, and deliver one envelope through the live enclave mailbox."""
@@ -73,12 +88,7 @@ def send_live_enclave(
         prompt=prompt,
         requested_expertise=requested_expertise,
         timeout=timeout,
-        expert_mode_config=ExpertModeConfig(
-            discovery_mode=PLAIN_MATCHER_V1,
-            min_pool_size=1,
-            allow_degraded_pool=True,
-            allow_public_discovery_fallback=False,
-        ),
+        expert_mode_config=mailbox_config.expert_mode,
         peer_address_config=mailbox_config.peer_address,
         trusted_reachability_relays=mailbox_config.trusted_reachability_relays,
         random_seed=random_seed,
@@ -92,6 +102,7 @@ def send_live_enclave_summary(
     prompt: str,
     requested_expertise: str | None = None,
     timeout: float = 30.0,
+    random_seed: int | None = None,
     mailbox_datagram_delivery_enabled: bool | None = None,
 ) -> dict[str, object]:
     client = build_attested_client(
@@ -105,15 +116,10 @@ def send_live_enclave_summary(
         prompt=prompt,
         requested_expertise=requested_expertise,
         timeout=timeout,
-        expert_mode_config=ExpertModeConfig(
-            discovery_mode=PLAIN_MATCHER_V1,
-            min_pool_size=1,
-            allow_degraded_pool=True,
-            allow_public_discovery_fallback=False,
-        ),
+        expert_mode_config=mailbox_config.expert_mode,
         peer_address_config=mailbox_config.peer_address,
         trusted_reachability_relays=mailbox_config.trusted_reachability_relays,
-        random_seed=0,
+        random_seed=random_seed,
     )
     return {
         "ok": not result.fallback_used and bool(result.response_text.strip()),

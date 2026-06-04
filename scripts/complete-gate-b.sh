@@ -123,11 +123,9 @@ echo "[network-beta] EIF rebuild on Nitro (matcher only — expert stays off thi
 ssh -i "$RELAY_KEY" "${RELAY_USER}@${RELAY_HOST}" bash -s <<'REMOTE'
 set -euo pipefail
 cd ~/sphinx-tahoe
-if [[ ! -f deploy/eif-build/Dockerfile ]]; then
-  export ATTESTED_WORKLOAD_REPO=~/attested-workload ATTESTED_WORKLOAD_SHA=79a5ea2328f2b30192e57b53913355dcd5e0201e
-  [[ -d ~/attested-workload/.git ]] || git clone https://github.com/maceip/attested-workload.git ~/attested-workload
-  ./deploy/assemble-matcher-eif.sh
-fi
+export ATTESTED_WORKLOAD_REPO=~/attested-workload ATTESTED_WORKLOAD_SHA=79a5ea2328f2b30192e57b53913355dcd5e0201e
+[[ -d ~/attested-workload/.git ]] || git clone https://github.com/maceip/attested-workload.git ~/attested-workload
+./deploy/assemble-matcher-eif.sh
 cd deploy/eif-build
 docker build -t matcher-beta:latest . >>/tmp/docker-build.log 2>&1
 nitro-cli build-enclave --docker-uri matcher-beta:latest \

@@ -12,6 +12,7 @@ import hmac
 import json
 import os
 import socket
+import threading
 import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -233,12 +234,17 @@ class PlainMailboxDelivery:
         mailbox: PlainMailbox,
         *,
         mailbox_sock: socket.socket,
+        per_request_sockets: bool = True,
+        bind_host: str | None = None,
         peer_address_config: PeerAddressConfig | None = None,
         trusted_reachability_relays: Sequence[TrustedReachabilityRelayConfig] = (),
         dev_allow_untrusted_reachability_relays: bool = False,
     ) -> None:
         self.mailbox = mailbox
         self.mailbox_sock = mailbox_sock
+        self.per_request_sockets = per_request_sockets
+        self.bind_host = bind_host or self._socket_bind_host(mailbox_sock)
+        self._shared_socket_lock = threading.Lock()
         self.peer_address_config = peer_address_config or PeerAddressConfig(enabled=True)
         self.trusted_reachability_relays = tuple(trusted_reachability_relays)
         self.dev_allow_untrusted_reachability_relays = dev_allow_untrusted_reachability_relays
@@ -257,15 +263,44 @@ class PlainMailboxDelivery:
         timeout: float,
     ) -> Iterator[bytes]:
         dial_target = self._dial_target(handle)
-        self.mailbox_sock.settimeout(0.5)
-        self.mailbox_sock.sendto(datagram, (dial_target.host, dial_target.port))
-        deadline = time.time() + timeout
-        while time.time() < deadline:
+        sock, owns_socket = self._delivery_socket()
+
+        def packets() -> Iterator[bytes]:
+            lock = None if owns_socket else self._shared_socket_lock
+            if lock is not None:
+                lock.acquire()
             try:
-                data, _addr = self.mailbox_sock.recvfrom(65535)
-            except socket.timeout:
-                continue
-            yield data
+                sock.settimeout(0.5)
+                sock.sendto(datagram, (dial_target.host, dial_target.port))
+                deadline = time.time() + timeout
+                while time.time() < deadline:
+                    try:
+                        data, _addr = sock.recvfrom(65535)
+                    except socket.timeout:
+                        continue
+                    yield data
+            finally:
+                if owns_socket:
+                    sock.close()
+                if lock is not None:
+                    lock.release()
+
+        return packets()
+
+    def _delivery_socket(self) -> tuple[socket.socket, bool]:
+        if not self.per_request_sockets:
+            return self.mailbox_sock, False
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind((self.bind_host, 0))
+        return sock, True
+
+    @staticmethod
+    def _socket_bind_host(sock: socket.socket) -> str:
+        try:
+            host = str(sock.getsockname()[0])
+        except OSError:
+            return "0.0.0.0"
+        return host or "0.0.0.0"
 
     def _dial_target(self, handle: str) -> DialTarget:
         resolution = self.mailbox.resolve_handle(handle)
