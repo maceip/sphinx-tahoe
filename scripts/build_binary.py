@@ -56,6 +56,16 @@ def main(argv: list[str] | None = None) -> int:
             "'tenet' expands to tenet-<current-platform>."
         ),
     )
+    parser.add_argument(
+        "--aw-binary",
+        default=os.environ.get("AW_BINARY", ""),
+        help="Path to a platform-native aw executable to embed in the one-file binary.",
+    )
+    parser.add_argument(
+        "--no-embed-aw",
+        action="store_true",
+        help="Do not embed aw; the produced binary will require aw on PATH.",
+    )
     args = parser.parse_args(argv)
 
     venv = Path(args.venv)
@@ -89,30 +99,35 @@ def main(argv: list[str] | None = None) -> int:
     spec_dir.mkdir(parents=True, exist_ok=True)
     dist_dir.mkdir(parents=True, exist_ok=True)
 
-    _run(
-        [
-            str(pyinstaller),
-            "--noconfirm",
-            "--clean",
-            "--onefile",
-            "--name",
-            args.name,
-            "--distpath",
-            str(dist_dir),
-            "--workpath",
-            str(build_dir),
-            "--specpath",
-            str(spec_dir),
-            "--paths",
-            str(root),
-            "--collect-submodules",
-            "por",
-            "--collect-submodules",
-            "sphinxmix",
-            str(root / "por" / "__main__.py"),
-        ],
-        root,
-    )
+    pyinstaller_cmd = [
+        str(pyinstaller),
+        "--noconfirm",
+        "--clean",
+        "--onefile",
+        "--name",
+        args.name,
+        "--distpath",
+        str(dist_dir),
+        "--workpath",
+        str(build_dir),
+        "--specpath",
+        str(spec_dir),
+        "--paths",
+        str(root),
+        "--collect-submodules",
+        "por",
+        "--collect-submodules",
+        "sphinxmix",
+    ]
+    aw_binary = None if args.no_embed_aw else _resolve_aw_binary(args.aw_binary)
+    if aw_binary is not None:
+        pyinstaller_cmd.extend(
+            ["--add-binary", f"{aw_binary}{_pyinstaller_pathsep()}por_embedded"]
+        )
+    else:
+        print("warning: aw was not embedded; binary will require aw on PATH", file=sys.stderr)
+    pyinstaller_cmd.append(str(root / "por" / "__main__.py"))
+    _run(pyinstaller_cmd, root)
 
     artifact = dist_dir / _binary_filename(args.name)
     if not artifact.exists():
@@ -134,6 +149,24 @@ def _ensure_venv(root: Path, venv: Path) -> None:
     if _venv_python(venv).exists():
         return
     _run([sys.executable, "-m", "venv", str(venv)], root)
+
+
+def _resolve_aw_binary(path: str) -> Path | None:
+    candidates: list[Path] = []
+    if path:
+        candidates.append(Path(path).expanduser())
+    found = shutil.which("aw")
+    if found:
+        candidates.append(Path(found))
+    candidates.append(Path.home() / ".cargo" / "bin" / _binary_filename("aw"))
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
+def _pyinstaller_pathsep() -> str:
+    return ";" if os.name == "nt" else ":"
 
 
 def _run(cmd: list[str], cwd: Path) -> None:

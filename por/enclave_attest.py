@@ -23,8 +23,11 @@ network property, not a per-call toggle).
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Iterable, Protocol, runtime_checkable
 
 # The fail-closed error hierarchy lives in the leaf transport module so that
@@ -138,9 +141,10 @@ class SubprocessRuncardVerifier:
 
     def verify(self, base_url: str) -> VerifiedAttestation:
         url = base_url.rstrip("/")
+        runcard_bin = self._resolve_runcard_bin()
         try:
             proc = subprocess.run(
-                [self.runcard_bin, "check", "--json", url],
+                [runcard_bin, "check", "--json", url],
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
@@ -157,6 +161,29 @@ class SubprocessRuncardVerifier:
             return att
         # Fallback: an older runcard without --json prints only the stderr log.
         return self._parse_check_output(proc.stderr, url)
+
+    def _resolve_runcard_bin(self) -> str:
+        configured = self.runcard_bin
+        pathish = (
+            os.sep in configured
+            or (os.altsep is not None and os.altsep in configured)
+            or Path(configured).is_absolute()
+        )
+        if pathish:
+            return configured
+        embedded_root = Path(getattr(sys, "_MEIPASS", "")) / "por_embedded"
+        names = [configured]
+        if os.name == "nt" and not configured.lower().endswith(".exe"):
+            names.append(f"{configured}.exe")
+        for name in names:
+            candidate = embedded_root / name
+            if candidate.is_file():
+                return str(candidate)
+        if embedded_root.is_dir():
+            for candidate in sorted(embedded_root.glob("aw*")):
+                if candidate.is_file():
+                    return str(candidate)
+        return configured
 
     @classmethod
     def _parse_json_output(cls, stdout: str, receipt_url: str) -> "VerifiedAttestation | None":

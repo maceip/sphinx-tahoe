@@ -2,7 +2,7 @@
 
 **The only living document for planning, design, status, and TODO.**
 
-Last re-verified: **2026-06-04** (live current-alpha `por ask`, 20/20 repeat/load, fresh EC2 asker, bundle launcher, relay restart recovery, optional mailbox attempt)
+Last re-verified: **2026-06-04** (live current-alpha `por ask`, 20/20 repeat/load, LAN Windows/WSL clients, platform binaries, client-sim image, relay restart recovery, optional mailbox attempt)
 
 Superseded markdown: `~/fat/tenet-archive/` — do not treat as current.
 
@@ -66,10 +66,10 @@ Pytest is not live-network proof. The only accepted runtime proof for item **13*
 | Live experts | `alpha-seed-art` -> **`h4a30b46453eb7bd`** on `35.159.21.110`; `alpha-seed-security` -> **`h0a0a24b9434a966`** on `63.185.117.35`; both REACH-only through `3.121.69.82:4433`, `POR_MAX_TOKENS=256`, `POR_STREAM_CHUNK_REPEATS=3`, `POR_STREAM_DONE_REPEATS=4`, Anthropic key loaded from remote `~/.tenet/anthropic.env` |
 | TEE data | `deploy/data/beta/snapshot.json` + `mailbox.json` contain the two alpha handles above; handle + peer-address TTL **86400s**; `trusted_reachability_relays` in mailbox |
 | Live EIF | `matcher-alpha-20260604-041937` on Nitro; PCR0 `8fe23accaa7c4316...`, PCR1 `4b4d5b3661b3efc1...`, PCR2 `9c6fd0b66ae65f48...` |
-| Asker proof | Direct current-alpha `por ask` and `por enclave send` return real Claude text with `fallback_used: false`, `via_mailbox: false`. Current-alpha repeat/load passed `ok=20/20` at `2026-06-04T09:56:48Z` in `config/item-15-6-report.json`. Fresh EC2 asker `63.180.171.11` passed `./scripts/deploy-network-clients.sh` with `ok: true`. |
+| Asker proof | Direct current-alpha `por ask` and `por enclave send` return real Claude text with `fallback_used: false`, `via_mailbox: false`. Current-alpha repeat/load passed `ok=20/20` at `2026-06-04T09:56:48Z` in `config/item-15-6-report.json`. Local LAN proofs now pass from macOS ARM64, native Windows x86_64, and Linux x86_64 under WSL mirrored networking. |
 | Historical single-expert beta proof | Previous matcher `https://64a331764e39.aeon.site/` proved item 13 and item 15.6 single-expert load for `hb85f9afbccddfe5`. This is not the current live matcher and is no longer the active `config/item-15-6-report.json`. |
 | Item 14 | Matcher-only entry `deploy/entry-matcher.sh`; current EIF is alpha data baked into the matcher image |
-| Item 15 | Done for automated beta proof: two live experts, 20/20 current-alpha load, fresh non-expert EC2 asker, product bundle smoke. Literal external-human run remains a manual ops exercise, not a code blocker. |
+| Item 15 | Done for automated beta proof: two live experts, 20/20 current-alpha load, LAN Windows native + WSL/Linux clients, platform binaries, and product bundle smoke. Literal external-human run remains a manual ops exercise, not a code blocker. |
 
 Last direct product-path proof command:
 
@@ -93,7 +93,11 @@ env PATH=/Users/mac/.cargo/bin:$PATH dist/asker-bundle/ask \
 
 Result at `2026-06-04T10:07Z`: `ok: true`, `fallback_used: false`, `selected_peer_id: h4a30b46453eb7bd`, real Claude response, `via_mailbox: false`.
 
-**Item 15 remote asker (2026-06-04):** `config/network-clients.json` now points to fresh non-expert EC2 client **client-1** `63.180.171.11` (`i-0ffcb9c60b13f28da`). `PROMPT='In one sentence, name one Monet painting technique.' TIMEOUT=120 ./scripts/deploy-network-clients.sh` returned `ok: true`, `fallback_used: false`, `selected_peer_id: h4a30b46453eb7bd`, real Claude text.
+**Item 15 client proof (2026-06-04):** the earlier non-expert EC2 client **client-1** `63.180.171.11` (`i-0ffcb9c60b13f28da`) returned `ok: true`, then was terminated after the "no more EC2 askers" decision. Current `config/network-clients.json` points only at LAN machine `mac@192.168.0.180`: native Windows `dist/por-windows-x86_64.exe` returned `ok: true` from stripped `PATH=C:\Windows\System32;C:\Windows`; Linux `dist/por-linux-x86_64` returned `ok: true` under WSL mirrored networking. Linux Docker/Orb on this Mac passes `enclave check` with embedded `aw` but full `ask` times out with `no_done` because the relay UDP return does not reach the container/VM.
+
+**Current LAN deploy proof (2026-06-04):** `PROMPT=Monet TIMEOUT=120 ./scripts/deploy-network-clients.sh` passed both entries in `config/network-clients.json`: `windows-native-lan 192.168.0.180 ok=True` and `windows-wsl-linux-lan 192.168.0.180 ok=True`.
+
+**Client simulation image (2026-06-04):** `./scripts/build-client-sim-image.sh` built `tenet-client-sim:latest` as `linux/amd64` from a temporary no-secret Docker context. The image includes `dist/por-linux-x86_64`, public live pins, generated fake session/log context, and Claude Code `2.1.162`; `MODE=agent-smoke ./scripts/run-client-sim.sh` returned `2.1.162 (Claude Code)`. `docker run --rm --platform linux/amd64 tenet-client-sim:latest /usr/local/bin/por enclave check --config /etc/por/live-enclave.json --json` returned `ok: true` and pinned SPKI `d5ef2a...`. Full Docker `ask` still times out with `no_done` on this Mac because the relay UDP return does not reach the container.
 
 `via_mailbox: false` is correct for the current matcher-only live path: the TEE returns the handle/peer route and the client sends directly through the REACH relay. `python3 -m por ask --via-mailbox ...` was attempted on `2026-06-04` and failed with `TimeoutError ... (no_done)`. Leave it off unless `/v1/deliver` UDP return delivery is deliberately fixed and the EIF is redeployed.
 
@@ -103,10 +107,10 @@ Result at `2026-06-04T10:07Z`: `ok: true`, `fallback_used: false`, `selected_pee
 
 | Work | Owner ID | Truth |
 |------|----------|-------|
-| Literal second human / independent asker | **15** | Automated independent EC2 asker passed on `63.180.171.11`. A literal external human can now run the same bundle/command; no code blocker remains. |
+| Literal second human / independent client | **15** | Done for local beta: LAN Windows laptop `mac@192.168.0.180` passed native Windows and WSL/Linux sends. The earlier EC2 client proof is historical and that instance is terminated. |
 | Alpha repeat/load stability | **15** | Done for current alpha: `config/item-15-6-report.json` is `ok=20/20`, generated `2026-06-04T09:56:48Z`. |
 | REACH restart recovery | **15** | Done for current alpha: relay was restarted and `/tmp/por-reach-records` rebuilt both expert handles by `2026-06-04T09:54Z` without manual expert restart. |
-| Product packaging / outsider UX | — | Done for macOS ARM64 beta handoff: `dist/por-macos-arm64` built, `dist/asker-bundle/ask` smoke returned live `ok: true`. Linux/Windows binaries remain platform-build work, not current network proof blockers. |
+| Product packaging / outsider UX | — | Done for beta binaries: `dist/por-macos-arm64`, `dist/por-windows-x86_64.exe`, and `dist/por-linux-x86_64` are built with embedded `aw`. macOS and native Windows full sends pass; Linux full send passes under WSL mirrored networking. Docker/Orb Linux on this Mac remains a NAT/UDP-return limitation. |
 | Optional TEE delivery | — | Attempted and failed with `no_done`; keep `via_mailbox: false`. This is optional unless product scope changes to require TEE `/v1/deliver` delivery. |
 
 ## Item 15 Finish List
@@ -119,11 +123,11 @@ These are the only item **15** finish-line blockers for running test nodes:
 | 15.2 | Relay/expert runtime stability | **Done for current alpha:** relay runs reviewed code with forward logs; two alpha experts are single processes; relay restart recovery, request repeats, expert replay cache, and stream redundancy are deployed. |
 | 15.3 | NAT decision | **Done for current alpha:** live experts are public EC2 hosts but still use REACH-only relay routing; Mac `hb85...` is historical/not current matcher data. |
 | 15.4 | TEE data alignment | **Done for current alpha:** one snapshot/mailbox pair, two handles, one shared KEM public key, signed peer-address records for both alpha experts. |
-| 15.5 | Second human asker | **Done for automated second-machine proof:** fresh EC2 asker `63.180.171.11` returned live `ok: true`. Literal human run is now manual ops. |
+| 15.5 | Second human client | **Done:** LAN Windows laptop `mac@192.168.0.180` returned `ok: true` from native Windows binary and from Linux binary under WSL mirrored networking. WSL needs `networkingMode=mirrored` in `%USERPROFILE%\.wslconfig` (`scripts/wslconfig-mirrored`) so relay UDP return reaches the client. |
 | 15.6 | Repeat/load sanity | **Done for current alpha:** `GAP_SEC=1 TIMEOUT=120 ./scripts/run-item-15-6-load.sh` returned `ok=20/20`. |
 | 15.7 | Larger answer sanity | **Done for current alpha:** three-paragraph Monet/classical-landscape prompt returned real provider text with `ok: true`, `fallback_used: false`. |
 | 15.8 | Alpha/multi-expert scale-out | **Done at 2 experts:** live matcher selects `h4a30...` and `h0a0...` for different prompts. More than 2 experts remains future scale-out. |
-| 15.9 | Join pack / outsider handoff | **Done for macOS beta:** `config/join-pack.json` is generated from live config; `dist/asker-bundle/ask` selects the platform binary and passed a live send. |
+| 15.9 | Join pack / outsider handoff | **Done for beta binaries:** `config/join-pack.json` is generated from live config; `dist/por-macos-arm64`, `dist/por-windows-x86_64.exe`, and `dist/por-linux-x86_64` are built as one-file binaries with embedded `aw`. |
 
 Do **not** make these item **15** blockers:
 
@@ -131,7 +135,7 @@ Do **not** make these item **15** blockers:
 |------|--------|
 | `via_mailbox: true` | Optional harder path only. Direct relay send is the current product beta path; `via_mailbox: false` remains expected unless live TEE `/v1/deliver` is deliberately enabled |
 | Renaming `gate-b` files | Cosmetic compatibility cleanup only |
-| PyInstaller / CI binary handoff | macOS ARM64 beta binary is built and smoked; CI and cross-platform artifacts are release packaging, not network proof blockers |
+| PyInstaller / CI binary handoff | Platform binaries are built and live-smoked where the local NAT path allows it; CI/release automation remains packaging polish, not a network proof blocker |
 | `por run` product entrypoint | Product UX cleanup; `por enclave send` remains the accepted live proof command for now |
 | Blanket commit of dirty tree | Not accepted. Review each dirty change before committing |
 
@@ -141,8 +145,9 @@ Do **not** make these item **15** blockers:
 |----------|-----|
 | Kept `via_mailbox: false` as product default | Direct relay is passing; forced `--via-mailbox` failed with `no_done` and would require live EIF `/v1/deliver` UDP-return work. |
 | Added client request repeats plus expert replay cache | The failing load run showed no relay `forward_hop`, so the initial client datagram was the weak point. Repeats without replay caching could duplicate provider calls; replay cache avoids that. |
-| Used a fresh EC2 client as the second-machine proof | It proves the outsider path from a non-expert host. It is not literally a second human typing, but no code difference remains for a human run. |
-| Left the fresh EC2 asker running | `config/network-clients.json` points at `63.180.171.11`; terminate it when the beta node campaign no longer needs it. |
+| Terminated the fresh EC2 client | User direction is no more EC2 askers/clients; the current second-machine proof is the LAN Windows laptop. |
+| Kept Docker/Orb Linux NAT failure separate from binary proof | The Linux binary can attest in Docker and can complete a full send under WSL mirrored networking; Docker/Orb on this Mac loses the UDP relay return and times out with `no_done`. |
+| Chose Docker image before AMI | Docker is built and runnable now, with API key injection at launch from env or `/Users/mac/fry-core/.env`; do not bake the raw API key into an image layer. AMI can be produced from the same image/bootstrap path once the target AWS network shape is chosen. |
 
 ---
 
@@ -285,14 +290,14 @@ EXPERT_NODE_COUNT=3 ./scripts/alpha/run-alpha-network.sh
 
 Topology: `config/gate-b-topology.json.example` — experts must not share the relay host IP.
 
-### Item 15 — human beta (second asker)
+### Item 15 — human beta (second client)
 
 | Client | Host | `por ask` (2026-06-04) |
 |--------|------|------------------------|
-| client-1 | `35.159.21.110` | `ok: true`, real Claude text, `hb85f9afbccddfe5` |
-| client-2 | `63.185.117.35` | `ok: true`, real Claude text, `hb85f9afbccddfe5` |
+| windows-native-lan | `mac@192.168.0.180` | `ok: true`, real Claude text, `h4a30b46453eb7bd` |
+| windows-wsl-linux-lan | `mac@192.168.0.180` via WSL mirrored networking | `ok: true`, real Claude text, `h4a30b46453eb7bd` |
 
-That table is historical single-expert proof. Current alpha pins: matcher `https://5faf834eac20.aeon.site/`, SPKI `d5ef2ab186ec7177...`, `aw` @ `79a5ea2`, relay `3.121.69.82:4433`. The two EC2 hosts are now live alpha experts, not clean independent askers.
+Historical single-expert EC2 client proof is no longer current. Current alpha pins: matcher `https://5faf834eac20.aeon.site/`, SPKI `d5ef2ab186ec7177...`, `aw` @ `79a5ea2`, relay `3.121.69.82:4433`. The two EC2 hosts `35.159.21.110` and `63.185.117.35` are live alpha experts, not independent clients.
 
 Canonical item **13** operator proof command:
 
@@ -303,7 +308,7 @@ python3 -m por enclave send --config config/live-enclave.json \
   --timeout 120 --json
 ```
 
-Join-pack / `por ask` is locally smoke-proven against the current alpha matcher. The two-EC2 asker proof is historical single-expert proof; current alpha still needs an independent non-expert asker and repeat/load.
+Join-pack / `por ask` is smoke-proven against the current alpha matcher locally and from the LAN Windows laptop. The two-EC2 client proof is historical single-expert proof; current alpha no longer needs an EC2 client to start local beta runs.
 
 ### Matcher live (item 9) redeploy
 
@@ -336,7 +341,7 @@ DNS: `{value_x[0:12]}.aeon.site` → Elastic IP. Redeploy **always** updates pin
 | `./scripts/demo-mailbox-e2e.sh` | Local harness | Anything live |
 | `./scripts/gate-b/run-protocol-checks.sh` | Loopback protocol | Items **11–15** |
 | `./scripts/alpha/run-alpha-network.sh` | Alpha + multi-node ops | **13** unless send succeeds |
-| `por ask` / `./scripts/package-asker-bundle.sh` | Product asker join and public bundle | Not accepted as item **15** proof until second human run succeeds |
+| `por ask` / `./scripts/package-asker-bundle.sh` | Product client join and public bundle | Accepted as item **15** proof when run from the LAN Windows/WSL client or current load script |
 | `./scripts/network-beta.sh` | Wrapper for `scripts/gate-b/run-network.sh` | Multi-node deploy |
 
 Pytest: default excludes `live`; tiers in `scripts/test.sh`.

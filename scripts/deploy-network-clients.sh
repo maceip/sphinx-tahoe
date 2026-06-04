@@ -54,13 +54,136 @@ fi
 mkdir -p ~/sphinx-tahoe ~/asker-bundle
 '''
 
-for index, client in enumerate(cfg["clients"]):
-    host = client["host"]
-    cid = client["client_id"]
+
+def _ssh_cmd(client):
     user = client.get("ssh_user", "ubuntu")
-    key = Path(__import__("os").environ.get("SSH_KEY") or client.get("ssh_key", "~/.ssh/tenet-nitro.pem")).expanduser()
+    remote = f"{user}@{client['host']}"
+    cmd = ["ssh", "-o", "StrictHostKeyChecking=accept-new"]
+    key = os.environ.get("SSH_KEY") or client.get("ssh_key")
+    if key:
+        cmd.extend(["-i", str(Path(key).expanduser())])
+    return cmd, remote
+
+
+def _scp_cmd(client):
+    cmd = ["scp", "-o", "StrictHostKeyChecking=accept-new"]
+    key = os.environ.get("SSH_KEY") or client.get("ssh_key")
+    if key:
+        cmd.extend(["-i", str(Path(key).expanduser())])
+    return cmd
+
+
+def _ps_quote(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _remote_powershell(script):
+    return 'powershell -NoProfile -ExecutionPolicy Bypass -Command "' + script.replace('"', '`"') + '"'
+
+
+def _deploy_windows_native(client, cid):
+    binary = root / client.get("binary", "dist/por-windows-x86_64.exe")
+    if not binary.is_file():
+        raise FileNotFoundError(f"missing Windows binary: {binary}")
+    remote_dir = f"C:/Users/{client.get('ssh_user', 'mac')}/tenet/por-client/{cid}"
+    remote_win_dir = remote_dir.replace("/", "\\")
+    ssh_base, remote = _ssh_cmd(client)
+    scp_base = _scp_cmd(client)
+    subprocess.run(
+        ssh_base
+        + [
+            remote,
+            _remote_powershell(
+                f"New-Item -ItemType Directory -Force -Path {_ps_quote(remote_win_dir)} | Out-Null"
+            ),
+        ],
+        check=True,
+    )
+    subprocess.run(
+        scp_base
+        + [
+            str(binary),
+            str(root / "config/join-pack.json"),
+            str(root / "config/live-mailbox-client.json"),
+            f"{remote}:{remote_dir}/",
+        ],
+        check=True,
+    )
+    ps = (
+        f"cd {_ps_quote(remote_win_dir)}; "
+        "Set-Item -Path Env:PATH -Value 'C:\\Windows\\System32;C:\\Windows'; "
+        f".\\{binary.name} ask --join-pack join-pack.json "
+        f"--prompt {_ps_quote(prompt)} --timeout {timeout} --json"
+    )
+    return subprocess.run(
+        ssh_base
+        + [remote, _remote_powershell(ps)],
+        text=True,
+        capture_output=True,
+    )
+
+
+def _deploy_windows_wsl(client, cid):
+    binary = root / client.get("binary", "dist/por-linux-x86_64")
+    if not binary.is_file():
+        raise FileNotFoundError(f"missing Linux binary: {binary}")
+    remote_dir = f"C:/Users/{client.get('ssh_user', 'mac')}/tenet/por-client/{cid}"
+    remote_win_dir = remote_dir.replace("/", "\\")
+    remote_wsl_dir = remote_dir.replace("C:/", "/mnt/c/")
+    ssh_base, remote = _ssh_cmd(client)
+    scp_base = _scp_cmd(client)
+    subprocess.run(
+        ssh_base
+        + [
+            remote,
+            _remote_powershell(
+                f"New-Item -ItemType Directory -Force -Path {_ps_quote(remote_win_dir)} | Out-Null"
+            ),
+        ],
+        check=True,
+    )
+    subprocess.run(
+        scp_base
+        + [
+            str(binary),
+            str(root / "config/join-pack.json"),
+            str(root / "config/live-mailbox-client.json"),
+            f"{remote}:{remote_dir}/",
+        ],
+        check=True,
+    )
+    subprocess.run(
+        ssh_base + [remote, "wsl", "-e", "chmod", "+x", f"{remote_wsl_dir}/{binary.name}"],
+        check=True,
+    )
+    return subprocess.run(
+        ssh_base
+        + [
+            remote,
+            "wsl",
+            "-e",
+            "env",
+            "PATH=/usr/bin:/bin",
+            f"{remote_wsl_dir}/{binary.name}",
+            "ask",
+            "--join-pack",
+            f"{remote_wsl_dir}/join-pack.json",
+            "--prompt",
+            prompt,
+            "--timeout",
+            timeout,
+            "--json",
+        ],
+        text=True,
+        capture_output=True,
+    )
+
+
+def _deploy_legacy_linux(client):
+    host = client["host"]
+    user = client.get("ssh_user", "ubuntu")
+    key = Path(os.environ.get("SSH_KEY") or client.get("ssh_key", "~/.ssh/tenet-nitro.pem")).expanduser()
     remote = f"{user}@{host}"
-    print(f"[deploy-clients] === {cid} @ {remote} ===", flush=True)
     subprocess.run(
         ["rsync", "-az", "-e", f"ssh -i {key} -o StrictHostKeyChecking=accept-new",
          "--exclude", ".git", "--exclude", "build", "--exclude", "dist", "--exclude", "deploy/eif-build",
@@ -82,13 +205,28 @@ export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
 cd ~/asker-bundle
 python3 -m por ask --join-pack join-pack.json --prompt {json.dumps(prompt)} --timeout {timeout} --json
 """
-    proc = subprocess.run(
+    return subprocess.run(
         ["ssh", "-i", str(key), "-o", "StrictHostKeyChecking=accept-new",
          remote, "bash", "-s"],
         input=cmd,
         text=True,
         capture_output=True,
     )
+
+
+for index, client in enumerate(cfg["clients"]):
+    host = client["host"]
+    cid = client["client_id"]
+    user = client.get("ssh_user", "ubuntu")
+    remote = f"{user}@{host}"
+    print(f"[deploy-clients] === {cid} @ {remote} ===", flush=True)
+    platform = str(client.get("platform", "linux"))
+    if platform == "windows-x86_64":
+        proc = _deploy_windows_native(client, cid)
+    elif client.get("wsl") or platform == "linux-x86_64":
+        proc = _deploy_windows_wsl(client, cid)
+    else:
+        proc = _deploy_legacy_linux(client)
     print(proc.stdout)
     if proc.stderr:
         print(proc.stderr, file=sys.stderr)
