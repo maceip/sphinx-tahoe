@@ -160,7 +160,6 @@ def _default_return_descriptor() -> dict[str, object]:
 def _default_expert_provider_request(plan: ExpertRoutePlan, fallback_provider: str) -> dict[str, object]:
     return {
         "provider": "expert_peer",
-        "selected_peer_id": plan.selected_peer_id,
         "fallback_provider": fallback_provider,
         "stream": True,
     }

@@ -13,7 +13,7 @@
         "port": @REACH_RELAY_PORT@
       },
       "packet": {
-        "payload_size": 1200,
+        "payload_size": 2048,
         "routing_size": 16,
         "max_hops": 5
       },

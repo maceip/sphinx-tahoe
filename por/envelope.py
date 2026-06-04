@@ -82,7 +82,23 @@ class PromptRequestEnvelope:
 
     def to_json(self) -> str:
         self.validate()
-        return json.dumps(asdict(self), sort_keys=True, separators=(",", ":"))
+        raw = asdict(self)
+        raw["intent_descriptor"] = {
+            key: value
+            for key, value in raw["intent_descriptor"].items()
+            if value is not None and key != "prompt_sha256"
+        }
+        raw["prompt_payload"] = {
+            key: value
+            for key, value in raw["prompt_payload"].items()
+            if key not in {"content_type", "encoding"}
+        }
+        if tuple(raw.get("proof_requirements") or ()) == (PROOF_NONE,):
+            raw.pop("proof_requirements", None)
+        raw.pop("client_extensions", None)
+        if not raw.get("privacy_warnings"):
+            raw.pop("privacy_warnings", None)
+        return json.dumps(raw, sort_keys=True, separators=(",", ":"))
 
     @classmethod
     def from_json(cls, data: str | bytes) -> "PromptRequestEnvelope":
@@ -129,4 +145,3 @@ class PromptRequestEnvelope:
             )
         if self.mode == VISIBLE_PROMPT_V1 and "text" not in self.prompt_payload:
             raise ValueError("visible prompt envelope requires prompt_payload.text")
-

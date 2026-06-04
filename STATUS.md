@@ -2,7 +2,7 @@
 
 **The only living document for planning, design, status, and TODO.**
 
-Last re-verified: **2026-06-04** (live current-alpha `por ask`, 20/20 repeat/load, LAN Windows/WSL clients, platform binaries, client-sim image, relay restart recovery, optional mailbox attempt)
+Last re-verified: **2026-06-04** (live current-alpha `por ask`, LAN Windows/WSL clients, WSL client-sim container, platform binaries, relay packet-size root cause, optional mailbox attempt)
 
 Superseded markdown: `~/fat/tenet-archive/` — do not treat as current.
 
@@ -66,7 +66,8 @@ Pytest is not live-network proof. The only accepted runtime proof for item **13*
 | Live experts | `alpha-seed-art` -> **`h4a30b46453eb7bd`** on `35.159.21.110`; `alpha-seed-security` -> **`h0a0a24b9434a966`** on `63.185.117.35`; both REACH-only through `3.121.69.82:4433`, `POR_MAX_TOKENS=256`, `POR_STREAM_CHUNK_REPEATS=3`, `POR_STREAM_DONE_REPEATS=4`, Anthropic key loaded from remote `~/.tenet/anthropic.env` |
 | TEE data | `deploy/data/beta/snapshot.json` + `mailbox.json` contain the two alpha handles above; handle + peer-address TTL **86400s**; `trusted_reachability_relays` in mailbox |
 | Live EIF | `matcher-alpha-20260604-041937` on Nitro; PCR0 `8fe23accaa7c4316...`, PCR1 `4b4d5b3661b3efc1...`, PCR2 `9c6fd0b66ae65f48...` |
-| Asker proof | Direct current-alpha `por ask` and `por enclave send` return real Claude text with `fallback_used: false`, `via_mailbox: false`. Current-alpha repeat/load passed `ok=20/20` at `2026-06-04T09:56:48Z` in `config/item-15-6-report.json`. Local LAN proofs now pass from macOS ARM64, native Windows x86_64, and Linux x86_64 under WSL mirrored networking. |
+| Packet size | Live relay and both live experts are running `payload_size: 2048`. Local `1200` configs caused relay `opaque_forward_drop` for 1479-byte client packets at `2026-06-04T19:52Z`; checked-in live configs/templates are now aligned to `2048`. |
+| Asker proof | Direct current-alpha `por ask` returns real Claude text with `fallback_used: false`, `via_mailbox: false`. Current-alpha repeat/load passed `ok=20/20` at `2026-06-04T09:56:48Z` in `config/item-15-6-report.json`. Local LAN proofs now pass from macOS ARM64, native Windows x86_64, and Linux x86_64 under WSL mirrored networking. |
 | Historical single-expert beta proof | Previous matcher `https://64a331764e39.aeon.site/` proved item 13 and item 15.6 single-expert load for `hb85f9afbccddfe5`. This is not the current live matcher and is no longer the active `config/item-15-6-report.json`. |
 | Item 14 | Matcher-only entry `deploy/entry-matcher.sh`; current EIF is alpha data baked into the matcher image |
 | Item 15 | Done for automated beta proof: two live experts, 20/20 current-alpha load, LAN Windows native + WSL/Linux clients, platform binaries, and product bundle smoke. Literal external-human run remains a manual ops exercise, not a code blocker. |
@@ -93,11 +94,13 @@ env PATH=/Users/mac/.cargo/bin:$PATH dist/asker-bundle/ask \
 
 Result at `2026-06-04T10:07Z`: `ok: true`, `fallback_used: false`, `selected_peer_id: h4a30b46453eb7bd`, real Claude response, `via_mailbox: false`.
 
-**Item 15 client proof (2026-06-04):** the earlier non-expert EC2 client **client-1** `63.180.171.11` (`i-0ffcb9c60b13f28da`) returned `ok: true`, then was terminated after the "no more EC2 askers" decision. Current `config/network-clients.json` points only at LAN machine `mac@192.168.0.180`: native Windows `dist/por-windows-x86_64.exe` returned `ok: true` from stripped `PATH=C:\Windows\System32;C:\Windows`; Linux `dist/por-linux-x86_64` returned `ok: true` under WSL mirrored networking. Linux Docker/Orb on this Mac passes `enclave check` with embedded `aw` but full `ask` times out with `no_done` because the relay UDP return does not reach the container/VM.
+**Root cause fixed (2026-06-04T20:00Z):** the live relay/expert processes were still configured for `payload_size: 2048`, while local client configs had drifted to `1200`. The relay log showed `opaque_forward_drop bytes=1479`, so the request was never forwarded to the expert. Aligning `config/live-mailbox-client.json`, `config/live-reach-relay.json`, templates, and matcher build defaults to `2048` restored native macOS and WSL sends.
+
+**Item 15 client proof (2026-06-04):** the earlier non-expert EC2 client **client-1** `63.180.171.11` (`i-0ffcb9c60b13f28da`) returned `ok: true`, then was terminated after the "no more EC2 askers" decision. Current `config/network-clients.json` points only at LAN machine `mac@192.168.0.180`: native Windows `dist/por-windows-x86_64.exe` returned `ok: true` from stripped `PATH=C:\Windows\System32;C:\Windows`; Linux `dist/por-linux-x86_64` returned `ok: true` under WSL mirrored networking. macOS `dist/por-macos-arm64` also returned `ok: true` at `2026-06-04T19:56Z`.
 
 **Current LAN deploy proof (2026-06-04):** `PROMPT=Monet TIMEOUT=120 ./scripts/deploy-network-clients.sh` passed both entries in `config/network-clients.json`: `windows-native-lan 192.168.0.180 ok=True` and `windows-wsl-linux-lan 192.168.0.180 ok=True`.
 
-**Client simulation image (2026-06-04):** `./scripts/build-client-sim-image.sh` built `tenet-client-sim:latest` as `linux/amd64` from a temporary no-secret Docker context. The image includes `dist/por-linux-x86_64`, public live pins, generated fake session/log context, and Claude Code `2.1.162`; `MODE=agent-smoke ./scripts/run-client-sim.sh` returned `2.1.162 (Claude Code)`. `docker run --rm --platform linux/amd64 tenet-client-sim:latest /usr/local/bin/por enclave check --config /etc/por/live-enclave.json --json` returned `ok: true` and pinned SPKI `d5ef2a...`. Full Docker `ask` still times out with `no_done` on this Mac because the relay UDP return does not reach the container.
+**Client simulation image (2026-06-04):** WSL Docker on `mac@192.168.0.180` rebuilt `tenet-client-sim:latest` from the corrected `dist/por-linux-x86_64` and `2048` live config. `REBUILD=1 PROMPT=Monet POR_TIMEOUT=120 ./scripts/run-client-sim-wsl.sh` returned `ok: true`, `fallback_used: false`, real Claude text, selected `h4a30b46453eb7bd`, `via_mailbox: false`. Mac Docker/Orb still times out with `no_done`; relay logs at `2026-06-04T19:59Z` show repeated `opaque_forward_return bytes=2048` to `95.91.240.5:18793`, so that remaining failure is Docker/Orb UDP return delivery, not relay/expert/matcher.
 
 `via_mailbox: false` is correct for the current matcher-only live path: the TEE returns the handle/peer route and the client sends directly through the REACH relay. `python3 -m por ask --via-mailbox ...` was attempted on `2026-06-04` and failed with `TimeoutError ... (no_done)`. Leave it off unless `/v1/deliver` UDP return delivery is deliberately fixed and the EIF is redeployed.
 
@@ -110,7 +113,7 @@ Result at `2026-06-04T10:07Z`: `ok: true`, `fallback_used: false`, `selected_pee
 | Literal second human / independent client | **15** | Done for local beta: LAN Windows laptop `mac@192.168.0.180` passed native Windows and WSL/Linux sends. The earlier EC2 client proof is historical and that instance is terminated. |
 | Alpha repeat/load stability | **15** | Done for current alpha: `config/item-15-6-report.json` is `ok=20/20`, generated `2026-06-04T09:56:48Z`. |
 | REACH restart recovery | **15** | Done for current alpha: relay was restarted and `/tmp/por-reach-records` rebuilt both expert handles by `2026-06-04T09:54Z` without manual expert restart. |
-| Product packaging / outsider UX | — | Done for beta binaries: `dist/por-macos-arm64`, `dist/por-windows-x86_64.exe`, and `dist/por-linux-x86_64` are built with embedded `aw`. macOS and native Windows full sends pass; Linux full send passes under WSL mirrored networking. Docker/Orb Linux on this Mac remains a NAT/UDP-return limitation. |
+| Product packaging / outsider UX | — | Done for beta binaries: `dist/por-macos-arm64`, `dist/por-windows-x86_64.exe`, and `dist/por-linux-x86_64` are built with embedded `aw`. macOS, native Windows, WSL/Linux, and WSL Docker client-sim full sends pass. Docker/Orb Linux on this Mac remains a NAT/UDP-return limitation. |
 | Optional TEE delivery | — | Attempted and failed with `no_done`; keep `via_mailbox: false`. This is optional unless product scope changes to require TEE `/v1/deliver` delivery. |
 
 ## Item 15 Finish List

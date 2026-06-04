@@ -124,7 +124,7 @@ def build_provider(fleet_path: Path) -> PlainEnclavePlaneDiscoveryProvider:
     expert_port = int(fleet["expert_port"])
     mailbox_port = int(fleet["mailbox_port"])
     relay_secret = bytes.fromhex(str(fleet["relay_secret_hex"]))
-    packet = {"payload_size": 1200, "routing_size": 16, "max_hops": 5}
+    packet = {"payload_size": 2048, "routing_size": 16, "max_hops": 5}
 
     relay_sock = _bind_udp(relay_host, relay_port)
     expert_sock = _bind_udp(expert_host, expert_port)
