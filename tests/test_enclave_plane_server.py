@@ -6,7 +6,7 @@ from urllib.request import urlopen
 
 from por.directory import DiscoveryRequest
 from por.enclave_plane import PlainEnclavePlaneHttpClient
-from por.enclave_plane_server import serve_enclave_plane
+from por.enclave_plane_server import build_provider_from_files, serve_enclave_plane
 from por.expert_route import RouteIntent
 from por.matcher import (
     PLAIN_MATCHER_V1,
@@ -21,6 +21,40 @@ def _serve(provider):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server
+
+
+def test_build_provider_from_files_enables_mailbox_delivery(tmp_path):
+    mailbox_path = tmp_path / "mailbox.json"
+    mailbox_path.write_text(
+        json.dumps(
+            {
+                "version": "por.enclave_mailbox_file.v1",
+                "trusted_reachability_relays": [
+                    {
+                        "relay_id": "relay-1",
+                        "host": "203.0.113.1",
+                        "port": 4433,
+                        "verify_key": "ab" * 32,
+                    }
+                ],
+                "entries": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    snapshot_path = tmp_path / "snapshot.json"
+    snapshot_path.write_text(
+        json.dumps(
+            {
+                "version": "por.directory_snapshot.v1",
+                "generated_at": "2026-01-01T00:00:00+00:00",
+                "records": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    provider = build_provider_from_files(snapshot=snapshot_path, mailbox=mailbox_path)
+    assert provider.mailbox_delivery_enabled is True
 
 
 def test_server_serves_healthz_and_empty_match():

@@ -64,8 +64,8 @@ Pytest is not live-network proof. The only accepted runtime proof for item **13*
 | Nitro parent | `3.121.69.82`, instance `tenet-matcher-nitro` (`i-069a473107424b7df`, eu-central-1), SSH `~/.ssh/tenet-nitro.pem` |
 | Reach relay (item 11) | UDP **4433** on `3.121.69.82`; config `config/live-reach-relay.json`; process `python3 -m por run --config config/live-reach-relay.json --node-id reach-beta-1`; return-session + stale-address cleanup deployed |
 | Expert (item 12) | Laptop expert **`hb85f9afbccddfe5`**, `config/expert-laptop.json`, screen `por-expert`, Fry-core `ANTHROPIC_API_KEY`, `claude-sonnet-4-6`, `POR_MAX_TOKENS=128`, REACH heartbeats OK to relay; **UPnP failed** on Mac |
-| TEE beta data | `deploy/data/beta/snapshot.json` + `deploy/data/beta/mailbox.json` handle **`hb85f9afbccddfe5`** (matches laptop expert); peer-address TTL **86400s** |
-| Asker (item 13) | `por enclave send` **proved 2026-06-04**: `ok: true`, selected `hb85f9afbccddfe5`, real Claude text, `fallback_used: false`, `via_mailbox: false` |
+| TEE beta data | `deploy/data/beta/snapshot.json` + `mailbox.json` handle **`hb85f9afbccddfe5`**; handle + peer-address TTL **86400s**; `trusted_reachability_relays` in mailbox (EIF redeploy needed to pick up on Nitro) |
+| Asker (item 13) | `por enclave send` **proved 2026-06-04**: `ok: true`, selected `hb85f9afbccddfe5`, real Claude text, `fallback_used: false`, `via_mailbox: false`; local `por ask` join-pack smoke also passed after clean relay/expert restart |
 | Item 14 | Matcher-only entry `deploy/entry-matcher.sh`; EIF names `matcher-gate-b` / `matcher-beta*` on Nitro |
 | Item 15 | Not started: second human + repeat/load beta notes still open |
 | **Alpha network** | Required for item **15** scale-out, not required for the current single-expert item **13** proof. Population materialized locally (`config/alpha-population.json`, **9** experts from agent logs + seeds). **Not** deployed at scale on separate nodes yet. Code: `por/alpha_experts.py`, `scripts/alpha/materialize-experts.py` |
@@ -82,6 +82,18 @@ env PATH=/Users/mac/.cargo/bin:$PATH python3 -m por enclave send \
 
 Result: `ok: true`, `selected_peer_id: hb85f9afbccddfe5`, real Claude response, `via_mailbox: false`.
 
+Last product asker smoke command:
+
+```bash
+./scripts/render-join-pack.sh
+env PATH=/Users/mac/.cargo/bin:$PATH python3 -m por ask \
+  --join-pack config/join-pack.json \
+  --prompt 'In one sentence, name one Monet painting technique.' \
+  --timeout 120 --json
+```
+
+Result at `2026-06-04T02:00Z`: `ok: true`, `fallback_used: false`, `selected_peer_id: hb85f9afbccddfe5`, real Claude response, `via_mailbox: false`. This is a local smoke proof only; item **15** still requires a second human and repeat/load runs.
+
 `via_mailbox: false` is correct for the current matcher-only live path: the TEE returns the handle/peer route and the client sends directly through the REACH relay. `via_mailbox: true` applies only if TEE `/v1/deliver` datagram delivery is wired into the live image; that is not the current beta path.
 
 **Do not cite pytest as proof the live network works.**
@@ -94,7 +106,34 @@ Result: `ok: true`, `selected_peer_id: hb85f9afbccddfe5`, real Claude response, 
 | Repeat sends and load stability | **15** | Open; current single send works, but do not claim sustained beta stability yet |
 | Larger responses | **15** | Open; current expert is capped with `POR_MAX_TOKENS=128` |
 | Multi-node Alpha deployment | **15** | Open; local population exists, separate-node deployment not proven |
-| Dirty-tree consolidation | — | Open; keep legitimate beta files, exclude secrets, retire stale docs/scripts deliberately |
+| Live EIF/data freshness | **15** | Open when `deploy/data/beta/*` or matcher delivery wiring changes; redeploy EIF and update pins only if Value X/SPKI/URL change |
+| Dirty-tree consolidation | — | Open; review before commit, exclude secrets, retire stale docs/scripts deliberately |
+
+## Item 15 Finish List
+
+These are the only item **15** finish-line blockers for running test nodes:
+
+| # | Work | Done when |
+|---|------|-----------|
+| 15.1 | Lock current live path | Matcher EIF is redeployed if beta data or delivery wiring changed; `por enclave check` passes; three consecutive `por enclave send` runs pass with `ok: true`, `fallback_used: false`, real provider text, and the expected selected handle |
+| 15.2 | Relay/expert runtime stability | Relay on `3.121.69.82` is confirmed to run the reviewed relay code; exactly one expert process exists for `hb85f9afbccddfe5`; a flaky send produces captured relay + expert logs before any docs changes |
+| 15.3 | NAT decision | Current Mac expert remains **REACH-only** and this is documented as truth, or the expert is moved to a public/separately hosted VM. Do not straddle both as the live proof path |
+| 15.4 | TEE data alignment | `config/expert-laptop.json`, `deploy/data/beta/snapshot.json`, `deploy/data/beta/mailbox.json`, and the live EIF contain one handle, one KEM public key, and one signed `peer_address` chain for the expert being tested |
+| 15.5 | Second human asker | A second human runs the asker command from another machine and gets `ok: true` with real expert text; record timestamp, selected handle prefix, live URL, SPKI, `aw` SHA, and relay host in this file |
+| 15.6 | Repeat/load sanity | Run 10 repeated sends with the same prompt and 10 sends with different prompts; note any timeout/failure and fix transport before adding more users |
+| 15.7 | Larger answer sanity | Raise beyond `POR_MAX_TOKENS=128` only after 15.6 is stable; then prove at least one longer/multi-packet answer |
+| 15.8 | Alpha/multi-expert scale-out | Materialize Alpha, deploy experts on separate hosts, rebuild TEE data with N manifests/mailbox entries, redeploy EIF, and prove send selects at least two distinct peer IDs |
+| 15.9 | Join pack / outsider handoff | Produce one public join bundle from config, not prose; it must include matcher URL/pins and relay host/port/verify key without secrets |
+
+Do **not** make these item **15** blockers:
+
+| Work | Status |
+|------|--------|
+| `via_mailbox: true` | Optional harder path only. Direct relay send is the current product beta path; `via_mailbox: false` remains expected unless live TEE `/v1/deliver` is deliberately enabled |
+| Renaming `gate-b` files | Cosmetic compatibility cleanup only |
+| PyInstaller / CI binary handoff | Product packaging; useful for outsiders, not required to prove the network works |
+| `por run` product entrypoint | Product UX cleanup; `por enclave send` remains the accepted live proof command for now |
+| Blanket commit of dirty tree | Not accepted. Review each dirty change; especially relay client-session semantics before committing |
 
 ---
 
@@ -237,9 +276,20 @@ EXPERT_NODE_COUNT=3 ./scripts/alpha/run-alpha-network.sh
 
 Topology: `config/gate-b-topology.json.example` — experts must not share the relay host IP.
 
-### Item 15 — human beta
+### Item 15 — human beta (second asker)
 
 Second human on asker; record URL, SPKI, `aw` SHA, relay host, handle prefix in **this file**. No asker↔expert direct IP.
+
+Canonical item **13** operator proof command while item **15** remains open:
+
+```bash
+python3 -m por enclave send --config config/live-enclave.json \
+  --mailbox-config config/live-mailbox-client.json \
+  --prompt "In one sentence, name one Monet painting technique." \
+  --timeout 120 --json
+```
+
+Optional join-pack / `por ask` work is locally smoke-proven and useful for outsider handoff, but item **15** is not accepted as done until a second human actually runs it successfully.
 
 ### Matcher live (item 9) redeploy
 
@@ -272,6 +322,8 @@ DNS: `{value_x[0:12]}.aeon.site` → Elastic IP. Redeploy **always** updates pin
 | `./scripts/demo-mailbox-e2e.sh` | Local harness | Anything live |
 | `./scripts/gate-b/run-protocol-checks.sh` | Loopback protocol | Items **11–15** |
 | `./scripts/alpha/run-alpha-network.sh` | Alpha + multi-node ops | **13** unless send succeeds |
+| `por ask` / `./scripts/package-asker-bundle.sh` | Product asker join and public bundle | Not accepted as item **15** proof until second human run succeeds |
+| `./scripts/network-beta.sh` | Wrapper for `scripts/gate-b/run-network.sh` | Multi-node deploy |
 
 Pytest: default excludes `live`; tiers in `scripts/test.sh`.
 

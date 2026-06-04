@@ -108,8 +108,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     enclave_send.add_argument("--prompt", required=True)
     enclave_send.add_argument("--expertise")
-    enclave_send.add_argument("--timeout", type=float, default=30.0)
+    enclave_send.add_argument("--timeout", type=float, default=120.0)
     enclave_send.add_argument("--json", action="store_true", help="Print JSON result")
+
+    ask = sub.add_parser(
+        "ask",
+        help="Ask the live network using config/join-pack.json (product asker path).",
+    )
+    ask.add_argument(
+        "--join-pack",
+        default="config/join-pack.json",
+        help="por.join_pack.v1 JSON (run ./scripts/render-join-pack.sh to refresh)",
+    )
+    ask.add_argument("--prompt", required=True)
+    ask.add_argument("--expertise")
+    ask.add_argument("--timeout", type=float, default=120.0)
+    ask.add_argument("--json", action="store_true", help="Print JSON result")
 
     return parser
 
@@ -152,6 +166,9 @@ def dispatch(args: argparse.Namespace) -> int:
 
     if args.command == "enclave":
         return _run_enclave_command(args)
+
+    if args.command == "ask":
+        return _run_ask_command(args)
 
     raise ValueError(f"unknown command: {args.command}")
 
@@ -232,6 +249,30 @@ def _run_enclave_command(args: argparse.Namespace) -> int:
         return 0 if result["ok"] else 1
 
     raise ValueError(f"unknown enclave command: {args.enclave_command}")
+
+
+def _run_ask_command(args: argparse.Namespace) -> int:
+    import json
+
+    from por.join_pack import JoinPack
+    from por.live_client import LiveMailboxClientConfig, send_live_enclave_summary
+    from por.live_enclave import LiveEnclaveConfig
+
+    pack = JoinPack.load(args.join_pack)
+    enclave = LiveEnclaveConfig.from_dict(pack.matcher)
+    mailbox = LiveMailboxClientConfig.load(pack.asker_mailbox_config)
+    result = send_live_enclave_summary(
+        enclave,
+        mailbox,
+        prompt=args.prompt,
+        requested_expertise=args.expertise,
+        timeout=args.timeout,
+    )
+    if args.json:
+        print(json.dumps(result, indent=2, sort_keys=True))
+    else:
+        print(result["response_text"])
+    return 0 if result["ok"] else 1
 
 
 def _run_from_daemon_config(config_path: str, *, node_id: str | None) -> int:

@@ -27,6 +27,9 @@ def test_cli_parser_and_legacy_entrypoints():
     with pytest.raises(SystemExit):
         parser.parse_args([])
     assert all(callable(fn) for fn in (legacy_relay_main, legacy_expert_main, legacy_client_main))
+    args = parser.parse_args(["ask", "--prompt", "hello"])
+    assert args.command == "ask"
+    assert args.join_pack == "config/join-pack.json"
 
 
 @pytest.mark.parametrize(

@@ -6,9 +6,9 @@
         "version": "por.opaque_handle_record.v1",
         "handle": "hb85f9afbccddfe5",
         "mailbox_id": "mailbox-beta",
-        "issued_at": 1780531681.137627,
-        "expires_at": 1780531951.137627,
-        "signature": "769fb142041e1aa851fbcdb9c2a7ddbd3aee5429d3d55b21131e11facb83ac1b"
+        "issued_at": 1780537513.269074,
+        "expires_at": 1780623913.269074,
+        "signature": "ed3f2c9396b03e1a047c0c8759aefc2e69d409d3f0675a221dc12a81c9c14b73"
       },
       "routing_kem_pk_hex": "bdb6daec3ffe22dc94d00be065bb5b38c21479477485e813c26f9a9d99eb976f",
       "peer_address": {
@@ -38,6 +38,14 @@
         },
         "signature": "852da4e4328770a5b9177759bbb9c2a386c0b7ae712da6ec248696b5cd3f1da3"
       }
+    }
+  ],
+  "trusted_reachability_relays": [
+    {
+      "relay_id": "reach-beta-1",
+      "host": "3.121.69.82",
+      "port": 4433,
+      "verify_key": "40cb87400feb91faffed67b3497d86987b0bf01e96da2ff06f508b2420e68fc3"
     }
   ]
 }

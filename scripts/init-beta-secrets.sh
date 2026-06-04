@@ -49,4 +49,6 @@ out.write_text(
 PY
 
 echo "[init-beta-secrets] wrote $OUT"
-echo "[init-beta-secrets] set REACH_RELAY_HOST then: ./scripts/render-beta-config.sh"
+echo "[init-beta-secrets] set REACH_RELAY_HOST then:"
+echo "  ./scripts/render-beta-config.sh"
+echo "  ./scripts/render-join-pack.sh"

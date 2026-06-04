@@ -15,16 +15,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import socket
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
+from .config import PeerAddressConfig, TrustedReachabilityRelayConfig
 from .directory import load_public_snapshot_directory
 from .enclave_plane import make_plain_enclave_plane_handler
 from .handles import opaque_handle_record_from_dict
 from .matcher import (
     PlainEnclavePlaneDiscoveryProvider,
     PlainMailbox,
+    PlainMailboxDelivery,
     PlainMatcher,
 )
 
@@ -72,7 +76,54 @@ def build_provider_from_files(
             routing_kem_pk_hex=str(entry["routing_kem_pk_hex"]),
             peer_address=entry["peer_address"],
         )
-    return PlainEnclavePlaneDiscoveryProvider(matcher, box)
+    delivery = _mailbox_delivery_from_mailbox_file(raw, box)
+    return PlainEnclavePlaneDiscoveryProvider(matcher, box, delivery)
+
+
+def _trusted_relays_from_mailbox_raw(
+    raw: Mapping[str, object],
+) -> tuple[TrustedReachabilityRelayConfig, ...]:
+    relays_raw = raw.get("trusted_reachability_relays")
+    if isinstance(relays_raw, list) and relays_raw:
+        relays = []
+        for item in relays_raw:
+            if not isinstance(item, dict):
+                raise TypeError("trusted_reachability_relays entries must be objects")
+            relays.append(TrustedReachabilityRelayConfig.from_dict(item))
+        return tuple(relays)
+    if relays_raw not in (None, []):
+        raise TypeError("trusted_reachability_relays must be an array")
+    relay_id = os.environ.get("POR_TRUSTED_RELAY_ID", "reach-beta-1")
+    host = os.environ.get("POR_TRUSTED_RELAY_HOST", "")
+    port = int(os.environ.get("POR_TRUSTED_RELAY_PORT", "4433"))
+    verify_key = os.environ.get("POR_TRUSTED_RELAY_VERIFY_KEY_HEX", "")
+    if host and verify_key:
+        return (
+            TrustedReachabilityRelayConfig(
+                relay_id=relay_id,
+                host=host,
+                port=port,
+                verify_key=verify_key,
+            ),
+        )
+    return ()
+
+
+def _mailbox_delivery_from_mailbox_file(
+    raw: Mapping[str, object],
+    mailbox: PlainMailbox,
+) -> PlainMailboxDelivery | None:
+    trusted = _trusted_relays_from_mailbox_raw(raw)
+    if not trusted:
+        return None
+    mailbox_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    mailbox_sock.bind(("0.0.0.0", 0))
+    return PlainMailboxDelivery(
+        mailbox,
+        mailbox_sock=mailbox_sock,
+        peer_address_config=PeerAddressConfig(enabled=True),
+        trusted_reachability_relays=trusted,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

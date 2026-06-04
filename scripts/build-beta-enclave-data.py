@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from dataclasses import asdict
@@ -14,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from por.directory import DIRECTORY_SNAPSHOT_VERSION, PeerRecord
 from por.enclave_plane_server import MAILBOX_FILE_VERSION
 from por.handles import (
-    DEFAULT_HANDLE_TTL_SECONDS,
     OPAQUE_HANDLE_RECORD_VERSION,
     OpaqueHandle,
     OpaqueHandleIssuer,
@@ -48,14 +48,20 @@ def main() -> int:
             handle=args.handle_token,
             mailbox_id="mailbox-beta",
             issued_at=issued_at,
-            expires_at=issued_at + DEFAULT_HANDLE_TTL_SECONDS,
+            expires_at=issued_at
+            + int(os.environ.get("POR_HANDLE_TTL_SECONDS", "86400")),
             signature="",
         )
         record = OpaqueHandleRecord(
             **{**asdict(unsigned), "signature": issuer._record_signature(unsigned)}
         )
     else:
-        record = issuer.record(peer_id=peer_id, manifest_digest=manifest.index_digest, mailbox_id="mailbox-beta")
+        record = issuer.record(
+            peer_id=peer_id,
+            manifest_digest=manifest.index_digest,
+            mailbox_id="mailbox-beta",
+            ttl_seconds=int(os.environ.get("POR_HANDLE_TTL_SECONDS", "86400")),
+        )
     peer_addr = json.loads(Path(args.peer_address_json).read_text(encoding="utf-8"))
 
     out = Path(args.out_dir)
@@ -71,8 +77,12 @@ def main() -> int:
             }
         ],
     }
-    (out / "snapshot.json").write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
+    (out / "snapshot.json").write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
+    relay_id = os.environ.get("REACH_RELAY_ID", "reach-beta-1")
+    relay_host = os.environ.get("REACH_RELAY_HOST", "")
+    relay_port = int(os.environ.get("REACH_RELAY_PORT", "4433"))
+    relay_verify = os.environ.get("RELAY_VERIFY_KEY_HEX", "")
     mailbox = {
         "version": MAILBOX_FILE_VERSION,
         "entries": [
@@ -83,7 +93,16 @@ def main() -> int:
             }
         ],
     }
-    (out / "mailbox.json").write_text(json.dumps(mailbox, indent=2), encoding="utf-8")
+    if relay_host and relay_verify:
+        mailbox["trusted_reachability_relays"] = [
+            {
+                "relay_id": relay_id,
+                "host": relay_host,
+                "port": relay_port,
+                "verify_key": relay_verify,
+            }
+        ]
+    (out / "mailbox.json").write_text(json.dumps(mailbox, indent=2) + "\n", encoding="utf-8")
     token = record.handle.token if hasattr(record.handle, "token") else record.handle
     print(f"[beta-data] peer_id={peer_id} handle={token}")
     print(f"[beta-data] wrote {out}/snapshot.json {out}/mailbox.json")

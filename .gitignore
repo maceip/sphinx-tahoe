@@ -138,5 +138,4 @@ config/expert-laptop.json
 config/expert-laptop.json.bak
 peer-beta-test*.json
 peer000000*.json
-h82e37f663ae5ec7.json
-h85f6eb777d8fe11.json
+h[0-9a-f]*.json

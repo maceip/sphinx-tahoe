@@ -52,7 +52,7 @@ Full topology, queue (**items 1–15**), live URLs, and ops: [`STATUS.md`](STATU
 
 ## Quick start
 
-> CLI package name is still `por`; rename to `tenet` is pending.
+> CLI package name is still `por`; release binaries are also built as `tenet-<platform>` (same binary).
 
 ```bash
 pip install -r requirements.txt
@@ -60,14 +60,35 @@ make smoke
 python3 -m por --help
 ```
 
-Live matcher check (items 4, 5, 9):
+### Join the live network (asker)
+
+There is **no separate public directory snapshot URL** for beta joiners. Peer manifests live in the Nitro EIF; discovery is attested **`POST /v1/match`** on the live matcher (see [`config/live-enclave.json`](config/live-enclave.json)).
+
+```bash
+./scripts/render-join-pack.sh          # writes config/join-pack.json (public pins)
+python3 -m por ask --prompt "In one sentence, name one Monet painting technique."
+# or: ./dist/tenet-macos-arm64 ask --join-pack config/join-pack.json --prompt "..."
+```
+
+Hand a second human: `./scripts/package-asker-bundle.sh` → `dist/asker-bundle.zip` (join pack + mailbox client pins).
+
+Ops-only attestation tools: `por enclave check|match|send` — see [`STATUS.md`](STATUS.md).
+
+### Expert
+
+```bash
+./scripts/expert-onboard.sh /path/to/your/corpus
+# then start the printed por run command; export peer_address; rebuild TEE data
+```
+
+### Verify matcher (items 4, 5, 9)
 
 ```bash
 ./scripts/verify-live.sh
 python3 -m por enclave match --prompt "Tell me about Monet"
 ```
 
-Everything else (expert, relay, Alpha population, item 13 send): [`STATUS.md`](STATUS.md) **Operations**.
+Full ops (relay, EIF redeploy, item 15): [`STATUS.md`](STATUS.md) **Operations**.
 
 ## Project layout
 
@@ -82,8 +103,11 @@ examples/            Sample configs
 ## Building a release binary
 
 ```bash
-python3 scripts/build_binary.py
+python3 scripts/build_binary.py --also-name tenet
+# dist/por-<platform> and dist/tenet-<platform> (identical)
 ```
+
+CI uploads both names per platform; git tags `v*` publish a GitHub release with `SHA256SUMS`.
 
 ## Testing
 

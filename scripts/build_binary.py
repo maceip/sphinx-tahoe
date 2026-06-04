@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import os
 import platform
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -46,6 +47,14 @@ def main(argv: list[str] | None = None) -> int:
         "--no-smoke",
         action="store_true",
         help="Skip running the produced binary with --help.",
+    )
+    parser.add_argument(
+        "--also-name",
+        default="",
+        help=(
+            "Copy the built binary to dist/<also-name>. A bare prefix like "
+            "'tenet' expands to tenet-<current-platform>."
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -110,6 +119,13 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"expected artifact was not created: {artifact}")
     if not args.no_smoke:
         _run([str(artifact), "--help"], root)
+    if args.also_name:
+        alias_name = args.also_name
+        if "-" not in alias_name:
+            alias_name = f"{alias_name}-{_platform_tag()}"
+        alias = dist_dir / _binary_filename(alias_name)
+        shutil.copy2(artifact, alias)
+        print(f"Also built {alias}")
     print(f"Built {artifact}")
     return 0
 
