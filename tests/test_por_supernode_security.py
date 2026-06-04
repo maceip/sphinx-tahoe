@@ -29,7 +29,7 @@ def test_reach_confirm_from_wrong_endpoint_rejected():
     assert daemon.forwarder.lookup_peer_addr("peer-a") is None
 
 
-def test_opaque_return_uses_latest_client_session_for_peer_addr():
+def test_opaque_return_routes_by_circuit_session_not_latest_peer_client():
     cluster = static_wire_cluster(("relay-1", "relay"))
     runtime = WireNodeRuntime(cluster, "relay-1", role="relay")
     daemon = SupernodeDaemon(runtime, relay_secret=b"y" * 32)
@@ -40,12 +40,31 @@ def test_opaque_return_uses_latest_client_session_for_peer_addr():
     client_a = ("198.51.100.9", 6000)
     client_b = ("198.51.100.10", 6001)
     daemon.forwarder.register_peer("peer-a", peer_addr)
-    assert daemon.forward_to_peer("peer-a", b"\x00fwd", client_a) is True
-    assert daemon.forward_to_peer("peer-a", b"\x00other", client_b) is True
+    session_a = "01" * 16
+    session_b = "02" * 16
+    assert (
+        daemon.forward_to_peer(
+            "peer-a",
+            b"\x00fwd",
+            client_a,
+            return_session=session_a,
+        )
+        is True
+    )
+    assert (
+        daemon.forward_to_peer(
+            "peer-a",
+            b"\x00other",
+            client_b,
+            return_session=session_b,
+        )
+        is True
+    )
     rec.sent.clear()
-    daemon._handle_opaque(b"\x01reply", peer_addr)
+    daemon._handle_opaque(b"\x01" + bytes.fromhex(session_a) + b"reply-a", peer_addr)
+    daemon._handle_opaque(b"\x01" + bytes.fromhex(session_b) + b"reply-b", peer_addr)
     destinations = {addr for _data, addr in rec.sent}
-    assert destinations == {client_b}
+    assert destinations == {client_a, client_b}
 
 
 def test_supernode_cluster_uses_configured_relay_secret(monkeypatch):

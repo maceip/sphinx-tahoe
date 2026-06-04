@@ -19,6 +19,7 @@ import json
 import os
 import socket
 import time
+from dataclasses import dataclass
 from os import urandom
 from pathlib import Path
 from typing import Sequence
@@ -37,6 +38,15 @@ from por.reach_wire import (
     encode_challenge,
 )
 from por.supernode import SupernodeForwarder
+
+
+@dataclass(frozen=True)
+class _ClientSession:
+    client_addr: tuple[str, int]
+    peer_id: str
+    peer_addr: tuple[str, int]
+    created_at: float
+    expires_at: float
 
 
 class SupernodeDaemon:
@@ -65,7 +75,15 @@ class SupernodeDaemon:
             ttl_seconds=ttl,
         )
         self.forwarder = SupernodeForwarder(self.relay, ttl=ttl)
-        self._client_sessions: dict[str, tuple[str, int]] = {}
+        self._client_sessions: dict[str, _ClientSession] = {}
+        self._client_session_ttl = max(
+            30.0,
+            float(os.environ.get("POR_CLIENT_SESSION_TTL", "600")),
+        )
+        self._client_session_max = max(
+            16,
+            int(os.environ.get("POR_CLIENT_SESSION_MAX", "4096")),
+        )
         self._sock: socket.socket | None = None
         self._last_purge = time.time()
         self._export_dir = Path(export_dir or os.environ.get("POR_REACH_EXPORT_DIR", "") or "")
@@ -148,6 +166,8 @@ class SupernodeDaemon:
         peer_id: str,
         data: bytes,
         client_addr: tuple[str, int],
+        *,
+        return_session: str | None = None,
     ) -> bool:
         peer_addr = self.forwarder.lookup_peer_addr(peer_id)
         if peer_addr is None or self._sock is None:
@@ -157,8 +177,11 @@ class SupernodeDaemon:
                 fields={"peer_id": peer_id, "has_socket": self._sock is not None},
             )
             return False
-        session_key = f"{peer_id}:{peer_addr[0]}:{peer_addr[1]}"
-        self._client_sessions[session_key] = client_addr
+        session = self._new_client_session(peer_id, peer_addr, client_addr)
+        peer_session_key = self._peer_session_key(peer_id, peer_addr)
+        self._store_client_session(peer_session_key, session)
+        if return_session is not None:
+            self._store_client_session(self._cid_session_key(return_session), session)
         self._sock.sendto(data, peer_addr)
         self.runtime._log(
             "opaque_forward_to_peer",
@@ -167,6 +190,9 @@ class SupernodeDaemon:
                 "bytes": len(data),
                 "peer_host": peer_addr[0],
                 "peer_port": peer_addr[1],
+                "client_host": client_addr[0],
+                "client_port": client_addr[1],
+                "return_session": (return_session or "")[:16],
             },
         )
         return True
@@ -175,8 +201,19 @@ class SupernodeDaemon:
         peer_id = self.forwarder.lookup_peer_by_addr(peer_addr)
         if peer_id is None:
             return False
-        session_key = f"{peer_id}:{peer_addr[0]}:{peer_addr[1]}"
-        client_addr = self._client_sessions.get(session_key)
+        client_addr = None
+        now = time.time()
+        return_session = self._return_session_from_datagram(data)
+        if return_session is not None:
+            client_addr = self._lookup_client_session(
+                self._cid_session_key(return_session),
+                now,
+            )
+        if client_addr is None:
+            client_addr = self._lookup_client_session(
+                self._peer_session_key(peer_id, peer_addr),
+                now,
+            )
         if client_addr is None or self._sock is None:
             return False
         self._sock.sendto(data, client_addr)
@@ -187,15 +224,79 @@ class SupernodeDaemon:
                 "bytes": len(data),
                 "peer_host": peer_addr[0],
                 "peer_port": peer_addr[1],
+                "client_host": client_addr[0],
+                "client_port": client_addr[1],
+                "return_session": (return_session or "")[:16],
             },
         )
         return True
+
+    @staticmethod
+    def _peer_session_key(peer_id: str, peer_addr: tuple[str, int]) -> str:
+        return f"peer:{peer_id}:{peer_addr[0]}:{peer_addr[1]}"
+
+    @staticmethod
+    def _cid_session_key(return_session: str) -> str:
+        return f"cid:{return_session}"
+
+    @staticmethod
+    def _return_session_from_datagram(data: bytes) -> str | None:
+        if len(data) < 17 or data[:1] != b"\x01":
+            return None
+        return data[1:17].hex()
+
+    def _new_client_session(
+        self,
+        peer_id: str,
+        peer_addr: tuple[str, int],
+        client_addr: tuple[str, int],
+    ) -> _ClientSession:
+        now = time.time()
+        return _ClientSession(
+            client_addr=client_addr,
+            peer_id=peer_id,
+            peer_addr=peer_addr,
+            created_at=now,
+            expires_at=now + self._client_session_ttl,
+        )
+
+    def _store_client_session(self, key: str, session: _ClientSession) -> None:
+        self._client_sessions[key] = session
+        if len(self._client_sessions) <= self._client_session_max:
+            return
+        self._purge_client_sessions(now=time.time())
+        while len(self._client_sessions) > self._client_session_max:
+            oldest = min(
+                self._client_sessions,
+                key=lambda item: self._client_sessions[item].created_at,
+            )
+            self._client_sessions.pop(oldest, None)
+
+    def _lookup_client_session(self, key: str, now: float) -> tuple[str, int] | None:
+        session = self._client_sessions.get(key)
+        if session is None:
+            return None
+        if now >= session.expires_at:
+            self._client_sessions.pop(key, None)
+            return None
+        return session.client_addr
+
+    def _purge_client_sessions(self, *, now: float) -> int:
+        expired = [
+            key
+            for key, session in self._client_sessions.items()
+            if now >= session.expires_at
+        ]
+        for key in expired:
+            self._client_sessions.pop(key, None)
+        return len(expired)
 
     def purge_if_due(self, interval: float = 60.0) -> None:
         now = time.time()
         if now - self._last_purge >= interval:
             self.forwarder.purge_expired()
             self.relay.purge_expired()
+            self._purge_client_sessions(now=now)
             self._last_purge = now
 
     def _export_peer_address(self, peer_id: str, record: dict[str, object]) -> None:

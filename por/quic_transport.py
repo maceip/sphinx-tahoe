@@ -226,9 +226,15 @@ class _DatagramProtocol(QuicConnectionProtocol):
                 ):
                     return
             if self.datagram_handler is not None:
-                response = self.datagram_handler(data)
-                if response is not None:
-                    self.send_datagram(response)
+                if self._connection_tracker is not None:
+                    self._connection_tracker.enter_handler(self)
+                try:
+                    response = self.datagram_handler(data)
+                    if response is not None:
+                        self.send_datagram(response)
+                finally:
+                    if self._connection_tracker is not None:
+                        self._connection_tracker.exit_handler(self)
 
     def send_datagram(self, data: bytes) -> None:
         self._quic.send_datagram_frame(data)
@@ -245,12 +251,47 @@ class ConnectionTracker:
 
     def __init__(self) -> None:
         self._protocols: set[_DatagramProtocol] = set()
+        self._session_protocols: dict[str, _DatagramProtocol] = {}
+        self._active_protocol: _DatagramProtocol | None = None
 
     def add(self, protocol: _DatagramProtocol) -> None:
         self._protocols.add(protocol)
 
     def remove(self, protocol: _DatagramProtocol) -> None:
         self._protocols.discard(protocol)
+        if self._active_protocol is protocol:
+            self._active_protocol = None
+        for session, owner in list(self._session_protocols.items()):
+            if owner is protocol:
+                self._session_protocols.pop(session, None)
+
+    def enter_handler(self, protocol: _DatagramProtocol) -> None:
+        self._active_protocol = protocol
+
+    def exit_handler(self, protocol: _DatagramProtocol) -> None:
+        if self._active_protocol is protocol:
+            self._active_protocol = None
+
+    @property
+    def active_protocol(self) -> _DatagramProtocol | None:
+        return self._active_protocol
+
+    def bind_session(self, session_id: str, protocol: _DatagramProtocol) -> None:
+        self._session_protocols[session_id] = protocol
+
+    def send_to_session(self, session_id: str, data: bytes) -> bool:
+        proto = self._session_protocols.get(session_id)
+        if proto is None:
+            return False
+        try:
+            proto.send_datagram(data)
+            return True
+        except Exception:
+            self._protocols.discard(proto)
+            for session, owner in list(self._session_protocols.items()):
+                if owner is proto:
+                    self._session_protocols.pop(session, None)
+            return False
 
     def broadcast(self, data: bytes) -> int:
         """Send a datagram to all connected clients. Returns count sent."""

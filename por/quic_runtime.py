@@ -87,9 +87,17 @@ async def _serve_quic_async(runtime, *, certfile, keyfile, dev_localhost):
     # Patch _send_binary to route "client" responses through QUIC
     _orig_send = runtime._send_binary.__func__ if hasattr(runtime._send_binary, '__func__') else None
 
-    def _quic_send_binary(sock, target_id, data, *, src_addr=None):
+    def _quic_send_binary(sock, target_id, data, *, src_addr=None, return_session=None):
+        if return_session:
+            proto = server.connections.active_protocol
+            if proto is not None:
+                server.connections.bind_session(return_session, proto)
         if target_id == "client" and server.connections.count > 0:
-            server.connections.send_to_any(data)
+            session_id = return_session or _return_session_from_circuit_datagram(data)
+            if session_id and server.connections.send_to_session(session_id, data):
+                return
+            if server.connections.count == 1 and server.connections.send_to_any(data):
+                return
         else:
             # Forward to next relay via UDP
             if target_id == "client":
@@ -141,3 +149,9 @@ async def _serve_quic_async(runtime, *, certfile, keyfile, dev_localhost):
         runtime._log("stopped", fields={"wire": "quic"})
 
     return 0
+
+
+def _return_session_from_circuit_datagram(data: bytes) -> str | None:
+    if len(data) < 17 or data[:1] != b"\x01":
+        return None
+    return data[1:17].hex()

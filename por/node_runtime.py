@@ -218,6 +218,7 @@ class WireNodeRuntime:
                     "last_active": time.time(),
                 }
             circuit_installed["inbound_cid"] = cid_hex
+            circuit_installed["outbound_cid"] = out_hex
             circuit_installed["return_next"] = nh
 
         try:
@@ -252,6 +253,7 @@ class WireNodeRuntime:
                 next_id,
                 encode_forward(next_header, next_payload),
                 src_addr=src_addr,
+                return_session=str(circuit_installed.get("outbound_cid", "")) or None,
             )
             return
 
@@ -492,6 +494,7 @@ class WireNodeRuntime:
         data: bytes,
         *,
         src_addr: tuple[str, int] | None = None,
+        return_session: str | None = None,
     ) -> None:
         sn = self.supernode_daemon
         if target_id == "client":
@@ -506,7 +509,12 @@ class WireNodeRuntime:
             if peer_addr is not None:
                 client_addr = src_addr or self._current_src_addr
                 if client_addr is not None:
-                    sn.forward_to_peer(target_id, data, client_addr)
+                    sn.forward_to_peer(
+                        target_id,
+                        data,
+                        client_addr,
+                        return_session=return_session,
+                    )
                 else:
                     sock.sendto(data, peer_addr)
                 return

@@ -1,8 +1,8 @@
 {
   "schema": "por.live_mailbox_client.v1",
-  "description": "Asker cluster for the current single-expert beta path — trusted public reachability relay.",
+  "description": "Client cluster for the current alpha/beta path via trusted public reachability relay.",
   "params": {
-    "payload_size": 2048,
+    "payload_size": 1200,
     "routing_size": 16,
     "max_hops": 5
   },
