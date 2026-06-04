@@ -162,7 +162,12 @@ class SupernodeDaemon:
         self._sock.sendto(data, peer_addr)
         self.runtime._log(
             "opaque_forward_to_peer",
-            fields={"peer_id": peer_id, "bytes": len(data)},
+            fields={
+                "peer_id": peer_id,
+                "bytes": len(data),
+                "peer_host": peer_addr[0],
+                "peer_port": peer_addr[1],
+            },
         )
         return True
 
@@ -177,7 +182,12 @@ class SupernodeDaemon:
         self._sock.sendto(data, client_addr)
         self.runtime._log(
             "opaque_forward_return",
-            fields={"peer_id": peer_id, "bytes": len(data)},
+            fields={
+                "peer_id": peer_id,
+                "bytes": len(data),
+                "peer_host": peer_addr[0],
+                "peer_port": peer_addr[1],
+            },
         )
         return True
 

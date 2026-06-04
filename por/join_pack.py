@@ -8,6 +8,19 @@ from pathlib import Path
 from typing import Mapping
 
 JOIN_PACK_SCHEMA = "por.join_pack.v1"
+DEFAULT_JOIN_PACK_PATHS = (
+    Path("config/join-pack.json"),
+    Path("join-pack.json"),
+)
+
+
+def resolve_join_pack_path(path: str | Path | None = None) -> Path:
+    if path is not None:
+        return Path(path)
+    for candidate in DEFAULT_JOIN_PACK_PATHS:
+        if candidate.is_file():
+            return candidate
+    return DEFAULT_JOIN_PACK_PATHS[0]
 
 
 @dataclass(frozen=True)
@@ -21,8 +34,8 @@ class JoinPack:
     pack_path: Path
 
     @classmethod
-    def load(cls, path: str | Path) -> "JoinPack":
-        pack_path = Path(path).resolve()
+    def load(cls, path: str | Path | None = None) -> "JoinPack":
+        pack_path = resolve_join_pack_path(path).resolve()
         raw = json.loads(pack_path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("join pack must be a JSON object")

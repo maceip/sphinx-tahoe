@@ -44,7 +44,8 @@ def run_expert_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
         from por.quic_runtime import serve_quic_forever
         return serve_quic_forever(runtime, dev_localhost=True)
     if reach_state is not None:
-        reach_heartbeat, reach_sock = reach_state
+        _attach_reach_challenge_handler(runtime, daemon, reach_state)
+        reach_heartbeat, reach_sock, _relay, _peer_id = reach_state
         bound_host, bound_port = reach_sock.getsockname()
         runtime._log(
             "started",
@@ -98,7 +99,35 @@ def _start_reach_registration(daemon: DaemonConfig):
         log=_log,
     )
     thread.start()
-    return thread, sock
+    return thread, sock, relay, peer_id
+
+
+def _attach_reach_challenge_handler(
+    runtime: WireNodeRuntime,
+    _daemon: DaemonConfig,
+    reach_state,
+) -> None:
+    from por.reach_client import confirm_registration_challenge
+
+    _thread, sock, relay, peer_id = reach_state
+
+    def _handle_reach(data: bytes, addr: tuple[str, int]) -> None:
+        try:
+            handled = confirm_registration_challenge(sock, relay, peer_id, data, source=addr)
+        except ValueError as exc:
+            runtime._log(
+                "reach_register_refresh_failed",
+                level="warning",
+                fields={"peer_id": peer_id, "reason": str(exc)},
+            )
+            return
+        if handled:
+            runtime._log(
+                "reach_register_refresh_confirmed",
+                fields={"peer_id": peer_id, "relay": f"{relay.host}:{relay.port}"},
+            )
+
+    runtime.on_reach_control = _handle_reach
 
 
 def _try_upnp_on_startup(daemon: DaemonConfig):

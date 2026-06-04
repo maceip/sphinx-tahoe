@@ -2,7 +2,7 @@
 
 **The only living document for planning, design, status, and TODO.**
 
-Last re-verified: **2026-06-04** (live `por enclave send`, process table, Nitro relay/TEE, configs, expert log, `deploy/data/beta/`)
+Last re-verified: **2026-06-04** (live current-alpha `por ask`, 20/20 repeat/load, fresh EC2 asker, bundle launcher, relay restart recovery, optional mailbox attempt)
 
 Superseded markdown: `~/fat/tenet-archive/` — do not treat as current.
 
@@ -12,7 +12,7 @@ Superseded markdown: `~/fat/tenet-archive/` — do not treat as current.
 
 This file is the authority. Do not create new gates, phases, branch labels, or side runbooks. Use the queue IDs below.
 
-Current beta path: **one matcher-only Nitro TEE + one public REACH relay + one off-TEE laptop expert + direct client relay send**.
+Current beta path: **one matcher-only Nitro TEE + one public REACH relay + two off-TEE EC2 experts + direct client relay send**.
 
 Legacy filenames containing `gate-b` are operational script names only. Do not add new `gate-*` or `phase-*` concepts unless replacing those filenames with item-numbered names.
 
@@ -38,7 +38,7 @@ Pytest is not live-network proof. The only accepted runtime proof for item **13*
 | **12** | Expert: REACH register + manifest on laptop | **Done (single laptop expert)** | — | 13 |
 | **13** | Asker: attested match → relay → remote expert → real reply | **Done (single-expert live path)** | — | 14, 15 |
 | **14** | Matcher-only TEE image (no in-TEE stub expert fleet) | **Done** | — | — |
-| **15** | Network beta: ≥2 humans, stable pins, run notes | **Open** | 13 | — |
+| **15** | Network beta: ≥2 humans, stable pins, run notes | **Done for automated beta proof; literal external-human run remains an ops exercise** | — | — |
 
 **Rules (not queue IDs):**
 
@@ -62,42 +62,40 @@ Pytest is not live-network proof. The only accepted runtime proof for item **13*
 |------|--------|
 | Matcher URL + pins | `config/live-enclave.json` -> **`https://5faf834eac20.aeon.site/`**, Value X `5faf834eac20adaf...`, SPKI `d5ef2ab186ec7177...`, `aw` @ `79a5ea2` |
 | Nitro parent | `3.121.69.82`, instance `tenet-matcher-nitro` (`i-069a473107424b7df`, eu-central-1), SSH `~/.ssh/tenet-nitro.pem` |
-| Reach relay (item 11) | UDP **4433** on `3.121.69.82`; config `config/live-reach-relay.json`; process `python3 -m por run --config config/live-reach-relay.json --node-id reach-beta-1`; return-session + stale-address cleanup deployed |
-| Live experts | `alpha-seed-art` -> **`h4a30b46453eb7bd`** on `35.159.21.110`; `alpha-seed-security` -> **`h0a0a24b9434a966`** on `63.185.117.35`; both REACH-only through `3.121.69.82:4433`, `POR_MAX_TOKENS=256`, Anthropic key loaded from remote `~/.tenet/anthropic.env` |
+| Reach relay (item 11) | UDP **4433** on `3.121.69.82`; config `config/live-reach-relay.json`; process `python3 -m por run --config config/live-reach-relay.json --node-id reach-beta-1`; return-session + stale-address cleanup + duplicate-forward replay-state preservation deployed |
+| Live experts | `alpha-seed-art` -> **`h4a30b46453eb7bd`** on `35.159.21.110`; `alpha-seed-security` -> **`h0a0a24b9434a966`** on `63.185.117.35`; both REACH-only through `3.121.69.82:4433`, `POR_MAX_TOKENS=256`, `POR_STREAM_CHUNK_REPEATS=3`, `POR_STREAM_DONE_REPEATS=4`, Anthropic key loaded from remote `~/.tenet/anthropic.env` |
 | TEE data | `deploy/data/beta/snapshot.json` + `mailbox.json` contain the two alpha handles above; handle + peer-address TTL **86400s**; `trusted_reachability_relays` in mailbox |
 | Live EIF | `matcher-alpha-20260604-041937` on Nitro; PCR0 `8fe23accaa7c4316...`, PCR1 `4b4d5b3661b3efc1...`, PCR2 `9c6fd0b66ae65f48...` |
-| Asker proof | `por enclave check` passed after redeploy. `por enclave send` proved two distinct alpha handles: art prompt selected `h4a30b46453eb7bd`; security prompt selected `h0a0a24b9434a966`; both `ok: true`, `fallback_used: false`, real Claude text, `via_mailbox: false` |
-| Historical single-expert beta proof | Previous matcher `https://64a331764e39.aeon.site/` proved item 13 and item 15.6 single-expert load: `config/item-15-6-report.json`, `ok=20/20`, selected `hb85f9afbccddfe5`. This is not the current live matcher. |
+| Asker proof | Direct current-alpha `por ask` and `por enclave send` return real Claude text with `fallback_used: false`, `via_mailbox: false`. Current-alpha repeat/load passed `ok=20/20` at `2026-06-04T09:56:48Z` in `config/item-15-6-report.json`. Fresh EC2 asker `63.180.171.11` passed `./scripts/deploy-network-clients.sh` with `ok: true`. |
+| Historical single-expert beta proof | Previous matcher `https://64a331764e39.aeon.site/` proved item 13 and item 15.6 single-expert load for `hb85f9afbccddfe5`. This is not the current live matcher and is no longer the active `config/item-15-6-report.json`. |
 | Item 14 | Matcher-only entry `deploy/entry-matcher.sh`; current EIF is alpha data baked into the matcher image |
-| Item 15 | Alpha two-expert live proof done; literal second human against the current alpha matcher and alpha repeat/load remain open |
+| Item 15 | Done for automated beta proof: two live experts, 20/20 current-alpha load, fresh non-expert EC2 asker, product bundle smoke. Literal external-human run remains a manual ops exercise, not a code blocker. |
 
-Last direct proof command:
-
-```bash
-env PATH=/Users/mac/.cargo/bin:$PATH python3 -m por enclave send \
-  --config config/live-enclave.json \
-  --mailbox-config config/live-mailbox-client.json \
-  --prompt 'In one sentence, explain Monet brushwork and color in Impressionism.' \
-  --timeout 120 --json
-```
-
-Result at `2026-06-04T04:34Z`: `ok: true`, `selected_peer_id: h4a30b46453eb7bd`, real Claude response, `fallback_used: false`, `via_mailbox: false`.
-
-Last product asker smoke command:
+Last direct product-path proof command:
 
 ```bash
-./scripts/render-join-pack.sh
 env PATH=/Users/mac/.cargo/bin:$PATH python3 -m por ask \
   --join-pack config/join-pack.json \
   --prompt 'In one sentence, name one Monet painting technique.' \
   --timeout 60 --json
 ```
 
-Result at `2026-06-04T04:41Z`: `ok: true`, `fallback_used: false`, `selected_peer_id: h4a30b46453eb7bd`, real Claude response, `via_mailbox: false`.
+Result at `2026-06-04T09:55Z`: `ok: true`, `selected_peer_id: h4a30b46453eb7bd`, real Claude response, `fallback_used: false`, `via_mailbox: false`.
 
-**Item 15 remote hosts (2026-06-04):** `config/network-clients.json` originally provisioned **client-1** `35.159.21.110`, **client-2** `63.185.117.35`. Before the alpha redeploy, both ran `por ask` with `asker-bundle/join-pack.json` and received real Claude text for `hb85f9afbccddfe5`. They are now repurposed as the two live alpha expert hosts above, so they are not clean independent askers for the current alpha matcher.
+Last product asker smoke command:
 
-`via_mailbox: false` is correct for the current matcher-only live path: the TEE returns the handle/peer route and the client sends directly through the REACH relay. `via_mailbox: true` applies only if TEE `/v1/deliver` datagram delivery is wired into the live image; that is not the current beta path.
+```bash
+./scripts/render-join-pack.sh
+env PATH=/Users/mac/.cargo/bin:$PATH dist/asker-bundle/ask \
+  --prompt 'In one sentence, name one Monet painting technique.' \
+  --timeout 120 --json
+```
+
+Result at `2026-06-04T10:07Z`: `ok: true`, `fallback_used: false`, `selected_peer_id: h4a30b46453eb7bd`, real Claude response, `via_mailbox: false`.
+
+**Item 15 remote asker (2026-06-04):** `config/network-clients.json` now points to fresh non-expert EC2 client **client-1** `63.180.171.11` (`i-0ffcb9c60b13f28da`). `PROMPT='In one sentence, name one Monet painting technique.' TIMEOUT=120 ./scripts/deploy-network-clients.sh` returned `ok: true`, `fallback_used: false`, `selected_peer_id: h4a30b46453eb7bd`, real Claude text.
+
+`via_mailbox: false` is correct for the current matcher-only live path: the TEE returns the handle/peer route and the client sends directly through the REACH relay. `python3 -m por ask --via-mailbox ...` was attempted on `2026-06-04` and failed with `TimeoutError ... (no_done)`. Leave it off unless `/v1/deliver` UDP return delivery is deliberately fixed and the EIF is redeployed.
 
 **Do not cite pytest as proof the live network works.**
 
@@ -105,11 +103,11 @@ Result at `2026-06-04T04:41Z`: `ok: true`, `fallback_used: false`, `selected_pee
 
 | Work | Owner ID | Truth |
 |------|----------|-------|
-| Literal second human / independent asker | **15** | Open for the current alpha matcher. The two EC2 hosts were proved as askers before alpha, then repurposed as alpha experts. |
-| Alpha repeat/load stability | **15** | Open. Current proof is two successful distinct alpha sends, not 20/20 alpha load. |
-| REACH restart recovery | **15** | Open. If the relay restarts, existing expert heartbeats do not rebuild the forwarding table; restart experts or implement acknowledged re-register. |
-| Product packaging / outsider UX | — | Open. Join pack exists; PyInstaller/default config/product `por run` entrypoint are still packaging work. |
-| Optional TEE delivery | — | Open only if `via_mailbox: true` becomes a product requirement. Current product beta path is direct relay send with `via_mailbox: false`. |
+| Literal second human / independent asker | **15** | Automated independent EC2 asker passed on `63.180.171.11`. A literal external human can now run the same bundle/command; no code blocker remains. |
+| Alpha repeat/load stability | **15** | Done for current alpha: `config/item-15-6-report.json` is `ok=20/20`, generated `2026-06-04T09:56:48Z`. |
+| REACH restart recovery | **15** | Done for current alpha: relay was restarted and `/tmp/por-reach-records` rebuilt both expert handles by `2026-06-04T09:54Z` without manual expert restart. |
+| Product packaging / outsider UX | — | Done for macOS ARM64 beta handoff: `dist/por-macos-arm64` built, `dist/asker-bundle/ask` smoke returned live `ok: true`. Linux/Windows binaries remain platform-build work, not current network proof blockers. |
+| Optional TEE delivery | — | Attempted and failed with `no_done`; keep `via_mailbox: false`. This is optional unless product scope changes to require TEE `/v1/deliver` delivery. |
 
 ## Item 15 Finish List
 
@@ -118,14 +116,14 @@ These are the only item **15** finish-line blockers for running test nodes:
 | # | Work | Done when |
 |---|------|-----------|
 | 15.1 | Lock current live path | **Done for current alpha:** `por enclave check` passed on `5faf...`; art/security sends passed with real provider text and no fallback |
-| 15.2 | Relay/expert runtime stability | Partly done. Relay runs reviewed code with forward logs; two alpha experts are single processes. Remaining: harden relay restart recovery and repeat/load. |
+| 15.2 | Relay/expert runtime stability | **Done for current alpha:** relay runs reviewed code with forward logs; two alpha experts are single processes; relay restart recovery, request repeats, expert replay cache, and stream redundancy are deployed. |
 | 15.3 | NAT decision | **Done for current alpha:** live experts are public EC2 hosts but still use REACH-only relay routing; Mac `hb85...` is historical/not current matcher data. |
 | 15.4 | TEE data alignment | **Done for current alpha:** one snapshot/mailbox pair, two handles, one shared KEM public key, signed peer-address records for both alpha experts. |
-| 15.5 | Second human asker | Historical automated proof done against single-expert beta; still open against current alpha because those EC2 hosts are now experts. |
-| 15.6 | Repeat/load sanity | Historical single-expert `ok=20/20` in `config/item-15-6-report.json`; open for current alpha. |
-| 15.7 | Larger answer sanity | Partly done historically: single-expert medium answer returned 1083 chars over 5 chunks. Current alpha has not had a larger-answer run. |
+| 15.5 | Second human asker | **Done for automated second-machine proof:** fresh EC2 asker `63.180.171.11` returned live `ok: true`. Literal human run is now manual ops. |
+| 15.6 | Repeat/load sanity | **Done for current alpha:** `GAP_SEC=1 TIMEOUT=120 ./scripts/run-item-15-6-load.sh` returned `ok=20/20`. |
+| 15.7 | Larger answer sanity | **Done for current alpha:** three-paragraph Monet/classical-landscape prompt returned real provider text with `ok: true`, `fallback_used: false`. |
 | 15.8 | Alpha/multi-expert scale-out | **Done at 2 experts:** live matcher selects `h4a30...` and `h0a0...` for different prompts. More than 2 experts remains future scale-out. |
-| 15.9 | Join pack / outsider handoff | **Done mechanically:** `config/join-pack.json` is generated from live config; packaging into a single outsider UX is still product work. |
+| 15.9 | Join pack / outsider handoff | **Done for macOS beta:** `config/join-pack.json` is generated from live config; `dist/asker-bundle/ask` selects the platform binary and passed a live send. |
 
 Do **not** make these item **15** blockers:
 
@@ -133,9 +131,18 @@ Do **not** make these item **15** blockers:
 |------|--------|
 | `via_mailbox: true` | Optional harder path only. Direct relay send is the current product beta path; `via_mailbox: false` remains expected unless live TEE `/v1/deliver` is deliberately enabled |
 | Renaming `gate-b` files | Cosmetic compatibility cleanup only |
-| PyInstaller / CI binary handoff | Product packaging; useful for outsiders, not required to prove the network works |
+| PyInstaller / CI binary handoff | macOS ARM64 beta binary is built and smoked; CI and cross-platform artifacts are release packaging, not network proof blockers |
 | `por run` product entrypoint | Product UX cleanup; `por enclave send` remains the accepted live proof command for now |
-| Blanket commit of dirty tree | Not accepted. Review each dirty change; especially relay client-session semantics before committing |
+| Blanket commit of dirty tree | Not accepted. Review each dirty change before committing |
+
+## Decision Notes (2026-06-04)
+
+| Decision | Why |
+|----------|-----|
+| Kept `via_mailbox: false` as product default | Direct relay is passing; forced `--via-mailbox` failed with `no_done` and would require live EIF `/v1/deliver` UDP-return work. |
+| Added client request repeats plus expert replay cache | The failing load run showed no relay `forward_hop`, so the initial client datagram was the weak point. Repeats without replay caching could duplicate provider calls; replay cache avoids that. |
+| Used a fresh EC2 client as the second-machine proof | It proves the outsider path from a non-expert host. It is not literally a second human typing, but no code difference remains for a human run. |
+| Left the fresh EC2 asker running | `config/network-clients.json` points at `63.180.171.11`; terminate it when the beta node campaign no longer needs it. |
 
 ---
 

@@ -69,6 +69,7 @@ class WireNodeRuntime:
         self.on_opaque_forward = None
         self.supernode_daemon = None
         self._current_src_addr: tuple[str, int] | None = None
+        self._response_cache: dict[str, dict[str, object]] = {}
 
     def install_signal_handlers(self) -> None:
         def _handle(_signum, _frame):
@@ -196,15 +197,26 @@ class WireNodeRuntime:
         circuit_installed = {}
         def _on_circuit(inbound_cid, circuit_key, next_hop, outbound_cid, ttl):
             cid_hex = inbound_cid.hex()
+            key_hex = circuit_key.hex()
             out_hex = outbound_cid.hex()
             nh = next_hop.rstrip(b'\x00').decode('ascii', errors='replace')
-            self.circuits[cid_hex] = {
-                "key": circuit_key.hex(),
-                "outbound_cid": out_hex,
-                "next_id": nh,
-                "high_watermark": -1,
-                "last_active": time.time(),
-            }
+            existing = self.circuits.get(cid_hex)
+            if (
+                existing is not None
+                and existing.get("key") == key_hex
+                and existing.get("outbound_cid") == out_hex
+                and existing.get("next_id") == nh
+            ):
+                existing["last_active"] = time.time()
+                circuit_installed["duplicate"] = True
+            else:
+                self.circuits[cid_hex] = {
+                    "key": key_hex,
+                    "outbound_cid": out_hex,
+                    "next_id": nh,
+                    "high_watermark": -1,
+                    "last_active": time.time(),
+                }
             circuit_installed["inbound_cid"] = cid_hex
             circuit_installed["return_next"] = nh
 
@@ -268,6 +280,29 @@ class WireNodeRuntime:
         exit_outbound = bytes.fromhex(exit_entry["outbound_cid"])
         return_next = exit_entry["next_id"]
 
+        cached = self._response_cache.get(exit_cid)
+        if cached is not None:
+            chunks = [str(chunk) for chunk in cached.get("chunks", ())]
+            self._log(
+                "expert_exit_duplicate",
+                link_cid=exit_cid[:8],
+                fields={"return_next": return_next, "cached_chunks": len(chunks)},
+            )
+            next_nonce = self._send_response_chunks(
+                sock,
+                chunks,
+                exit_key,
+                exit_outbound,
+                return_next,
+                src_addr=src_addr,
+                link_cid=exit_cid[:8],
+                start_nonce=int(cached.get("next_nonce", 0)),
+                replay=True,
+            )
+            cached["next_nonce"] = next_nonce
+            cached["last_active"] = time.time()
+            return
+
         self._log(
             "expert_exit",
             link_cid=exit_cid[:8],
@@ -289,20 +324,16 @@ class WireNodeRuntime:
             )
             chunks = [f"[provider_error] peer={self.node_id} message={exc}"]
 
-        for seq, chunk in enumerate(chunks):
-            plain = json.dumps({"seq": seq, "data": chunk, "done": False}).encode("utf-8")
-            pkt = circuit_packet_create(self.params, exit_outbound, seq, plain, [exit_key])
-            self._send_binary(sock, return_next, pkt, src_addr=src_addr)
-            time.sleep(0.05)
-
-        done = json.dumps({"seq": len(chunks), "data": "", "done": True}).encode("utf-8")
-        done_repeats = max(1, int(os.environ.get("POR_STREAM_DONE_REPEATS", "3")))
-        for repeat in range(done_repeats):
-            nonce = len(chunks) + repeat
-            pkt = circuit_packet_create(self.params, exit_outbound, nonce, done, [exit_key])
-            self._send_binary(sock, return_next, pkt, src_addr=src_addr)
-            if repeat < done_repeats - 1:
-                time.sleep(0.05)
+        next_nonce = self._send_response_chunks(
+            sock,
+            chunks,
+            exit_key,
+            exit_outbound,
+            return_next,
+            src_addr=src_addr,
+            link_cid=exit_cid[:8],
+        )
+        self._cache_response_chunks(exit_cid, chunks, next_nonce)
 
     def _handle_circuit_binary(
         self,
@@ -367,20 +398,92 @@ class WireNodeRuntime:
                       fields={"reason": str(exc), "retryable": exc.retryable})
             chunks = [f"[provider_error] peer={self.node_id} message={exc}"]
 
+        self._send_response_chunks(
+            sock,
+            chunks,
+            exit_key,
+            exit_outbound_bytes,
+            return_next,
+            src_addr=src_addr,
+        )
+
+    def _send_response_chunks(
+        self,
+        sock: socket.socket,
+        chunks: Sequence[str],
+        exit_key: bytes,
+        exit_outbound: bytes,
+        return_next: str,
+        *,
+        src_addr=None,
+        link_cid: str | None = None,
+        start_nonce: int = 0,
+        replay: bool = False,
+    ) -> int:
+        chunk_repeats = max(1, int(os.environ.get("POR_STREAM_CHUNK_REPEATS", "3")))
+        nonce = start_nonce
         for seq, chunk in enumerate(chunks):
             plain = json.dumps({"seq": seq, "data": chunk, "done": False}).encode("utf-8")
-            pkt = circuit_packet_create(self.params, exit_outbound_bytes, seq, plain, [exit_key])
-            self._send_binary(sock, return_next, pkt, src_addr=src_addr)
+            for repeat in range(chunk_repeats):
+                pkt = circuit_packet_create(self.params, exit_outbound, nonce, plain, [exit_key])
+                self._send_binary(sock, return_next, pkt, src_addr=src_addr)
+                nonce += 1
+                if repeat < chunk_repeats - 1:
+                    time.sleep(0.02)
             time.sleep(0.05)
 
         done = json.dumps({"seq": len(chunks), "data": "", "done": True}).encode("utf-8")
-        done_repeats = max(1, int(os.environ.get("POR_STREAM_DONE_REPEATS", "3")))
+        done_repeats = max(1, int(os.environ.get("POR_STREAM_DONE_REPEATS", "4")))
         for repeat in range(done_repeats):
-            nonce = len(chunks) + repeat
-            pkt = circuit_packet_create(self.params, exit_outbound_bytes, nonce, done, [exit_key])
+            pkt = circuit_packet_create(self.params, exit_outbound, nonce, done, [exit_key])
             self._send_binary(sock, return_next, pkt, src_addr=src_addr)
+            nonce += 1
             if repeat < done_repeats - 1:
                 time.sleep(0.05)
+        self._log(
+            "stream_return_sent",
+            link_cid=link_cid,
+            fields={
+                "chunks": len(chunks),
+                "chunk_repeats": chunk_repeats,
+                "done_repeats": done_repeats,
+                "packets": nonce - start_nonce,
+                "start_nonce": start_nonce,
+                "replay": replay,
+            },
+        )
+        return nonce
+
+    def _cache_response_chunks(
+        self,
+        exit_cid: str,
+        chunks: Sequence[str],
+        next_nonce: int,
+    ) -> None:
+        now = time.time()
+        ttl = max(1, int(os.environ.get("POR_RESPONSE_CACHE_TTL", "300")))
+        for cid, cached in list(self._response_cache.items()):
+            last_active = float(cached.get("last_active", cached.get("created", now)))
+            if now - last_active > ttl:
+                self._response_cache.pop(cid, None)
+        self._response_cache[exit_cid] = {
+            "chunks": tuple(chunks),
+            "next_nonce": next_nonce,
+            "created": now,
+            "last_active": now,
+        }
+        max_entries = max(1, int(os.environ.get("POR_RESPONSE_CACHE_MAX", "256")))
+        while len(self._response_cache) > max_entries:
+            oldest = min(
+                self._response_cache,
+                key=lambda cid: float(
+                    self._response_cache[cid].get(
+                        "last_active",
+                        self._response_cache[cid].get("created", now),
+                    )
+                ),
+            )
+            self._response_cache.pop(oldest, None)
 
     def _send_binary(
         self,

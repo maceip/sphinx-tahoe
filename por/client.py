@@ -7,6 +7,7 @@ This module must not construct ``PromptRequestEnvelope`` directly.
 from __future__ import annotations
 
 import json
+import os
 import socket
 import time
 from dataclasses import dataclass
@@ -259,11 +260,19 @@ def send_prepared_envelope(
     client_sock.settimeout(0.5)
 
     try:
-        client_sock.sendto(datagram, first_addr)
+        request_repeats = max(1, int(os.environ.get("POR_CLIENT_REQUEST_REPEATS", "3")))
+        request_repeat_delay = max(
+            0.0, float(os.environ.get("POR_CLIENT_REQUEST_REPEAT_DELAY", "0.15"))
+        )
+        for repeat in range(request_repeats):
+            client_sock.sendto(datagram, first_addr)
+            if repeat < request_repeats - 1:
+                time.sleep(request_repeat_delay)
 
         logs = [
             f"client event=send_prepared_envelope selected={envelope.selected_peer_id or 'none'} "
-            f"forward_path={'/'.join(forward_path)} wire=binary {dial_note}"
+            f"forward_path={'/'.join(forward_path)} wire=binary {dial_note} "
+            f"request_repeats={request_repeats}"
         ]
         response, stream_logs = _read_stream_from_socket(
             params=params,
@@ -311,7 +320,8 @@ def _read_stream_from_datagrams(
     datagrams: Iterable[bytes],
     on_chunk: Callable[[dict[str, object]], None] | None,
 ) -> tuple[str, list[str]]:
-    chunks: list[str] = []
+    chunks: dict[int, str] = {}
+    expected_done_seq: int | None = None
     logs: list[str] = []
     for data in datagrams:
         kind, body, _ = decode_datagram(data, params.payload_size)
@@ -322,15 +332,31 @@ def _read_stream_from_datagrams(
             logs.append("client event=stream_corrupt")
             continue
         chunk = json.loads(plain.decode("utf-8"))
-        logs.append(f"client event=stream_chunk seq={chunk['seq']} bytes={len(chunk['data'])}")
+        seq = int(chunk["seq"])
         if chunk.get("done"):
+            expected_done_seq = seq
+            logs.append(f"client event=stream_done seq={seq}")
             if on_chunk is not None:
                 on_chunk(chunk)
-            return "".join(chunks), logs
-        if on_chunk is not None:
-            on_chunk(chunk)
-        chunks.append(chunk["data"])
-    raise TimeoutError("timed out waiting for streamed return path")
+        elif seq in chunks:
+            logs.append(f"client event=stream_chunk_duplicate seq={seq}")
+        else:
+            data_text = str(chunk["data"])
+            logs.append(f"client event=stream_chunk seq={seq} bytes={len(data_text)}")
+            chunks[seq] = data_text
+            if on_chunk is not None:
+                on_chunk(chunk)
+        if expected_done_seq is not None and all(
+            seq in chunks for seq in range(expected_done_seq)
+        ):
+            return "".join(chunks[seq] for seq in range(expected_done_seq)), logs
+    if expected_done_seq is None:
+        detail = "no_done"
+    else:
+        missing = [seq for seq in range(expected_done_seq) if seq not in chunks]
+        detail = f"missing_chunks={missing}"
+    tail = "; ".join(logs[-12:])
+    raise TimeoutError(f"timed out waiting for streamed return path ({detail}); {tail}")
 
 
 def _plan_relay_path_from_peer_address(

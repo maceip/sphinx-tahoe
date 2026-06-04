@@ -59,9 +59,13 @@ def send_live_enclave(
     requested_expertise: str | None = None,
     timeout: float = 30.0,
     random_seed: int | None = 0,
+    mailbox_datagram_delivery_enabled: bool | None = None,
 ) -> ClientRunResult:
     """Attest, plan, and deliver one envelope through the live enclave mailbox."""
-    client = build_attested_client(enclave_config)
+    client = build_attested_client(
+        enclave_config,
+        mailbox_datagram_delivery_enabled=mailbox_datagram_delivery_enabled,
+    )
     client.establish()
     return run_client_once(
         cluster=mailbox_config.cluster,
@@ -88,8 +92,12 @@ def send_live_enclave_summary(
     prompt: str,
     requested_expertise: str | None = None,
     timeout: float = 30.0,
+    mailbox_datagram_delivery_enabled: bool | None = None,
 ) -> dict[str, object]:
-    client = build_attested_client(enclave_config)
+    client = build_attested_client(
+        enclave_config,
+        mailbox_datagram_delivery_enabled=mailbox_datagram_delivery_enabled,
+    )
     att = client.establish()
     result = run_client_once(
         cluster=mailbox_config.cluster,

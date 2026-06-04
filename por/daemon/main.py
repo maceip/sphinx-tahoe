@@ -109,6 +109,11 @@ def build_parser() -> argparse.ArgumentParser:
     enclave_send.add_argument("--prompt", required=True)
     enclave_send.add_argument("--expertise")
     enclave_send.add_argument("--timeout", type=float, default=120.0)
+    enclave_send.add_argument(
+        "--via-mailbox",
+        action="store_true",
+        help="Force live TEE /v1/deliver datagram delivery for this send.",
+    )
     enclave_send.add_argument("--json", action="store_true", help="Print JSON result")
 
     ask = sub.add_parser(
@@ -117,12 +122,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask.add_argument(
         "--join-pack",
-        default="config/join-pack.json",
-        help="por.join_pack.v1 JSON (run ./scripts/render-join-pack.sh to refresh)",
+        default=None,
+        help=(
+            "por.join_pack.v1 JSON. Defaults to config/join-pack.json, "
+            "or ./join-pack.json inside an asker bundle."
+        ),
     )
     ask.add_argument("--prompt", required=True)
     ask.add_argument("--expertise")
     ask.add_argument("--timeout", type=float, default=120.0)
+    ask.add_argument(
+        "--via-mailbox",
+        action="store_true",
+        help="Force live TEE /v1/deliver datagram delivery for this ask.",
+    )
     ask.add_argument("--json", action="store_true", help="Print JSON result")
 
     return parser
@@ -236,6 +249,7 @@ def _run_enclave_command(args: argparse.Namespace) -> int:
             prompt=args.prompt,
             requested_expertise=args.expertise,
             timeout=args.timeout,
+            mailbox_datagram_delivery_enabled=True if args.via_mailbox else None,
         )
         if args.json:
             print(json.dumps(result, indent=2, sort_keys=True))
@@ -267,6 +281,7 @@ def _run_ask_command(args: argparse.Namespace) -> int:
         prompt=args.prompt,
         requested_expertise=args.expertise,
         timeout=args.timeout,
+        mailbox_datagram_delivery_enabled=True if args.via_mailbox else None,
     )
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))

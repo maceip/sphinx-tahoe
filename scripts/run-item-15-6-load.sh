@@ -65,16 +65,17 @@ ask_once() {
   local prompt=$2
   local host=""
   local out=""
+  local rc=0
   local t0=$(date +%s)
   case "$RUN_ON" in
-    local) out=$(_run_local "$prompt") ;;
+    local) out=$(_run_local "$prompt" 2>&1) || rc=$? ;;
     remote)
       host=$(pick_host 0)
-      out=$(_run_remote "$host" "$prompt")
+      out=$(_run_remote "$host" "$prompt" 2>&1) || rc=$?
       ;;
     both)
       host=$(pick_host "${label##*-}")
-      out=$(_run_remote "$host" "$prompt")
+      out=$(_run_remote "$host" "$prompt" 2>&1) || rc=$?
       ;;
     *)
       echo "unknown RUN_ON=$RUN_ON" >&2
@@ -82,7 +83,7 @@ ask_once() {
       ;;
   esac
   local t1=$(date +%s)
-  printf '%s' "$out" | ASK_LABEL="$label" ASK_HOST="$host" ASK_T0="$t0" ASK_T1="$t1" python3 -c "
+  printf '%s' "$out" | ASK_LABEL="$label" ASK_HOST="$host" ASK_T0="$t0" ASK_T1="$t1" ASK_RC="$rc" ASK_PROMPT="$prompt" python3 -c "
 import json, os, sys
 raw = sys.stdin.read().strip()
 start = raw.find('{')
@@ -95,10 +96,21 @@ if start >= 0 and end >= start:
 else:
     d = None
 if d is None:
-    print(json.dumps({'ok': False, 'error': 'invalid_json', 'raw': raw[:500]}))
+    print(json.dumps({
+        'ok': False,
+        'label': os.environ['ASK_LABEL'],
+        'prompt': os.environ.get('ASK_PROMPT', ''),
+        'elapsed_s': int(os.environ['ASK_T1']) - int(os.environ['ASK_T0']),
+        'command_rc': int(os.environ.get('ASK_RC', '0')),
+        'error': 'invalid_json',
+        'raw': raw[:4000],
+    }))
     raise SystemExit(0)
 d['elapsed_s'] = int(os.environ['ASK_T1']) - int(os.environ['ASK_T0'])
 d['label'] = os.environ['ASK_LABEL']
+command_rc = int(os.environ.get('ASK_RC', '0'))
+if command_rc:
+    d['command_rc'] = command_rc
 host = os.environ.get('ASK_HOST', '')
 if host:
     d['host'] = host
@@ -112,7 +124,7 @@ fail=0
 
 echo "[15.6] phase A: ${REPEATS}x same prompt (gap ${GAP_SEC}s, run_on=${RUN_ON})"
 for i in $(seq 1 "$REPEATS"); do
-  line=$(ask_once "same-$i" "$SAME_PROMPT" 2>/dev/null) || { line='{"ok":false,"label":"same-'$i'","error":"ask_failed"}'; }
+  line=$(ask_once "same-$i" "$SAME_PROMPT") || { line='{"ok":false,"label":"same-'$i'","error":"ask_failed"}'; }
   printf '%s\n' "$line" >> "$TMP_RESULTS"
   ok=$(printf '%s' "$line" | python3 -c "import json,sys; print(json.load(sys.stdin).get('ok'))")
   [[ "$ok" == "True" ]] || fail=$((fail + 1))
@@ -124,7 +136,7 @@ echo "[15.6] phase B: ${#VARIED_PROMPTS[@]} varied prompts"
 idx=0
 for prompt in "${VARIED_PROMPTS[@]}"; do
   idx=$((idx + 1))
-  line=$(ask_once "varied-$idx" "$prompt" 2>/dev/null) || { line='{"ok":false,"label":"varied-'$idx'","error":"ask_failed"}'; }
+  line=$(ask_once "varied-$idx" "$prompt") || { line='{"ok":false,"label":"varied-'$idx'","error":"ask_failed"}'; }
   printf '%s\n' "$line" >> "$TMP_RESULTS"
   ok=$(printf '%s' "$line" | python3 -c "import json,sys; print(json.load(sys.stdin).get('ok'))")
   [[ "$ok" == "True" ]] || fail=$((fail + 1))
@@ -134,12 +146,14 @@ done
 
 python3 <<PY
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 lines = Path("$TMP_RESULTS").read_text(encoding="utf-8").splitlines()
 rows = [json.loads(l) for l in lines if l.strip()]
 summary = {
     "item": "15.6",
+    "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     "run_on": "$RUN_ON",
     "total": len(rows),
     "ok": sum(1 for r in rows if r.get("ok")),

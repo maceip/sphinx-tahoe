@@ -31,6 +31,7 @@ class LiveEnclaveConfig:
     aw_bin: str = "aw"
     timeout: float = 30.0
     attested_workload_sha: str | None = None
+    mailbox_datagram_delivery_enabled: bool = False
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, object]) -> "LiveEnclaveConfig":
@@ -60,6 +61,9 @@ class LiveEnclaveConfig:
             aw_bin=str(raw.get("aw_bin", "aw")),
             timeout=float(raw.get("timeout", 30.0)),
             attested_workload_sha=_optional_str(raw.get("attested_workload_sha")),
+            mailbox_datagram_delivery_enabled=bool(
+                raw.get("mailbox_datagram_delivery_enabled", False)
+            ),
         )
 
     @classmethod
@@ -71,11 +75,20 @@ class LiveEnclaveConfig:
         return cls.from_dict(raw)
 
 
-def build_attested_client(config: LiveEnclaveConfig) -> AttestedEnclavePlaneClient:
+def build_attested_client(
+    config: LiveEnclaveConfig,
+    *,
+    mailbox_datagram_delivery_enabled: bool | None = None,
+) -> AttestedEnclavePlaneClient:
+    delivery_enabled = (
+        config.mailbox_datagram_delivery_enabled
+        if mailbox_datagram_delivery_enabled is None
+        else mailbox_datagram_delivery_enabled
+    )
     inner = PlainEnclavePlaneHttpClient(
         config.url,
         timeout=config.timeout,
-        mailbox_datagram_delivery_enabled=False,
+        mailbox_datagram_delivery_enabled=delivery_enabled,
     )
     policy = EnclaveTrustPolicy(
         approved_value_x=frozenset(config.approved_value_x),

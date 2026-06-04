@@ -29,7 +29,6 @@ from pathlib import Path
 
 root = Path(os.environ["ROOT"])
 cfg = json.loads((root / "config/network-clients.json").read_text())
-key = Path(cfg["clients"][0]["ssh_key"]).expanduser()
 bundle = root / "dist/asker-bundle.zip"
 prompt = __import__("os").environ.get("PROMPT", "In one sentence, name one Monet painting technique.")
 timeout = __import__("os").environ.get("TIMEOUT", "120")
@@ -58,16 +57,19 @@ mkdir -p ~/sphinx-tahoe ~/asker-bundle
 for index, client in enumerate(cfg["clients"]):
     host = client["host"]
     cid = client["client_id"]
-    print(f"[deploy-clients] === {cid} @ {host} ===", flush=True)
+    user = client.get("ssh_user", "ubuntu")
+    key = Path(__import__("os").environ.get("SSH_KEY") or client.get("ssh_key", "~/.ssh/tenet-nitro.pem")).expanduser()
+    remote = f"{user}@{host}"
+    print(f"[deploy-clients] === {cid} @ {remote} ===", flush=True)
     subprocess.run(
         ["rsync", "-az", "-e", f"ssh -i {key} -o StrictHostKeyChecking=accept-new",
          "--exclude", ".git", "--exclude", "build", "--exclude", "dist", "--exclude", "deploy/eif-build",
-         str(root) + "/", f"ubuntu@{host}:~/sphinx-tahoe/"],
+         str(root) + "/", f"{remote}:~/sphinx-tahoe/"],
         check=True,
     )
     subprocess.run(
         ["scp", "-i", str(key), "-o", "StrictHostKeyChecking=accept-new",
-         str(bundle), f"ubuntu@{host}:~/asker-bundle.zip"],
+         str(bundle), f"{remote}:~/asker-bundle.zip"],
         check=True,
     )
     cmd = f"""
@@ -82,7 +84,7 @@ python3 -m por ask --join-pack join-pack.json --prompt {json.dumps(prompt)} --ti
 """
     proc = subprocess.run(
         ["ssh", "-i", str(key), "-o", "StrictHostKeyChecking=accept-new",
-         f"ubuntu@{host}", "bash", "-s"],
+         remote, "bash", "-s"],
         input=cmd,
         text=True,
         capture_output=True,
