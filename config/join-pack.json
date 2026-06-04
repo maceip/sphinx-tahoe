@@ -1,13 +1,13 @@
 {
   "schema": "por.join_pack.v1",
-  "generated_at": "2026-06-04T02:03:45Z",
+  "generated_at": "2026-06-04T04:41:36Z",
   "matcher": {
     "schema": "por.live_enclave.v1",
-    "url": "https://7d90e638b585.aeon.site/",
+    "url": "https://5faf834eac20.aeon.site/",
     "approved_value_x": [
-      "7d90e638b585ab5d5288854a9d844f497b7f8bbe7e9186a0c73f7198eba66c17cbc6f22db555e971b9d6f758b6eb6244"
+      "5faf834eac20adaf931a8a7c18cb7a75630a5225322ee6caade2406e0f471299f2de48ade0d69804d1d4558883a5ef00"
     ],
-    "tls_spki_hash": "d8d8398b6e4bbbb240ea9fb2b14ed32cd6dadc2dbd0b974bbce1b30f5e28ac74",
+    "tls_spki_hash": "d5ef2ab186ec717791ea506da7be7d189a86e90078f09cc99038c3ba8daa8d96",
     "require_spki_pin": true,
     "aw_bin": "aw",
     "attested_workload_sha": "79a5ea2328f2b30192e57b53913355dcd5e0201e"
@@ -21,8 +21,8 @@
   },
   "directory": {
     "mode": "attested_matcher",
-    "match_url": "https://7d90e638b585.aeon.site/v1/match",
-    "deliver_url": "https://7d90e638b585.aeon.site/v1/deliver",
+    "match_url": "https://5faf834eac20.aeon.site/v1/match",
+    "deliver_url": "https://5faf834eac20.aeon.site/v1/deliver",
     "note": "Beta joiners do not fetch a separate public directory snapshot URL. Manifests are baked into the Nitro EIF; discovery is POST /v1/match over attested TLS."
   },
   "asker": {

@@ -6,6 +6,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 JOIN_PACK_SCHEMA = "por.join_pack.v1"
@@ -31,6 +32,13 @@ def main() -> int:
     mailbox = json.loads(mailbox_path.read_text(encoding="utf-8"))
 
     url = str(enclave["url"]).rstrip("/")
+    value_x = str(enclave["approved_value_x"][0])
+    host = urlparse(url).hostname or ""
+    expected_host = f"{value_x[:12]}.aeon.site"
+    if host != expected_host:
+        raise SystemExit(
+            f"live enclave URL host {host!r} does not match Value X prefix {expected_host!r}"
+        )
     relays = mailbox.get("trusted_reachability_relays") or []
     if not relays:
         raise SystemExit("mailbox config has no trusted_reachability_relays")

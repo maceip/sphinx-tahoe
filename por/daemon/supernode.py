@@ -151,10 +151,19 @@ class SupernodeDaemon:
     ) -> bool:
         peer_addr = self.forwarder.lookup_peer_addr(peer_id)
         if peer_addr is None or self._sock is None:
+            self.runtime._log(
+                "opaque_forward_to_peer_missing",
+                level="warning",
+                fields={"peer_id": peer_id, "has_socket": self._sock is not None},
+            )
             return False
         session_key = f"{peer_id}:{peer_addr[0]}:{peer_addr[1]}"
         self._client_sessions[session_key] = client_addr
         self._sock.sendto(data, peer_addr)
+        self.runtime._log(
+            "opaque_forward_to_peer",
+            fields={"peer_id": peer_id, "bytes": len(data)},
+        )
         return True
 
     def forward_return_from_peer(self, data: bytes, peer_addr: tuple[str, int]) -> bool:

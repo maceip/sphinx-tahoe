@@ -1,0 +1,20 @@
+{
+  "version": "por.network_clients.v1",
+  "note": "Historical asker hosts from the single-expert beta proof. These hosts are currently repurposed as live alpha experts; provision new clients before claiming current-alpha second-human proof.",
+  "reach_relay_host": "3.121.69.82",
+  "matcher_url": "https://5faf834eac20.aeon.site/",
+  "clients": [
+    {
+      "client_id": "client-1",
+      "host": "35.159.21.110",
+      "ssh_user": "ubuntu",
+      "ssh_key": "~/.ssh/tenet-nitro.pem"
+    },
+    {
+      "client_id": "client-2",
+      "host": "63.185.117.35",
+      "ssh_user": "ubuntu",
+      "ssh_key": "~/.ssh/tenet-nitro.pem"
+    }
+  ]
+}

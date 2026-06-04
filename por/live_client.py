@@ -108,7 +108,7 @@ def send_live_enclave_summary(
         random_seed=0,
     )
     return {
-        "ok": not result.fallback_used,
+        "ok": not result.fallback_used and bool(result.response_text.strip()),
         "url": enclave_config.url,
         "prompt": prompt,
         "selected_peer_id": result.selected_peer_id,

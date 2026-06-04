@@ -8,6 +8,7 @@ JSON/base64 framing and the POR1 route-info blob format have been removed.
 from __future__ import annotations
 
 import json
+import os
 import signal
 import socket
 import time
@@ -295,8 +296,13 @@ class WireNodeRuntime:
             time.sleep(0.05)
 
         done = json.dumps({"seq": len(chunks), "data": "", "done": True}).encode("utf-8")
-        pkt = circuit_packet_create(self.params, exit_outbound, len(chunks), done, [exit_key])
-        self._send_binary(sock, return_next, pkt, src_addr=src_addr)
+        done_repeats = max(1, int(os.environ.get("POR_STREAM_DONE_REPEATS", "3")))
+        for repeat in range(done_repeats):
+            nonce = len(chunks) + repeat
+            pkt = circuit_packet_create(self.params, exit_outbound, nonce, done, [exit_key])
+            self._send_binary(sock, return_next, pkt, src_addr=src_addr)
+            if repeat < done_repeats - 1:
+                time.sleep(0.05)
 
     def _handle_circuit_binary(
         self,
@@ -368,8 +374,13 @@ class WireNodeRuntime:
             time.sleep(0.05)
 
         done = json.dumps({"seq": len(chunks), "data": "", "done": True}).encode("utf-8")
-        pkt = circuit_packet_create(self.params, exit_outbound_bytes, len(chunks), done, [exit_key])
-        self._send_binary(sock, return_next, pkt, src_addr=src_addr)
+        done_repeats = max(1, int(os.environ.get("POR_STREAM_DONE_REPEATS", "3")))
+        for repeat in range(done_repeats):
+            nonce = len(chunks) + repeat
+            pkt = circuit_packet_create(self.params, exit_outbound_bytes, nonce, done, [exit_key])
+            self._send_binary(sock, return_next, pkt, src_addr=src_addr)
+            if repeat < done_repeats - 1:
+                time.sleep(0.05)
 
     def _send_binary(
         self,
