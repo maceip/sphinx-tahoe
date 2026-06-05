@@ -8,7 +8,7 @@
       "host": "192.168.0.180",
       "ssh_user": "mac",
       "platform": "windows-x86_64",
-      "binary": "dist/por-windows-x86_64.exe",
+      "binary": "dist/tenet-windows-x86_64.exe",
       "note": "Native Windows LAN client proof passed from stripped PATH on 2026-06-04"
     },
     {
@@ -17,7 +17,7 @@
       "ssh_user": "mac",
       "platform": "linux-x86_64",
       "wsl": true,
-      "binary": "dist/por-linux-x86_64",
+      "binary": "dist/tenet-linux-x86_64",
       "note": "Linux binary proof passed under WSL mirrored networking on 2026-06-04; Docker/Orb on Mac attests but loses UDP relay return"
     }
   ]

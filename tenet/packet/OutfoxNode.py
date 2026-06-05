@@ -2,7 +2,7 @@
 
 Implements LMC.PacketProcess from Rial et al. (2025).
 
-Extended with P-OR additions:
+Extended with tenet additions:
   - Per-layer timestamp validation (replay rejection)
   - Dummy traffic flag parsing
   - Self-healing: fill random bytes for missing circuit messages

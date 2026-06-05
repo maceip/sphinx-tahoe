@@ -1,4 +1,4 @@
-"""Durable integration-test harness for P-OR mixnet nodes.
+"""Durable integration-test harness for tenet mixnet nodes.
 
 One module owns UDP socket + serve-thread lifecycle so individual tests stop
 re-implementing (and re-breaking) it.

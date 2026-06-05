@@ -4,7 +4,7 @@ Implements the building blocks from Rial, Piotrowska, Halpin (2025):
 "Outfox: a Postquantum Packet Format for Layered Mixnets"
 (arXiv:2412.19937v2)
 
-Extended with P-OR protocol additions:
+Extended with tenet protocol additions:
   - ML-DSA-65 (Dilithium) signatures for payload integrity
   - Per-layer timestamps for replay rejection
   - Dummy traffic flag (protocol-level, not policy)

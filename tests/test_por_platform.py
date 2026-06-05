@@ -96,7 +96,7 @@ def test_ask_display_renders_status_map_without_protocol_state():
     )
 
     rendered = stream.getvalue()
-    assert "P-OR live network" in rendered
+    assert "tenet live network" in rendered
     assert "you -> matcher -> reach-beta-1" in rendered
     assert "value_x=5faf834eac20..." in rendered
     assert "selected=expert-art" in rendered
@@ -131,7 +131,7 @@ def test_dashboard_display_renders_broad_service_stack():
         route_mode="reachability-relay",
     )
     snapshot = DashboardSnapshot(
-        "P-OR service dashboard",
+        "tenet service dashboard",
         network,
         (
             ServiceCard("attested matcher", "configured", "value_x=abc123", "TEE"),
@@ -140,7 +140,7 @@ def test_dashboard_display_renders_broad_service_stack():
         ("payments/payouts omitted",),
     )
     rendered = DashboardDisplay(enabled=False).render(snapshot)
-    assert "P-OR service dashboard" in rendered
+    assert "tenet service dashboard" in rendered
     assert "attested matcher: configured" in rendered
     assert "payments/payouts omitted" in rendered
 
@@ -206,7 +206,7 @@ def test_structured_logging_redacts_sensitive_fields():
     line = format_log_event(
         PorLogEvent(
             event="expert_selected",
-            component="por-client",
+            component="tenet-client",
             node_id="client-a",
             fields={"prompt": "private text", "score": 0.91, "nested": {"token": "secret"}},
         )
@@ -221,7 +221,7 @@ def test_structured_logging_redacts_sensitive_fields():
     emit_log_event(
         PorLogEvent(
             event="circuit_hop",
-            component="por-relay",
+            component="tenet-relay",
             node_id="relay-a",
             role="relay",
             link_cid="abcd1234",

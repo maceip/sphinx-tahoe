@@ -1,4 +1,4 @@
-"""High-level Expert Mode orchestration for the P-OR MVP."""
+"""High-level Expert Mode orchestration for the tenet MVP."""
 
 from __future__ import annotations
 

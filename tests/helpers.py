@@ -1,4 +1,4 @@
-"""Helpers shared across P-OR tests."""
+"""Helpers shared across tenet tests."""
 
 from __future__ import annotations
 

@@ -111,7 +111,7 @@ class AskNetworkDisplay:
 
 
 class AskDisplay:
-    """TTY-only product display for ``por ask``."""
+    """TTY-only product display for ``tenet ask``."""
 
     def __init__(
         self,
@@ -128,7 +128,7 @@ class AskDisplay:
         if not self.enabled:
             return StatusRail.disabled()
 
-        self._line(f"{BOLD}{CYAN}P-OR live network{RESET}")
+        self._line(f"{BOLD}{CYAN}tenet live network{RESET}")
         self._line(
             f"{DIM}trust{RESET}  attested matcher {self.network.matcher_host}  "
             f"value_x={self.network.value_x_prefix}..."
@@ -433,7 +433,7 @@ class StatusRail(AbstractContextManager["StatusRail"]):
         if not self.enabled or self._started:
             return
         self._started = True
-        self._thread = threading.Thread(target=self._run, name="por-status-rail", daemon=True)
+        self._thread = threading.Thread(target=self._run, name="tenet-status-rail", daemon=True)
         self._thread.start()
 
     def stop(self, final_label: str = "network exchange complete") -> None:

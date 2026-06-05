@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the unified ``por`` CLI as a one-file platform binary.
+"""Build the unified ``tenet`` CLI as a one-file platform binary.
 
 The build is intentionally local-platform only: run this script once on macOS,
 once on Linux, and once on Windows to produce the release artifacts for each

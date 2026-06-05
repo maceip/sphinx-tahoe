@@ -82,7 +82,7 @@ def _remote_powershell(script):
 
 
 def _deploy_windows_native(client, cid):
-    binary = root / client.get("binary", "dist/por-windows-x86_64.exe")
+    binary = root / client.get("binary", "dist/tenet-windows-x86_64.exe")
     if not binary.is_file():
         raise FileNotFoundError(f"missing Windows binary: {binary}")
     remote_dir = f"C:/Users/{client.get('ssh_user', 'mac')}/tenet/tenet-client/{cid}"
@@ -124,7 +124,7 @@ def _deploy_windows_native(client, cid):
 
 
 def _deploy_windows_wsl(client, cid):
-    binary = root / client.get("binary", "dist/por-linux-x86_64")
+    binary = root / client.get("binary", "dist/tenet-linux-x86_64")
     if not binary.is_file():
         raise FileNotFoundError(f"missing Linux binary: {binary}")
     remote_dir = f"C:/Users/{client.get('ssh_user', 'mac')}/tenet/tenet-client/{cid}"

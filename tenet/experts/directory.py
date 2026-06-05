@@ -1,4 +1,4 @@
-"""Peer discovery surfaces for P-OR Expert Mode.
+"""Peer discovery surfaces for tenet Expert Mode.
 
 The MVP discovery model is deliberately boring: clients fetch a public snapshot
 of peer manifests and rank locally. That avoids sending exact interests to a

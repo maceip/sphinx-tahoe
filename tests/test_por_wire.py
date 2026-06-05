@@ -155,7 +155,7 @@ def test_shutdown_stops_runtime():
 @pytest.mark.integration
 @pytest.mark.product
 def test_binary_wire_subprocess_uses_client_send_path(tmp_path, wire_cluster_factory):
-    """Production path: por relay/expert subprocesses + send_prepared_envelope."""
+    """Production path: tenet relay/expert subprocesses + send_prepared_envelope."""
     config_path, harness = wire_cluster_factory("relay1", "relay2", "expert_art")
     nodes = harness["nodes"]
     node_ids = ("relay1", "relay2", "expert_art")

@@ -1,13 +1,13 @@
-"""QUIC transport helpers for P-OR packet bytes.
+"""QUIC transport helpers for tenet packet bytes.
 
-This module carries already-built P-OR frames over real QUIC connections. It
+This module carries already-built tenet frames over real QUIC connections. It
 does not parse Outfox headers, circuit packets, prompts, or peer address
 records.
 
 Two carriers are intentionally separate:
 
 * ``POR_DATAGRAM_ALPN`` carries small QUIC DATAGRAM control/test frames.
-* ``POR_H3_ALPN`` carries full P-OR frames over HTTP/3 Extended CONNECT.
+* ``POR_H3_ALPN`` carries full tenet frames over HTTP/3 Extended CONNECT.
 """
 
 from __future__ import annotations
@@ -320,7 +320,7 @@ class ConnectionTracker:
 
 
 class QuicDatagramServer:
-    """Small QUIC DATAGRAM server for local P-OR transport tests.
+    """Small QUIC DATAGRAM server for local tenet transport tests.
 
     ``datagram_handler`` runs on the QUIC event loop and must not block.
     Production node logic should hand work to a task/queue and return quickly.

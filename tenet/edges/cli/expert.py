@@ -1,4 +1,4 @@
-"""P-OR expert exit daemon."""
+"""tenet expert exit daemon."""
 
 from __future__ import annotations
 
@@ -138,7 +138,7 @@ def _try_upnp_on_startup(daemon: DaemonConfig):
     try:
         from tenet.mixnet.upnp import try_port_mapping
         bind_port = daemon.transport.bind.port if daemon.transport.bind else 4433
-        result = try_port_mapping(bind_port, lease_seconds=7200, description="P-OR Expert")
+        result = try_port_mapping(bind_port, lease_seconds=7200, description="tenet Expert")
         if result.success:
             _emit_node_log(daemon, "upnp_mapped", fields={
                 "method": result.mapping.method,
@@ -165,7 +165,7 @@ def _emit_node_log(
     emit_log_event(
         PorLogEvent(
             event=event,
-            component="por-expert",
+            component="tenet-expert",
             node_id=daemon.node_id,
             role="expert",
             level=level,

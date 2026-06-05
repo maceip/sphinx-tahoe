@@ -1,4 +1,4 @@
-"""Deterministic local memory indexing for P-OR Layer 7 matching.
+"""Deterministic local memory indexing for tenet Layer 7 matching.
 
 This module intentionally does not certify "expertise." It builds a read-only
 sidecar index over local text and publishes a small manifest that can be used
@@ -549,7 +549,7 @@ def _manifest_digest(manifest: MemoryManifest) -> str:
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build a P-OR memory manifest.")
+    parser = argparse.ArgumentParser(description="Build a tenet memory manifest.")
     parser.add_argument("roots", nargs="+", help="Files or directories to index")
     parser.add_argument("--peer-id", required=True, help="Peer identifier to place in the manifest")
     parser.add_argument("--out", help="Write manifest JSON to this file instead of stdout")

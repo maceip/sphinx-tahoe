@@ -1,4 +1,4 @@
-"""UPnP/NAT-PMP port mapping for P-OR home nodes.
+"""UPnP/NAT-PMP port mapping for tenet home nodes.
 
 Follows the libtorrent pattern: try UPnP, try NAT-PMP, report result.
 If a mapping is obtained, the node can advertise a direct endpoint
@@ -60,7 +60,7 @@ def try_port_mapping(
     *,
     protocol: str = "UDP",
     lease_seconds: int = 7200,
-    description: str = "P-OR",
+    description: str = "tenet",
 ) -> MappingResult:
     """Try UPnP, then NAT-PMP. Return first success or last error.
 
@@ -120,7 +120,7 @@ def release_mapping(mapping: PortMapping) -> bool:
 # ── UPnP ────────────────────────────────────────────────────────────
 
 def _try_upnp(internal_port, external_port, *, protocol, lease_seconds,
-              description="P-OR") -> MappingResult:
+              description="tenet") -> MappingResult:
     try:
         location = _ssdp_discover()
         if not location:

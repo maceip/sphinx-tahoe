@@ -1,4 +1,4 @@
-"""P-OR client daemon entry point."""
+"""tenet client daemon entry point."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ class ClientSessionStats:
 
 
 class PersistentClientSession:
-    """Long-lived client role state for ``por run``.
+    """Long-lived client role state for ``tenet run``.
 
     This intentionally sits above the wire send/receive code. It reuses the
     loaded config, directory snapshot, and local process session across
@@ -250,11 +250,11 @@ def run_client_from_daemon(daemon: DaemonConfig, por_config: PorConfig) -> int:
         return run_local_http_client(daemon, por_config)
     if daemon.client.prompt is None:
         raise SystemExit(
-            "por run: client role requires client.prompt or client.local_http.enabled=true"
+            "tenet run: client role requires client.prompt or client.local_http.enabled=true"
         )
     directory_source = daemon.client.directory_snapshot or daemon.directory.snapshot_path
     if directory_source is None:
-        raise SystemExit("por run: client role requires client.directory_snapshot")
+        raise SystemExit("tenet run: client role requires client.directory_snapshot")
     session = PersistentClientSession.from_config(
         daemon=daemon,
         por_config=por_config,
@@ -282,7 +282,7 @@ def run_client_from_daemon(daemon: DaemonConfig, por_config: PorConfig) -> int:
 def run_local_http_client(daemon: DaemonConfig, por_config: PorConfig) -> int:
     directory_source = daemon.client.directory_snapshot or daemon.directory.snapshot_path
     if directory_source is None:
-        raise SystemExit("por run: local HTTP client requires client.directory_snapshot")
+        raise SystemExit("tenet run: local HTTP client requires client.directory_snapshot")
     session = PersistentClientSession.from_config(
         daemon=daemon,
         por_config=por_config,
@@ -338,7 +338,7 @@ def make_client_http_handler(
         )
 
     class ClientHttpHandler(BaseHTTPRequestHandler):
-        server_version = "por-client-http/0.1"
+        server_version = "tenet-client-http/0.1"
 
         def do_GET(self) -> None:
             if self.path == "/healthz":
@@ -538,7 +538,7 @@ def _emit_client_log(
     emit_log_event(
         PorLogEvent(
             event=event,
-            component="por-client",
+            component="tenet-client",
             node_id=node_id,
             role="client",
             request_id=request_id,

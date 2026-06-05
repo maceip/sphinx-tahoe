@@ -2,7 +2,7 @@
 
 Materialize expert peers from agent session logs (Cursor, Codex, Claude,
 Antigravity, etc.). Each peer gets a corpus directory and public manifest;
-live deploy runs ``por run`` on real nodes. Synthetic seeds only pad node count
+live deploy runs ``tenet run`` on real nodes. Synthetic seeds only pad node count
 when there are fewer sessions than VMs — the population file is still mandatory
 for item 15 scale-out.
 """

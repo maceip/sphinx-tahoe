@@ -1,6 +1,6 @@
-"""Canonical binary wire framing for P-OR datagrams.
+"""Canonical binary wire framing for tenet datagrams.
 
-Each UDP datagram is one P-OR frame:
+Each UDP datagram is one tenet frame:
 
   0x00 || header || payload     Forward Outfox packet
   0x01 || circuit_packet_body   Return circuit packet (already typed internally)

@@ -1,7 +1,7 @@
-"""QUIC-based runtime for production P-OR daemons.
+"""QUIC-based runtime for production tenet daemons.
 
 Wraps WireNodeRuntime's binary dispatch over QUIC DATAGRAM frames
-(RFC 9221). TLS 1.3 is mandatory — all P-OR wire traffic is encrypted.
+(RFC 9221). TLS 1.3 is mandatory — all tenet wire traffic is encrypted.
 
 The QUIC server receives datagrams, dispatches through the same demux
 as UDP (REACH → Outfox → opaque), and sends responses back through

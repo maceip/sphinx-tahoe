@@ -3,7 +3,7 @@
 Implements LMC.PacketCreate, LMC.SurbCreate, LMC.SurbUse,
 LMC.SurbCheck, and LMC.SurbRecover from Rial et al. (2025).
 
-Extended with P-OR additions: per-layer timestamps, dummy flag,
+Extended with tenet additions: per-layer timestamps, dummy flag,
 ML-DSA-65 signatures, and return-path circuit setup material.
 """
 

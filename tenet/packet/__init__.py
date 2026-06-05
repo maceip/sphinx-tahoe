@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """The ``tenet.packet`` package implements the Outfox mix packet format
-and P-OR mixnet protocol.
+and tenet mixnet protocol.
 
 Outfox (Rial, Piotrowska, Halpin, 2025) uses per-hop KEM, AEAD headers,
 HKDF key derivation, LIONESS PRP for payload encryption, and ML-DSA-65

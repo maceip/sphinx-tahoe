@@ -1,4 +1,4 @@
-"""Versioned Layer 7 request envelopes for P-OR.
+"""Versioned Layer 7 request envelopes for tenet.
 
 The envelope is the payload delivered to the selected expert/exit peer. Relays
 carry it as opaque bytes. Future prompt-hiding or proof-of-execution work should

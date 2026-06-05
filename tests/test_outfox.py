@@ -1,4 +1,4 @@
-"""Tests for the Outfox post-quantum packet format with P-OR extensions.
+"""Tests for the Outfox post-quantum packet format with tenet extensions.
 
 Verifies: per-hop KEM, nested AEAD, HKDF, per-layer timestamps,
 dummy flag, ML-DSA-65 signatures, return-path circuit processing,
@@ -513,7 +513,7 @@ def test_circuit_header_budget():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("Outfox + P-OR Extensions Test Suite")
+    print("Outfox + tenet Extensions Test Suite")
     print("=" * 60)
     print()
 

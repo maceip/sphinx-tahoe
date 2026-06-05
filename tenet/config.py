@@ -1,4 +1,4 @@
-"""Shared configuration schema for P-OR daemons.
+"""Shared configuration schema for tenet daemons.
 
 This module is intentionally dependency-free. It gives the client, relay,
 expert, gateway, and directory daemons one JSON-shaped config contract without

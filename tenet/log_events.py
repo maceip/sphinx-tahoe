@@ -1,4 +1,4 @@
-"""Structured log event helpers for P-OR daemons and tests."""
+"""Structured log event helpers for tenet daemons and tests."""
 
 from __future__ import annotations
 

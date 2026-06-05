@@ -316,7 +316,7 @@ def run_supernode_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
     emit_log_event(
         PorLogEvent(
             event="daemon_start",
-            component="por-supernode",
+            component="tenet-supernode",
             node_id=daemon.node_id,
             role="relay",
             fields={"supernode_enabled": True},
@@ -356,7 +356,7 @@ def run_supernode(*, config_path: str, node_id: str, relay_secret: bytes | None 
 def main(argv: Sequence[str] | None = None) -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Run a P-OR supernode (relay + reachability).")
+    parser = argparse.ArgumentParser(description="Run a tenet supernode (relay + reachability).")
     parser.add_argument("--config", required=True)
     parser.add_argument("--node-id", required=True)
     args = parser.parse_args(argv)

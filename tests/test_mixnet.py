@@ -906,7 +906,7 @@ def test_paced_drain_all_delivers_burst():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("P-OR Mixnet Packet Tests")
+    print("tenet Mixnet Packet Tests")
     print("=" * 60)
     print()
 

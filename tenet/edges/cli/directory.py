@@ -1,4 +1,4 @@
-"""Public P-OR directory snapshot server."""
+"""Public tenet directory snapshot server."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def make_directory_handler(
         raise ValueError("route must start with /")
 
     class DirectorySnapshotHandler(BaseHTTPRequestHandler):
-        server_version = "por-directory/0.1"
+        server_version = "tenet-directory/0.1"
 
         def do_GET(self) -> None:
             if self.path == "/healthz":
@@ -106,7 +106,7 @@ def run_directory_from_daemon(daemon, por_config=None) -> int:
             snapshot = snapshot.with_supernodes(supernodes)
             snapshot_json = snapshot.to_json() + "\n"
     if daemon.directory.snapshot_path is None and snapshot_json is None:
-        raise SystemExit("por run: directory role requires directory.snapshot_path in config")
+        raise SystemExit("tenet run: directory role requires directory.snapshot_path in config")
     bind = daemon.transport.bind
     return run_directory_server(
         snapshot_path=daemon.directory.snapshot_path,
@@ -129,7 +129,7 @@ def _emit_directory_log(
     emit_log_event(
         PorLogEvent(
             event=event,
-            component="por-directory",
+            component="tenet-directory",
             node_id=node_id,
             role="directory",
             fields=fields or {},
@@ -140,7 +140,7 @@ def _emit_directory_log(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Serve a public P-OR directory snapshot.")
+    parser = argparse.ArgumentParser(description="Serve a public tenet directory snapshot.")
     parser.add_argument("--snapshot", required=True, help="Directory snapshot JSON file")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8088)

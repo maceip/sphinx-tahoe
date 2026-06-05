@@ -1,4 +1,4 @@
-"""Wire node runtime for P-OR daemons.
+"""Wire node runtime for tenet daemons.
 
 **Wire:** canonical binary datagrams via ``tenet.mixnet.wire_frame`` (``0x00`` forward,
 ``0x01`` circuit, ``0x02`` shutdown). This is the only path; the legacy
@@ -153,7 +153,7 @@ class WireNodeRuntime:
         link_cid: str | None = None,
         fields: dict[str, object] | None = None,
     ) -> None:
-        component = f"por-{self.role}" if self.role in {"relay", "expert"} else "por-node"
+        component = f"tenet-{self.role}" if self.role in {"relay", "expert"} else "tenet-node"
         emit_log_event(
             PorLogEvent(
                 event=event,

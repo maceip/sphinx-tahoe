@@ -1,4 +1,4 @@
-"""P-OR relay daemon."""
+"""tenet relay daemon."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def _emit_node_log(
     emit_log_event(
         PorLogEvent(
             event=event,
-            component="por-relay",
+            component="tenet-relay",
             node_id=daemon.node_id,
             role="relay",
             fields=fields or {},

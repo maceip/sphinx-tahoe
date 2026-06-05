@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Legacy path name. Deploy real P-OR clients to each node in gate-b-topology.json.
+# Legacy path name. Deploy real tenet clients to each node in gate-b-topology.json.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

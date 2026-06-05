@@ -1,7 +1,7 @@
-"""Freehold-inspired UDP/QUIC peer address control plane for P-OR.
+"""Freehold-inspired UDP/QUIC peer address control plane for tenet.
 
 This module is intentionally detached from Outfox packet processing. It models
-the transport-control primitive P-OR needs later: peers register with an inline
+the transport-control primitive tenet needs later: peers register with an inline
 relay/assist, prove the relay can observe their UDP endpoint, and publish a
 short-lived peer address record. The record says which relay address to dial
 for this peer, and may include a direct UDP address if the peer allows that.

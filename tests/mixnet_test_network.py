@@ -1,4 +1,4 @@
-"""Test-only P-OR packet crypto/routing utility.
+"""Test-only tenet packet crypto/routing utility.
 
 Local model for Outfox forward packets + symmetric circuit return streaming.
 Forward path uses layered Outfox; **streaming return is an encrypted relay

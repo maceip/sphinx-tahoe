@@ -1,7 +1,7 @@
-"""Unified P-OR binary entry point.
+"""Unified tenet binary entry point.
 
-Everyone installs and runs ``por``. Subcommands select behavior; legacy
-``por-relay`` / ``por-expert`` / ``por-client`` console scripts delegate here.
+Everyone installs and runs ``tenet``. Subcommands select behavior; legacy
+``tenet-relay`` / ``tenet-expert`` / ``tenet-client`` console scripts delegate here.
 
 Target product shape:
   - default: client (send prompts)
@@ -56,9 +56,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser(
         "run",
-        help="Run from a por.config.v1 daemon JSON (role selects subcommand).",
+        help="Run from a tenet daemon JSON (compat schema: por.config.v1).",
     )
-    run.add_argument("--config", required=True, help="por.config.v1 JSON path")
+    run.add_argument("--config", required=True, help="tenet daemon JSON path")
     run.add_argument("--node-id", help="Daemon node id when config lists multiple")
 
     enclave = sub.add_parser(
@@ -74,7 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     enclave_check.add_argument(
         "--config",
         default="config/live-enclave.json",
-        help="por.live_enclave.v1 JSON (default: config/live-enclave.json)",
+        help="Live enclave JSON path (compat schema: por.live_enclave.v1)",
     )
     enclave_check.add_argument("--json", action="store_true", help="Print JSON summary")
 
@@ -105,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     enclave_send.add_argument(
         "--mailbox-config",
         default="config/live-mailbox-client.json",
-        help="por.live_mailbox_client.v1 cluster + trusted relay pins",
+        help="Live mailbox client cluster + trusted relay pins",
     )
     enclave_send.add_argument("--prompt", required=True)
     enclave_send.add_argument("--expertise")
@@ -125,7 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--join-pack",
         default=str(resolve_join_pack_path()),
         help=(
-            "por.join_pack.v1 JSON. Defaults to config/join-pack.json, "
+            "tenet join-pack JSON. Defaults to config/join-pack.json, "
             "or ./join-pack.json inside an asker bundle."
         ),
     )
@@ -152,7 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--join-pack",
         default=str(resolve_join_pack_path()),
         help=(
-            "por.join_pack.v1 JSON. Defaults to config/join-pack.json, "
+            "tenet join-pack JSON. Defaults to config/join-pack.json, "
             "or ./join-pack.json inside an asker bundle."
         ),
     )
@@ -369,7 +369,7 @@ def _run_status_command(args: argparse.Namespace) -> int:
         return 0
 
     if args.watch and args.json:
-        raise SystemExit("por status: --watch and --json cannot be combined")
+        raise SystemExit("tenet status: --watch and --json cannot be combined")
 
     enabled = should_show_interactive_display(sys.stdout, plain=args.plain or args.json)
 
@@ -475,7 +475,7 @@ def _build_status_snapshot(join_pack_path: str, *, live_check: bool):
         "payments/payouts are intentionally omitted until a real ledger/API contract exists",
         "real 3D belongs in an optional UI path; terminal dashboard uses a portable ANSI scene",
     )
-    return DashboardSnapshot("P-OR service dashboard", network, services, notes)
+    return DashboardSnapshot("tenet service dashboard", network, services, notes)
 
 
 def _run_from_daemon_config(config_path: str, *, node_id: str | None) -> int:
@@ -499,7 +499,7 @@ def _run_from_daemon_config(config_path: str, *, node_id: str | None) -> int:
 
         return run_directory_from_daemon(daemon, por_cfg)
 
-    raise SystemExit(f"por run: unsupported daemon role {daemon.role!r}")
+    raise SystemExit(f"tenet run: unsupported daemon role {daemon.role!r}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -517,7 +517,7 @@ def _legacy_notice(old_name: str, new_argv: Sequence[str]) -> None:
 
 def legacy_relay_main(argv: Sequence[str] | None = None) -> int:
     _legacy_notice("tenet-relay", ("relay",))
-    parser = argparse.ArgumentParser(description="Run a P-OR relay node.")
+    parser = argparse.ArgumentParser(description="Run a tenet relay node.")
     parser.add_argument("--config", required=True)
     parser.add_argument("--node-id", required=True)
     args = parser.parse_args(list(argv) if argv is not None else None)
@@ -528,7 +528,7 @@ def legacy_relay_main(argv: Sequence[str] | None = None) -> int:
 
 def legacy_expert_main(argv: Sequence[str] | None = None) -> int:
     _legacy_notice("tenet-expert", ("expert",))
-    parser = argparse.ArgumentParser(description="Run a P-OR expert exit node.")
+    parser = argparse.ArgumentParser(description="Run a tenet expert exit node.")
     parser.add_argument("--config", required=True)
     parser.add_argument("--node-id", required=True)
     args = parser.parse_args(list(argv) if argv is not None else None)
@@ -539,7 +539,7 @@ def legacy_expert_main(argv: Sequence[str] | None = None) -> int:
 
 def legacy_client_main(argv: Sequence[str] | None = None) -> int:
     _legacy_notice("tenet-client", ("send",))
-    parser = argparse.ArgumentParser(description="Run one P-OR client request.")
+    parser = argparse.ArgumentParser(description="Run one tenet client request.")
     parser.add_argument("--config", required=True)
     parser.add_argument("--directory-snapshot", required=True)
     parser.add_argument("--prompt", required=True)
