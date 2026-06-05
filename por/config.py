@@ -351,19 +351,6 @@ class ExpertRoutingConfig:
             raise ValueError("fallback_provider is required")
         return self
 
-    def to_expert_mode_config(self):
-        from .expert_mode import ExpertModeConfig
-
-        return ExpertModeConfig(
-            min_pool_size=self.min_pool_size,
-            allow_degraded_pool=self.allow_degraded_pool,
-            fallback_provider=self.fallback_provider,
-            discovery_mode=self.discovery_mode,
-            allow_public_discovery_fallback=self.allow_public_discovery_fallback,
-            require_hybrid_return=self.require_hybrid_return,
-            discovery_max_records=self.discovery_max_records,
-        )
-
 
 @dataclass(frozen=True)
 class ProviderConfig:

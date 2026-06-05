@@ -39,7 +39,6 @@ APP = {  # capabilities + edges — the substrate must NOT reach up into these
 
 # Upward edges still present. Delete a line when its seam lands.
 ALLOWLIST = {
-    ("config", "expert_mode"),             # Seam C — config must not know experts
     ("enclave_plane", "directory"),        # Seam B — enclave host must not import experts
     ("enclave_plane", "expert_route"),     # Seam B
     ("enclave_plane", "memory_index"),     # Seam B

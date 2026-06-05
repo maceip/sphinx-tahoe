@@ -18,6 +18,7 @@ from por.config import (
     load_config,
 )
 from por.directory import DirectorySnapshot
+from por.expert_mode import ExpertModeConfig
 
 
 def test_single_daemon_config_loads_with_secure_transport_default(tmp_path):
@@ -68,7 +69,7 @@ def test_multi_daemon_config_round_trips_and_exports_expert_mode_config():
     assert relay.peers["expert-a"].endpoint.port == 5002
     assert expert.provider is not None
     assert expert.provider.resolve_api_key({"ANTHROPIC_API_KEY": "secret"}) == "secret"
-    assert expert.expert_routing.to_expert_mode_config().min_pool_size == 5
+    assert ExpertModeConfig.from_routing(expert.expert_routing).min_pool_size == 5
     assert config.to_dict()["daemons"]["expert-a"]["role"] == ROLE_EXPERT
 
 

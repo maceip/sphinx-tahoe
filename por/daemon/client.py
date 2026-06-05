@@ -15,6 +15,7 @@ from uuid import uuid4
 from por.client import ClientRunResult, run_client_once
 from por.config import ClusterConfig, DaemonConfig, LoggingConfig, PorConfig
 from por.directory import load_public_snapshot_directory
+from por.expert_mode import ExpertModeConfig
 from por.log_events import PorLogEvent, emit_log_event
 
 
@@ -153,7 +154,7 @@ class PersistentClientSession:
                 requested_expertise=expertise or self.daemon.client.expertise,
                 relay_path=self.daemon.client.relay_path,
                 timeout=self.daemon.client.timeout_seconds,
-                expert_mode_config=self.daemon.expert_routing.to_expert_mode_config(),
+                expert_mode_config=ExpertModeConfig.from_routing(self.daemon.expert_routing),
                 random_seed=self.daemon.client.random_seed,
                 peer_address_config=self.daemon.peer_address,
                 trusted_reachability_relays=self.daemon.client.trusted_reachability_relays,

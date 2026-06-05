@@ -25,6 +25,24 @@ class ExpertModeConfig:
     require_hybrid_return: bool = True
     discovery_max_records: int | None = None
 
+    @classmethod
+    def from_routing(cls, routing) -> "ExpertModeConfig":
+        """Build from an ``ExpertRoutingConfig`` (Seam C).
+
+        The capability reads the base routing config; base ``config`` no longer
+        needs to know this expert type exists. Duck-typed so ``expert_mode`` need
+        not import ``config``.
+        """
+        return cls(
+            min_pool_size=routing.min_pool_size,
+            allow_degraded_pool=routing.allow_degraded_pool,
+            fallback_provider=routing.fallback_provider,
+            discovery_mode=routing.discovery_mode,
+            allow_public_discovery_fallback=routing.allow_public_discovery_fallback,
+            require_hybrid_return=routing.require_hybrid_return,
+            discovery_max_records=routing.discovery_max_records,
+        )
+
 
 @dataclass(frozen=True)
 class ExpertModeTrace:

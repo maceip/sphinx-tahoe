@@ -54,7 +54,7 @@ class LiveMailboxClientConfig:
         if routing_raw is not None and not isinstance(routing_raw, Mapping):
             raise TypeError("expert_routing must be an object")
         expert_mode = replace(
-            ExpertRoutingConfig.from_dict(routing_raw).to_expert_mode_config(),
+            ExpertModeConfig.from_routing(ExpertRoutingConfig.from_dict(routing_raw)),
             discovery_mode=PLAIN_MATCHER_V1,
             allow_public_discovery_fallback=False,
         )
