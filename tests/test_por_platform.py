@@ -11,6 +11,13 @@ from urllib.request import Request, urlopen
 import pytest
 
 from por.client import ClientRunResult
+from por.cli_display import (
+    AskDisplay,
+    AskNetworkDisplay,
+    ExperimentalSceneRenderer,
+    PayoutsDisplay,
+    should_show_interactive_display,
+)
 from por.config import ClusterConfig, DaemonConfig
 from por.daemon.client import PersistentClientSession, make_client_http_handler
 from por.daemon.expert import run_expert_cluster
@@ -30,6 +37,78 @@ def test_cli_parser_and_legacy_entrypoints():
     args = parser.parse_args(["ask", "--prompt", "hello"])
     assert args.command == "ask"
     assert args.join_pack == "config/join-pack.json"
+    plain_args = parser.parse_args(["ask", "--prompt", "hello", "--plain"])
+    assert plain_args.plain is True
+
+
+class _TtyStringIO(StringIO):
+    def isatty(self):
+        return True
+
+
+def test_cli_display_respects_plain_and_no_color(monkeypatch):
+    stream = _TtyStringIO()
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    assert should_show_interactive_display(stream) is True
+    assert should_show_interactive_display(stream, plain=True) is False
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert should_show_interactive_display(stream) is False
+
+
+def test_ask_display_renders_status_map_without_protocol_state():
+    stream = StringIO()
+    display = AskDisplay(
+        AskNetworkDisplay.from_join_pack(
+            {
+                "url": "https://5faf834eac20.aeon.site/",
+                "approved_value_x": ["5faf834eac20adaf"],
+            },
+            {
+                "relay_id": "reach-beta-1",
+                "host": "3.121.69.82",
+                "port": 4433,
+            },
+            relay_count=1,
+            route_mode="reachability-relay",
+        ),
+        stream=stream,
+        enabled=True,
+    )
+
+    rail = display.start()
+    rail.stop()
+    display.finish(
+        {
+            "ok": True,
+            "selected_peer_id": "expert-art",
+            "via_mailbox": False,
+            "degraded_anonymity": False,
+        }
+    )
+
+    rendered = stream.getvalue()
+    assert "P-OR live network" in rendered
+    assert "you -> matcher -> reach-beta-1" in rendered
+    assert "value_x=5faf834eac20..." in rendered
+    assert "selected=expert-art" in rendered
+
+
+def test_unfinished_cli_display_surfaces_are_explicit_stubs():
+    with pytest.raises(NotImplementedError, match="CLI_UI_TODO"):
+        PayoutsDisplay().render(())
+    with pytest.raises(NotImplementedError, match="CLI_UI_TODO"):
+        ExperimentalSceneRenderer().render_network_scene(
+            AskNetworkDisplay(
+                matcher_host="matcher",
+                value_x_prefix="abc123",
+                relay_id="relay",
+                relay_endpoint="127.0.0.1:4433",
+                relay_count=1,
+                route_mode="reachability-relay",
+            )
+        )
 
 
 @pytest.mark.parametrize(

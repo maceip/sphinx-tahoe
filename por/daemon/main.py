@@ -137,6 +137,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Force live TEE /v1/deliver datagram delivery for this ask.",
     )
+    ask.add_argument(
+        "--plain",
+        action="store_true",
+        help="Disable interactive color/status display.",
+    )
     ask.add_argument("--json", action="store_true", help="Print JSON result")
 
     return parser
@@ -269,6 +274,7 @@ def _run_enclave_command(args: argparse.Namespace) -> int:
 def _run_ask_command(args: argparse.Namespace) -> int:
     import json
 
+    from por.cli_display import AskDisplay, AskNetworkDisplay, should_show_interactive_display
     from por.join_pack import JoinPack
     from por.live_client import LiveMailboxClientConfig, send_live_enclave_summary
     from por.live_enclave import LiveEnclaveConfig
@@ -276,14 +282,25 @@ def _run_ask_command(args: argparse.Namespace) -> int:
     pack = JoinPack.load(args.join_pack)
     enclave = LiveEnclaveConfig.from_dict(pack.matcher)
     mailbox = LiveMailboxClientConfig.load(pack.asker_mailbox_config)
-    result = send_live_enclave_summary(
-        enclave,
-        mailbox,
-        prompt=args.prompt,
-        requested_expertise=args.expertise,
-        timeout=args.timeout,
-        mailbox_datagram_delivery_enabled=True if args.via_mailbox else None,
+    display = AskDisplay(
+        AskNetworkDisplay.from_join_pack(
+            pack.matcher,
+            pack.reachability_relay,
+            relay_count=len(mailbox.trusted_reachability_relays),
+            route_mode="tee-mailbox" if args.via_mailbox else "reachability-relay",
+        ),
+        enabled=should_show_interactive_display(sys.stderr, plain=args.plain or args.json),
     )
+    with display.start():
+        result = send_live_enclave_summary(
+            enclave,
+            mailbox,
+            prompt=args.prompt,
+            requested_expertise=args.expertise,
+            timeout=args.timeout,
+            mailbox_datagram_delivery_enabled=True if args.via_mailbox else None,
+        )
+    display.finish(result)
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))
     else:
