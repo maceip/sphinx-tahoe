@@ -5,7 +5,7 @@ import threading
 from urllib.request import urlopen
 
 from por.directory import DiscoveryRequest
-from por.enclave_plane import PlainEnclavePlaneHttpClient
+from por.match_workload import PlainEnclavePlaneHttpClient
 from por.enclave_plane_server import build_provider_from_files, serve_enclave_plane
 from por.expert_route import RouteIntent
 from por.matcher import (

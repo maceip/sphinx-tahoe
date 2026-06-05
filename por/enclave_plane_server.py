@@ -23,7 +23,7 @@ from typing import Mapping, Sequence
 
 from .config import PeerAddressConfig, TrustedReachabilityRelayConfig
 from .directory import load_public_snapshot_directory
-from .enclave_plane import make_plain_enclave_plane_handler
+from .match_workload import make_plain_enclave_plane_handler
 from .handles import opaque_handle_record_from_dict
 from .matcher import (
     PlainEnclavePlaneDiscoveryProvider,

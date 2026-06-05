@@ -194,9 +194,9 @@ def __getattr__(name):
             "PlainEnclavePlaneHttpClient",
             "make_plain_enclave_plane_handler",
         }:
-            from . import enclave_plane
+            from . import match_workload
 
-            return getattr(enclave_plane, name)
+            return getattr(match_workload, name)
         if name in {
             "AddressChallenge",
             "AddressExposurePolicy",

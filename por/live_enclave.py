@@ -13,7 +13,7 @@ from .enclave_attest import (
     EnclaveTrustPolicy,
     SubprocessAttestedWorkloadVerifier,
 )
-from .enclave_plane import PlainEnclavePlaneHttpClient
+from .match_workload import PlainEnclavePlaneHttpClient
 from .expert_route import RouteIntent
 from .matcher import PLAIN_MATCHER_V1
 

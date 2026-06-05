@@ -25,8 +25,8 @@ MIXNET = {  # the sealed-routing substrate
     "node_runtime", "wire_frame", "reach_wire", "transport_dial", "quic_transport",
     "quic_runtime", "reach_client", "peer_address", "supernode", "upnp",
 }
-ENCLAVE = {  # the attested-workload host + attestation
-    "enclave_attest", "attested_transport", "enclave_plane", "enclave_plane_server", "arc",
+ENCLAVE = {  # the attested-workload host + attestation (the generic host only)
+    "enclave_attest", "attested_transport", "enclave_plane", "arc",
 }
 SUBSTRATE = BASE | MIXNET | ENCLAVE
 
@@ -35,16 +35,13 @@ APP = {  # capabilities + edges — the substrate must NOT reach up into these
     "expert_mode", "expert_groups", "alpha_experts", "client", "live_client",
     "live_enclave", "live_expert", "provider", "join_pack", "cli_display",
     "gate_b_nodes", "gate_b_topology",
+    # match/mailbox workload + its server wiring are experts tenants, not host:
+    "match_workload", "enclave_plane_server",
 }
 
-# Upward edges still present. Delete a line when its seam lands.
-ALLOWLIST = {
-    ("enclave_plane", "directory"),        # Seam B — enclave host must not import experts
-    ("enclave_plane", "expert_route"),     # Seam B
-    ("enclave_plane", "memory_index"),     # Seam B
-    ("enclave_plane_server", "matcher"),   # Seam B
-    ("enclave_plane_server", "directory"), # Seam B
-}
+# Upward edges still present. Delete a line when its seam lands. Now empty: the
+# substrate is pure (Seams A, B, C all landed).
+ALLOWLIST: set[tuple[str, str]] = set()
 
 
 def _imported_leaves(path: pathlib.Path) -> set[str]:

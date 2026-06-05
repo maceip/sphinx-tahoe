@@ -17,7 +17,7 @@ from por.config import (
 )
 from por.daemon.supernode import SupernodeDaemon
 from por.directory import DiscoveryRequest, PeerRecord
-from por.enclave_plane import PlainEnclavePlaneHttpClient, make_plain_enclave_plane_handler
+from por.match_workload import PlainEnclavePlaneHttpClient, make_plain_enclave_plane_handler
 from por.expert_mode import ExpertModeConfig
 from por.expert_route import RouteIntent
 from por.matcher import (

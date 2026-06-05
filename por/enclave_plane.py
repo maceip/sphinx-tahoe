@@ -1,48 +1,58 @@
-"""Plain HTTP enclave-plane endpoint for matcher/mailbox plumbing.
+"""Generic attested enclave host (EnclaveRuntime).
 
-The committed architecture hardens this box later. This module only provides
-the stable wire shape: match over an enclave-plane endpoint, return opaque
-handles, and deliver sealed packets through the mailbox path.
+The host terminates attested TLS, parses the ARC credential, and dispatches a
+**route table** of JSON and SSE endpoints. It knows nothing about what those
+routes *do* — a workload (e.g. the experts ``MatchWorkload`` in
+``por.match_workload``) registers its routes. This is the Set B host/tenant
+split: the matcher is a tenant running on the host, not the host itself.
+
+Wire is unchanged: the route names, JSON shapes, healthz schema, and SSE framing
+are exactly what the deployed clients and the live EIF speak.
 """
 
 from __future__ import annotations
 
 import base64
 import json
-from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Mapping
 from urllib.request import Request, urlopen
 
 from .arc import NoopArcCredential, noop_arc_credential_from_dict
 from .attested_transport import EnclaveAttestationError, build_pinned_opener
-from .directory import DiscoveryRequest, DiscoveryResult
-from .expert_route import PeerCandidate, PeerObservation, RouteIntent
-from .memory_index import MemoryManifest
 
 
 DEFAULT_ENCLAVE_PLANE_TIMEOUT_SECONDS = 8.0
 
+# A JSON route maps a parsed request dict to a response dict. A stream route maps
+# a parsed request dict to an iterable of raw packets (the host SSE-frames each).
+JsonRoute = Callable[[Mapping[str, object]], Mapping[str, object]]
+StreamRoute = Callable[[Mapping[str, object]], Iterable[bytes]]
 
-class PlainEnclavePlaneHttpClient:
+
+class AttestedEnclaveClient:
+    """TLS-pinned JSON/SSE client core for any enclave workload.
+
+    Speaks no workload vocabulary: it posts JSON and streams SSE, attaching the
+    ARC credential. A workload client (e.g. ``MatchWorkloadClient``) subclasses
+    this and adds endpoint-specific methods.
+    """
+
     def __init__(
         self,
         base_url: str,
         *,
         timeout: float = DEFAULT_ENCLAVE_PLANE_TIMEOUT_SECONDS,
         arc_credential: NoopArcCredential | None = None,
-        mailbox_datagram_delivery_enabled: bool = True,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.mailbox_delivery_enabled = True
-        self.mailbox_datagram_delivery_enabled = mailbox_datagram_delivery_enabled
         self.arc_credential = arc_credential or NoopArcCredential.issue()
         self._opener = None
         self.tls_pin: str | None = None
 
     def set_tls_pin(self, spki_hex: str) -> None:
-        """Pin every subsequent connection's TLS SPKI to ``spki_hex`` (STATUS.md item 5).
+        """Pin every subsequent connection's TLS SPKI to ``spki_hex`` (item 5).
 
         Called by ``AttestedEnclavePlaneClient`` after attestation. Pinning is
         only meaningful over TLS; refuse (fail closed) to pin a plaintext
@@ -60,44 +70,22 @@ class PlainEnclavePlaneHttpClient:
             return self._opener.open(req, timeout=timeout)
         return urlopen(req, timeout=timeout)
 
-    def discover(self, request: DiscoveryRequest) -> DiscoveryResult:
-        raw = self._post_json(
-            "/v1/match",
-            {
-                "mode": request.mode,
-                "max_records": request.max_records,
-                "intent": asdict(request.intent),
-            },
-        )
-        return _discovery_result_from_dict(raw)
-
-    def routing_kem_pk_hex(self, handle: str) -> str | None:
-        raw = self._post_json("/v1/routing-key", {"handle": handle})
-        value = raw.get("routing_kem_pk_hex")
-        return str(value) if value else None
-
-    def relay_path_for_handle(self, handle: str) -> tuple[str, ...]:
-        raw = self._post_json("/v1/relay-path", {"handle": handle})
-        return tuple(str(item) for item in raw.get("relay_path", ()))
-
-    def deliver_to_handle(
-        self,
-        handle: str,
-        datagram: bytes,
-        *,
-        timeout: float,
-    ) -> Iterable[bytes]:
-        body = json.dumps(
-            {
-                "handle": handle,
-                "timeout": timeout,
-                "datagram_b64": base64.b64encode(datagram).decode("ascii"),
-                "arc_credential": self.arc_credential.to_public_dict(),
-            }
-        ).encode("utf-8")
+    def post_json(self, path: str, body: Mapping[str, object]) -> dict[str, object]:
+        payload = {**body, "arc_credential": self.arc_credential.to_public_dict()}
         req = Request(
-            self.base_url + "/v1/deliver",
-            data=body,
+            self.base_url + path,
+            data=json.dumps(payload).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        with self._open(req, timeout=self.timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def post_sse(self, path: str, body: Mapping[str, object], *, timeout: float) -> Iterable[bytes]:
+        payload = {**body, "arc_credential": self.arc_credential.to_public_dict()}
+        req = Request(
+            self.base_url + path,
+            data=json.dumps(payload).encode("utf-8"),
             method="POST",
             headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
         )
@@ -111,19 +99,19 @@ class PlainEnclavePlaneHttpClient:
 
         return packets()
 
-    def _post_json(self, path: str, body: dict[str, object]) -> dict[str, object]:
-        body = {**body, "arc_credential": self.arc_credential.to_public_dict()}
-        req = Request(
-            self.base_url + path,
-            data=json.dumps(body).encode("utf-8"),
-            method="POST",
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
-        )
-        with self._open(req, timeout=self.timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
 
+def make_enclave_handler(
+    routes: Mapping[str, JsonRoute],
+    stream_routes: Mapping[str, StreamRoute] | None = None,
+) -> Callable[..., BaseHTTPRequestHandler]:
+    """Build an HTTP handler dispatching a workload's route table.
 
-def make_plain_enclave_plane_handler(provider) -> Callable[..., BaseHTTPRequestHandler]:
+    ``routes`` return a JSON dict; ``stream_routes`` return raw packets the host
+    SSE-frames as ``data: <b64>\\n\\n``. The host validates the ARC credential on
+    every POST and answers ``/healthz`` itself.
+    """
+    stream_routes = dict(stream_routes or {})
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "por-plain-enclave-plane/0.1"
 
@@ -137,39 +125,23 @@ def make_plain_enclave_plane_handler(provider) -> Callable[..., BaseHTTPRequestH
             try:
                 raw = self._read_json()
                 noop_arc_credential_from_dict(_dict_field(raw, "arc_credential"))
-                if self.path == "/v1/match":
-                    request = DiscoveryRequest(
-                        intent=RouteIntent(**dict(raw["intent"])),
-                        mode=str(raw["mode"]),
-                        max_records=raw.get("max_records"),
-                    )
-                    self._send_json(_discovery_result_to_dict(provider.discover(request)))
+                if self.path in routes:
+                    self._send_json(dict(routes[self.path](raw)))
                     return
-                if self.path == "/v1/routing-key":
-                    handle = str(raw["handle"])
-                    self._send_json({"routing_kem_pk_hex": provider.routing_kem_pk_hex(handle)})
-                    return
-                if self.path == "/v1/relay-path":
-                    handle = str(raw["handle"])
-                    self._send_json({"relay_path": list(provider.relay_path_for_handle(handle))})
-                    return
-                if self.path == "/v1/deliver":
-                    self._stream_delivery(raw)
+                if self.path in stream_routes:
+                    self._stream(stream_routes[self.path], raw)
                     return
             except (KeyError, TypeError, ValueError) as exc:
                 self.send_error(400, str(exc))
                 return
             self.send_error(404)
 
-        def _stream_delivery(self, raw: dict[str, object]) -> None:
-            handle = str(raw["handle"])
-            timeout = float(raw.get("timeout", DEFAULT_ENCLAVE_PLANE_TIMEOUT_SECONDS))
-            datagram = base64.b64decode(str(raw["datagram_b64"]))
+        def _stream(self, route, raw: dict[str, object]) -> None:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            for packet in provider.deliver_to_handle(handle, datagram, timeout=timeout):
+            for packet in route(raw):
                 line = b"data: " + base64.b64encode(packet) + b"\n\n"
                 try:
                     self.wfile.write(line)
@@ -196,59 +168,6 @@ def make_plain_enclave_plane_handler(provider) -> Callable[..., BaseHTTPRequestH
             return
 
     return Handler
-
-
-def _discovery_result_to_dict(result: DiscoveryResult) -> dict[str, object]:
-    return {
-        "candidates": [_candidate_to_dict(candidate) for candidate in result.candidates],
-        "mode": result.mode,
-        "snapshot_size": result.snapshot_size,
-        "exact_query_sent": result.exact_query_sent,
-        "private_query_used": result.private_query_used,
-        "generated_at": result.generated_at,
-        "note": result.note,
-    }
-
-
-def _discovery_result_from_dict(raw: dict[str, object]) -> DiscoveryResult:
-    return DiscoveryResult(
-        candidates=tuple(
-            _candidate_from_dict(item)
-            for item in raw.get("candidates", ())
-            if isinstance(item, dict)
-        ),
-        mode=str(raw["mode"]),
-        snapshot_size=int(raw["snapshot_size"]),
-        exact_query_sent=bool(raw["exact_query_sent"]),
-        private_query_used=bool(raw["private_query_used"]),
-        generated_at=str(raw["generated_at"]),
-        note=str(raw["note"]),
-    )
-
-
-def _candidate_to_dict(candidate: PeerCandidate) -> dict[str, object]:
-    return {
-        "manifest": json.loads(candidate.manifest.to_json()),
-        "observation": (
-            asdict(candidate.observation)
-            if candidate.observation is not None
-            else None
-        ),
-    }
-
-
-def _candidate_from_dict(raw: dict[str, object]) -> PeerCandidate:
-    manifest_raw = raw["manifest"]
-    if not isinstance(manifest_raw, dict):
-        raise ValueError("candidate manifest must be an object")
-    observation_raw = raw.get("observation")
-    observation = None
-    if isinstance(observation_raw, dict):
-        observation = PeerObservation(**observation_raw)
-    return PeerCandidate(
-        MemoryManifest.from_json(json.dumps(manifest_raw)),
-        observation,
-    )
 
 
 def _dict_field(raw: dict[str, object], key: str) -> dict[str, object]:
