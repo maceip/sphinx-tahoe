@@ -230,11 +230,12 @@ def test_relay_and_expert_cluster_entrypoints_emit_start_log(monkeypatch, tmp_pa
     monkeypatch.setattr(
         WireNodeRuntime,
         "serve_forever",
-        lambda self: seen.append((self.role, self.provider.provider if self.provider else None)) or 0,
+        lambda self: seen.append((self.role, self._reply_handler is not None)) or 0,
     )
     assert run_relay_cluster(por_config.daemon("relay1"), por_config) == 0
     assert run_expert_cluster(por_config.daemon("expert_art"), por_config) == 0
-    assert seen == [("relay", None), ("expert", "openai")]
+    # A relay never answers (no reply handler); an expert is wired with one (Seam A).
+    assert seen == [("relay", False), ("expert", True)]
 
 
 def test_local_http_sse_on_client_process(tmp_path):

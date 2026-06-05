@@ -96,6 +96,20 @@ def expert_reply_chunks(
     return [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
 
 
+def make_reply_handler(provider_config: ProviderConfig | None = None):
+    """Build a node-runtime ``ReplyHandler`` backed by this provider (Seam A).
+
+    The substrate (``por.node_runtime``) accepts an injected handler so it never
+    imports the LLM. Capabilities/edges that run an expert call this to wire the
+    provider in.
+    """
+
+    def handler(envelope: PromptRequestEnvelope, peer_id: str) -> Sequence[str]:
+        return expert_reply_chunks(envelope, peer_id, provider_config=provider_config)
+
+    return handler
+
+
 def _expert_system(peer_id: str, envelope: PromptRequestEnvelope) -> str:
     expertise = envelope.intent_descriptor.get("requested_expertise") or "general"
     return (

@@ -30,6 +30,7 @@ from por.matcher import PLAIN_MATCHER_V1, PlainEnclavePlaneDiscoveryProvider, Pl
 from por.reach_wire import REACH_CHALLENGE, decode_reach_datagram
 from por.memory_index import IndexConfig, build_memory_index
 from por.node_runtime import WireNodeRuntime
+from por.provider import make_reply_handler
 from por.reach_wire import encode_confirm, encode_register
 from tests.harness import mixnet_harness
 
@@ -110,7 +111,11 @@ def test_home_client_completes_with_directory_trusted_relay_and_no_static_expert
         expert_cluster_path = tmp_path / "expert-cluster.json"
         expert_cluster_path.write_text(json.dumps(expert_cluster_dict), encoding="utf-8")
         expert_cluster = ClusterConfig.load(str(expert_cluster_path))
-        expert_runtime = WireNodeRuntime(expert_cluster, "peer-art", role="expert")
+        # No provider configured: the handler still runs and surfaces the same
+        # provider-error the test asserts below (faithful to the pre-Seam-A path).
+        expert_runtime = WireNodeRuntime(
+            expert_cluster, "peer-art", role="expert", reply_handler=make_reply_handler()
+        )
 
         # Relay serves first so it can answer the expert's REACH registration.
         net.serve(relay_runtime, relay_sock)

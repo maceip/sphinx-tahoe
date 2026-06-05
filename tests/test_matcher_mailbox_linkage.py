@@ -30,6 +30,7 @@ from por.matcher import (
 )
 from por.memory_index import IndexConfig, build_memory_index
 from por.node_runtime import WireNodeRuntime
+from por.provider import make_reply_handler
 from por.reach_wire import REACH_CHALLENGE, decode_reach_datagram, encode_confirm, encode_register
 from por.transport_dial import DialTarget
 from tests.harness import mixnet_harness
@@ -124,10 +125,12 @@ def test_plain_matcher_handle_to_mailbox_to_expert_round_trip(tmp_path, monkeypa
             expert_cluster,
             "peer-art",
             role="expert",
-            provider=ProviderConfig(
-                provider="anthropic",
-                base_url=f"http://127.0.0.1:{provider_server.server_address[1]}",
-                api_key_env="TEST_ANTHROPIC_KEY",
+            reply_handler=make_reply_handler(
+                ProviderConfig(
+                    provider="anthropic",
+                    base_url=f"http://127.0.0.1:{provider_server.server_address[1]}",
+                    api_key_env="TEST_ANTHROPIC_KEY",
+                )
             ),
         )
 

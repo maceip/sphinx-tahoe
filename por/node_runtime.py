@@ -15,7 +15,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from os import urandom
-from typing import Literal, Sequence
+from typing import Callable, Literal, Sequence
 
 from sphinxmix.OutfoxNode import (
     circuit_packet_create,
@@ -24,11 +24,17 @@ from sphinxmix.OutfoxNode import (
 )
 from sphinxmix.OutfoxParams import OutfoxParams, derive_circuit_key
 
-from .config import ClusterConfig, LoggingConfig, ProviderConfig
+from .config import ClusterConfig, LoggingConfig
 from .envelope import PromptRequestEnvelope
 from .log_events import PorLogEvent, emit_log_event
-from .provider import ProviderError, expert_reply_chunks
 from .wire_frame import decode_datagram, encode_forward
+
+
+# How an expert node turns a request into answer chunks. The mixnet does not
+# know *how* answers are produced (LLM, local index, anything) — a capability
+# injects this. Keeping it out of the substrate is Seam A: the relay/expert
+# runtime must run with no provider/LLM code present.
+ReplyHandler = Callable[[PromptRequestEnvelope, str], Sequence[str]]
 
 
 CIRCUIT_ID_SIZE = 16
@@ -45,7 +51,7 @@ class WireNodeRuntime:
         *,
         role: NodeRole | None = None,
         logging: LoggingConfig | None = None,
-        provider: ProviderConfig | None = None,
+        reply_handler: ReplyHandler | None = None,
     ):
         self.cluster = cluster
         self.node_id = node_id
@@ -66,7 +72,7 @@ class WireNodeRuntime:
         self.circuits: dict[str, dict[str, object]] = {}
         self._shutdown = False
         self.logging = logging or LoggingConfig()
-        self.provider = provider
+        self._reply_handler = reply_handler
         self.on_reach_control = None
         self.on_opaque_forward = None
         self.supernode_daemon = None
@@ -353,6 +359,30 @@ class WireNodeRuntime:
         )
         return
 
+    def _reply(self, envelope: PromptRequestEnvelope) -> Sequence[str]:
+        """Produce answer chunks via the injected handler (Seam A).
+
+        The substrate has no opinion on *how* answers are made; a capability
+        injects ``reply_handler``. Handler error types (e.g. ``ProviderError``)
+        are read structurally so the mixnet need not import them.
+        """
+        if self._reply_handler is None:
+            self._log("reply_no_handler", level="error", fields={"peer": self.node_id})
+            return [f"[provider_error] peer={self.node_id} message=no reply handler configured"]
+        try:
+            return self._reply_handler(envelope, self.node_id)
+        except Exception as exc:
+            self._log(
+                "provider_error",
+                level="error",
+                fields={
+                    "reason": str(exc),
+                    "retryable": getattr(exc, "retryable", None),
+                    "status": getattr(exc, "status", None),
+                },
+            )
+            return [f"[provider_error] peer={self.node_id} message={exc}"]
+
     def _process_expert_exit_response(
         self,
         sock: socket.socket,
@@ -363,15 +393,7 @@ class WireNodeRuntime:
         src_addr: tuple[str, int] | None,
         exit_cid: str,
     ) -> None:
-        try:
-            chunks = expert_reply_chunks(envelope, self.node_id, provider_config=self.provider)
-        except ProviderError as exc:
-            self._log(
-                "provider_error",
-                level="error",
-                fields={"reason": str(exc), "retryable": exc.retryable, "status": exc.status},
-            )
-            chunks = [f"[provider_error] peer={self.node_id} message={exc}"]
+        chunks = self._reply(envelope)
 
         try:
             next_nonce = self._send_response_chunks(
@@ -463,12 +485,7 @@ class WireNodeRuntime:
         return_next: str,
         src_addr: tuple[str, int] | None,
     ) -> None:
-        try:
-            chunks = expert_reply_chunks(envelope, self.node_id, provider_config=self.provider)
-        except ProviderError as exc:
-            self._log("provider_error", level="error",
-                      fields={"reason": str(exc), "retryable": exc.retryable})
-            chunks = [f"[provider_error] peer={self.node_id} message={exc}"]
+        chunks = self._reply(envelope)
 
         self._send_response_chunks(
             sock,

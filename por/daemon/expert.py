@@ -7,11 +7,14 @@ from typing import Sequence
 from por.config import ClusterConfig, DaemonConfig, PorConfig
 from por.log_events import PorLogEvent, emit_log_event
 from por.node_runtime import WireNodeRuntime
+from por.provider import make_reply_handler
 
 
 def run_expert(*, config_path: str, node_id: str) -> int:
     cluster = ClusterConfig.load(config_path)
-    runtime = WireNodeRuntime(cluster, node_id, role="expert")
+    runtime = WireNodeRuntime(
+        cluster, node_id, role="expert", reply_handler=make_reply_handler()
+    )
     return runtime.serve_forever()
 
 
@@ -33,7 +36,7 @@ def run_expert_cluster(daemon: DaemonConfig, por_config: PorConfig) -> int:
         daemon.node_id,
         role="expert",
         logging=daemon.logging,
-        provider=daemon.provider,
+        reply_handler=make_reply_handler(daemon.provider),
     )
     runtime.upnp_mapping = upnp_mapping
     tls = daemon.transport

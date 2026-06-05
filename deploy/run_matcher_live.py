@@ -33,6 +33,7 @@ from por.matcher import (
 from por.memory_index import MemoryManifest
 from por.node_runtime import WireNodeRuntime
 from por.oblivious import rust_backend_available
+from por.provider import make_reply_handler
 from por.reach_wire import REACH_CHALLENGE, decode_reach_datagram, encode_confirm, encode_register
 
 
@@ -188,10 +189,12 @@ def build_provider(fleet_path: Path) -> PlainEnclavePlaneDiscoveryProvider:
         expert_cluster,
         expert_id,
         role="expert",
-        provider=ProviderConfig(
-            provider="anthropic",
-            base_url=f"http://127.0.0.1:{stub.server_address[1]}",
-            api_key_env="LIVE_EXPERT_PROVIDER_KEY",
+        reply_handler=make_reply_handler(
+            ProviderConfig(
+                provider="anthropic",
+                base_url=f"http://127.0.0.1:{stub.server_address[1]}",
+                api_key_env="LIVE_EXPERT_PROVIDER_KEY",
+            )
         ),
     )
     _serve_runtime(expert_runtime, expert_sock)
