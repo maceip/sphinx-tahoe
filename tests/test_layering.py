@@ -36,13 +36,12 @@ def _layer_of_module(dotted: str) -> int | None:
         return MIXNET
     if top == "enclave":
         return ENCLAVE
-    if top in {"experts", "llm"}:
-        return CAPABILITY
     if top == "edges":
         return EDGE
-    if top in BASE_MODULES:  # tenet.config etc. (leaf module at the root)
+    if len(parts) == 2:  # tenet.<leaf> — a base/shared module at the root
         return BASE
-    return None
+    # any other subpackage (experts, llm, and future search/payment/...) is a capability
+    return CAPABILITY
 
 
 def _layer_of_path(path: pathlib.Path) -> int | None:
@@ -94,3 +93,41 @@ def test_dependencies_point_down_only():
         f"never depend on a capability/edge: {sorted(unexpected)}"
     )
     assert not stale, f"allowlist entries no longer exist — delete them: {sorted(stale)}"
+
+
+# Only these capability/edge modules may touch mixnet connectivity internals.
+# This is the search-dev tripwire: a capability holds an opaque HANDLE and routes
+# through the client send path (tenet.experts.client) — it never reaches raw
+# transport/peer-addressing. The list is the send-path + daemon owners; a NEW
+# entry is a red flag (route through tenet.experts.client instead). The p2p-search
+# work that assumed it could connect to an expert directly would fail here on day
+# one rather than after days of code.
+SANCTIONED_MIXNET_USERS = {
+    "tenet.experts.client",        # the client send path
+    "tenet.experts.matcher",       # resolves handles -> sealed routes
+    "tenet.experts.gate_b_nodes",  # topology/relay ops
+    "tenet.edges.cli.expert",      # runs an expert mixnet node
+    "tenet.edges.cli.relay",       # runs a relay mixnet node
+    "tenet.edges.cli.supernode",   # runs a reachability-relay node
+}
+
+
+def test_only_sanctioned_modules_touch_mixnet_internals():
+    violations: set[tuple[str, str]] = set()
+    for path in TENET.rglob("*.py"):
+        if path.name == "__main__.py":
+            continue
+        if _layer_of_path(path) not in {CAPABILITY, EDGE}:
+            continue  # substrate touching mixnet is fine; down-only covers it
+        importer = "tenet." + ".".join(path.relative_to(TENET).with_suffix("").parts)
+        if importer in SANCTIONED_MIXNET_USERS:
+            continue
+        for imported in _imported_tenet_modules(path):
+            if imported.startswith("tenet.mixnet"):
+                violations.add((importer, imported))
+    assert not violations, (
+        "a capability/edge reached into mixnet internals. Connectivity goes over "
+        "the mixnet via opaque handles — route through tenet.experts.client, do "
+        "not hold peer ids or open raw transport. (If it genuinely owns transport, "
+        f"add it to SANCTIONED_MIXNET_USERS.) Offenders: {sorted(violations)}"
+    )

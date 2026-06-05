@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
-JOIN_PACK_SCHEMA = "tenet.edges.cli.join_pack.v1"
+JOIN_PACK_SCHEMA = "por.join_pack.v1"
 
 
 def _relative_path(path: Path, base: Path) -> str:
@@ -51,7 +51,7 @@ def main() -> int:
         "schema": JOIN_PACK_SCHEMA,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "matcher": {
-            "schema": enclave.get("schema", "tenet.experts.live_enclave.v1"),
+            "schema": enclave.get("schema", "por.live_enclave.v1"),
             "url": url + "/",
             "approved_value_x": enclave["approved_value_x"],
             "tls_spki_hash": enclave["tls_spki_hash"],
