@@ -2,7 +2,7 @@
 
 Local model for Outfox forward packets + symmetric circuit return streaming.
 Forward path uses layered Outfox; **streaming return is an encrypted relay
-chain (TA-3), not mixnet-grade anonymity** — see sphinxmix.ta_claims.
+chain (TA-3), not mixnet-grade anonymity** — see tenet.packet.ta_claims.
 
 Components:
   MixNode       — processes forward packets (Outfox) and circuit packets (AES)
@@ -16,20 +16,20 @@ import struct
 from os import urandom
 from collections import namedtuple
 
-from sphinxmix.OutfoxParams import (
+from tenet.packet.OutfoxParams import (
     OutfoxParams, KEM_X25519,
     FLAG_REAL, FLAG_DUMMY, CIRCUIT_TTL_SECONDS, CIRCUIT_PACE_INTERVAL_MS,
     make_timestamp, check_timestamp,
     generate_signing_keypair, sign_payload, verify_payload,
     hkdf,
 )
-from sphinxmix.OutfoxClient import (
+from tenet.packet.OutfoxClient import (
     packet_create, packet_create_repliable, packet_create_signed,
     packet_create_dummy,
     surb_create, surb_use, surb_check, surb_recover,
     pki_entry, pad_body, unpad_body,
 )
-from sphinxmix.OutfoxNode import (
+from tenet.packet.OutfoxNode import (
     outfox_process, circuit_process, circuit_self_heal,
     circuit_packet_create, circuit_packet_process, circuit_packet_decrypt,
     CircuitStream, PacedCircuitStream,
@@ -336,7 +336,7 @@ class Client:
 
         self.pending_surbs[idsurb] = sksurb
         client_inbound = circuit_info["client_inbound"]
-        from sphinxmix.ta_claims import streaming_return_descriptor
+        from tenet.packet.ta_claims import streaming_return_descriptor
 
         self.pending_circuits[client_inbound] = {
             "keys": circuit_info["keys"],

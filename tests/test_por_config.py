@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from por.config import (
+from tenet.config import (
     CONFIG_VERSION,
     ROLE_CLIENT,
     ROLE_EXPERT,
@@ -17,8 +17,8 @@ from por.config import (
     TrustedReachabilityRelayConfig,
     load_config,
 )
-from por.directory import DirectorySnapshot
-from por.expert_mode import ExpertModeConfig
+from tenet.experts.directory import DirectorySnapshot
+from tenet.experts.expert_mode import ExpertModeConfig
 
 
 def test_single_daemon_config_loads_with_secure_transport_default(tmp_path):

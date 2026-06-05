@@ -9,13 +9,13 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from sphinxmix.OutfoxParams import OutfoxParams
+from tenet.packet.OutfoxParams import OutfoxParams
 
-from por.config import DEFAULT_PAYLOAD_SIZE, DEFAULT_ROUTING_SIZE
-from por.directory import PublicManifestDirectory
-from por.expert_route import PeerObservation
-from por.memory_index import IndexConfig, build_memory_index
-from por.wire_frame import encode_shutdown
+from tenet.config import DEFAULT_PAYLOAD_SIZE, DEFAULT_ROUTING_SIZE
+from tenet.experts.directory import PublicManifestDirectory
+from tenet.experts.expert_route import PeerObservation
+from tenet.experts.memory_index import IndexConfig, build_memory_index
+from tenet.mixnet.wire_frame import encode_shutdown
 
 
 def reserve_udp_ports(count: int) -> list[int]:
@@ -117,7 +117,7 @@ def start_process_nodes(config_path: Path, node_ids: Sequence[str]) -> list[subp
                 [
                     sys.executable,
                     "-m",
-                    "por",
+                    "tenet",
                     subcommand,
                     "--config",
                     str(config_path),

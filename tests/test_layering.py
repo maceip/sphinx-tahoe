@@ -1,15 +1,15 @@
 """Architecture enforced as a test, not a document.
 
-The substrate (base types, the mixnet, the enclave host) must never import an
-application concern (a capability or an edge). This is the rule that would have
-caught the p2p-search work that assumed it could connect to an expert directly:
-connectivity goes *over the mixnet*, so a capability holds an opaque handle, not
-a peer id. A capability may import the substrate (downward); the substrate may
-never import a capability (upward).
+Dependencies point DOWN only. Each module's layer is its folder; a module may
+import its own layer or lower, never higher. The substrate (packet, base,
+mixnet, enclave) can never import a capability or edge.
 
-The ALLOWLIST below is current debt — each entry is an upward edge a planned
-seam removes. When a seam lands, delete its allowlist line; this test then makes
-the boundary permanent. When the allowlist is empty, the substrate is pure.
+This is the rule that would have caught the p2p-search work that assumed it
+could connect to an expert directly: connectivity goes over the mixnet, so a
+capability holds an opaque handle, not a peer id. The folder a contributor drops
+their module into *is* its layer, and CI checks the import direction.
+
+ALLOWLIST is current debt — empty means the layering is clean.
 """
 
 from __future__ import annotations
@@ -17,69 +17,80 @@ from __future__ import annotations
 import ast
 import pathlib
 
-POR = pathlib.Path(__file__).resolve().parent.parent / "por"
+TENET = pathlib.Path(__file__).resolve().parent.parent / "tenet"
 
-# --- the five archetypes, by current module name (folders make this implicit later) ---
-BASE = {"config", "log_events", "envelope", "handles"}  # pure types/util; everyone may import
-MIXNET = {  # the sealed-routing substrate
-    "node_runtime", "wire_frame", "reach_wire", "transport_dial", "quic_transport",
-    "quic_runtime", "reach_client", "peer_address", "supernode", "upnp",
-}
-ENCLAVE = {  # the attested-workload host + attestation (the generic host only)
-    "enclave_attest", "attested_transport", "enclave_plane", "arc",
-}
-SUBSTRATE = BASE | MIXNET | ENCLAVE
+# Layer order: a module may import layers <= its own.
+PACKET, BASE, MIXNET, ENCLAVE, CAPABILITY, EDGE = 0, 1, 2, 3, 4, 5
+BASE_MODULES = {"config", "log_events", "envelope", "handles"}  # tenet/<name>.py
 
-APP = {  # capabilities + edges — the substrate must NOT reach up into these
-    "matcher", "oblivious", "cover", "directory", "memory_index", "expert_route",
-    "expert_mode", "expert_groups", "alpha_experts", "client", "live_client",
-    "live_enclave", "live_expert", "provider", "join_pack", "cli_display",
-    "gate_b_nodes", "gate_b_topology",
-    # match/mailbox workload + its server wiring are experts tenants, not host:
-    "match_workload", "enclave_plane_server",
-}
 
-# Upward edges still present. Delete a line when its seam lands. Now empty: the
-# substrate is pure (Seams A, B, C all landed).
+def _layer_of_module(dotted: str) -> int | None:
+    """Layer for a tenet.* dotted module path (None if not a tenet module)."""
+    parts = dotted.split(".")
+    if not parts or parts[0] != "tenet" or len(parts) < 2:
+        return None
+    top = parts[1]
+    if top == "packet":
+        return PACKET
+    if top == "mixnet":
+        return MIXNET
+    if top == "enclave":
+        return ENCLAVE
+    if top in {"experts", "llm"}:
+        return CAPABILITY
+    if top == "edges":
+        return EDGE
+    if top in BASE_MODULES:  # tenet.config etc. (leaf module at the root)
+        return BASE
+    return None
+
+
+def _layer_of_path(path: pathlib.Path) -> int | None:
+    rel = path.relative_to(TENET)
+    parts = rel.with_suffix("").parts
+    if len(parts) == 1:  # tenet/<name>.py
+        return BASE if parts[0] in BASE_MODULES else None
+    return _layer_of_module("tenet." + ".".join(parts))
+
+
+def _imported_tenet_modules(path: pathlib.Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    out: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            if node.module.startswith("tenet"):
+                out.add(node.module)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.startswith("tenet"):
+                    out.add(alias.name)
+    return out
+
+
+LAYER_NAMES = {0: "packet", 1: "base", 2: "mixnet", 3: "enclave", 4: "capability", 5: "edge"}
+
+# Upward edges still present. Empty == clean. Add (importer_module, imported_module).
 ALLOWLIST: set[tuple[str, str]] = set()
 
 
-def _imported_leaves(path: pathlib.Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    leaves: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            if node.module is None:  # from . import X  /  from .. import X
-                for alias in node.names:
-                    leaves.add(alias.name.split(".")[0])
-            elif node.level > 0:  # from .X import / from ..X import
-                leaves.add(node.module.split(".")[0])
-            else:  # from por.X import / from a.b import
-                mod = node.module[4:] if node.module.startswith("por.") else node.module
-                leaves.add(mod.split(".")[-1])
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name.startswith("por."):
-                    leaves.add(alias.name[4:].split(".")[0])
-    return leaves
-
-
-def test_substrate_never_imports_an_app_concern():
+def test_dependencies_point_down_only():
     violations: set[tuple[str, str]] = set()
-    for name in SUBSTRATE:
-        path = POR / f"{name}.py"
-        if not path.exists():
+    for path in TENET.rglob("*.py"):
+        if path.name == "__init__.py" or path.name == "__main__.py":
             continue
-        for leaf in _imported_leaves(path):
-            if leaf in APP:
-                violations.add((name, leaf))
+        own = _layer_of_path(path)
+        if own is None:
+            continue
+        importer = "tenet." + ".".join(path.relative_to(TENET).with_suffix("").parts)
+        for imported in _imported_tenet_modules(path):
+            target = _layer_of_module(imported)
+            if target is not None and target > own:
+                violations.add((importer, imported))
 
     unexpected = violations - ALLOWLIST
     stale = ALLOWLIST - violations
     assert not unexpected, (
-        "substrate reached up into an app concern (separate it — the substrate "
-        f"cannot depend on a capability/edge): {sorted(unexpected)}"
+        "upward import(s) — a module imported a higher layer. The substrate must "
+        f"never depend on a capability/edge: {sorted(unexpected)}"
     )
-    assert not stale, (
-        f"allowlist entries no longer exist — delete them to lock the boundary: {sorted(stale)}"
-    )
+    assert not stale, f"allowlist entries no longer exist — delete them: {sorted(stale)}"

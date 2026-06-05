@@ -1,7 +1,7 @@
 """PlainMailbox.resolve_handle is access-pattern oblivious in the handle."""
 
-from por.handles import OpaqueHandleIssuer
-from por.matcher import PlainMailbox
+from tenet.handles import OpaqueHandleIssuer
+from tenet.experts.matcher import PlainMailbox
 
 
 def _mailbox(n):

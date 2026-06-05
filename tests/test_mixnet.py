@@ -5,10 +5,10 @@ import json
 import struct
 from tests.mixnet_test_network import MixnetTestNetwork, Client, CircuitCorrupted
 from tests.harness import mixnet_harness
-from sphinxmix.OutfoxParams import (
+from tenet.packet.OutfoxParams import (
     FLAG_REAL, FLAG_DUMMY, verify_payload, generate_signing_keypair,
 )
-from sphinxmix.OutfoxClient import surb_use, surb_check, surb_recover
+from tenet.packet.OutfoxClient import surb_use, surb_check, surb_recover
 
 
 def test_forward_through_test_nodes():
@@ -325,7 +325,7 @@ def test_exit_with_api_call():
         assert resp.status == 200
 
         surb_header, surb_key = surb_info
-        from sphinxmix.OutfoxClient import surb_use
+        from tenet.packet.OutfoxClient import surb_use
         reply_header, reply_payload = surb_use(sim.params, (surb_header, surb_key), resp_body)
         reply_header, reply_payload = sim.route_reply(rply_relays, reply_header, reply_payload)
         decrypted = client.receive_reply(reply_header, reply_payload)
@@ -783,7 +783,7 @@ def test_stream_and_surb_coexist():
     assert client.decrypt_circuit(packet) == b"streamed token"
 
     # SURB reply also works (separate mechanism)
-    from sphinxmix.OutfoxClient import surb_use
+    from tenet.packet.OutfoxClient import surb_use
     surb_header, surb_key = surb_info
     rply_h, rply_p = surb_use(sim.params, (surb_header, surb_key), b"surb reply")
     rply_h, rply_p = sim.route_reply(rply_relays, rply_h, rply_p)

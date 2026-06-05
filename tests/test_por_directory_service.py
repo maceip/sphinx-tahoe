@@ -2,10 +2,10 @@ import json
 
 import pytest
 
-from por.config import PorConfig
-from por.daemon.directory import make_directory_handler, run_directory_from_daemon
+from tenet.config import PorConfig
+from tenet.edges.cli.directory import make_directory_handler, run_directory_from_daemon
 from tests.harness import mixnet_harness
-from por.directory import (
+from tenet.experts.directory import (
     DIRECTORY_SNAPSHOT_VERSION,
     PUBLIC_SNAPSHOT_V1,
     DirectorySnapshot,
@@ -16,9 +16,9 @@ from por.directory import (
     load_public_snapshot_directory,
     load_records_from_snapshot_file,
 )
-from por.expert_route import PeerObservation, RouteIntent, plan_expert_route
-from por.handles import OpaqueHandleIssuer
-from por.memory_index import IndexConfig, build_memory_index
+from tenet.experts.expert_route import PeerObservation, RouteIntent, plan_expert_route
+from tenet.handles import OpaqueHandleIssuer
+from tenet.experts.memory_index import IndexConfig, build_memory_index
 
 
 def _manifest(tmp_path, peer_id, text):
@@ -207,7 +207,7 @@ def test_directory_daemon_registers_configured_supernodes(monkeypatch):
         seen.update(kwargs)
         return 0
 
-    monkeypatch.setattr("por.daemon.directory.run_directory_server", recording_run_directory_server)
+    monkeypatch.setattr("tenet.edges.cli.directory.run_directory_server", recording_run_directory_server)
 
     assert run_directory_from_daemon(config.daemon("directory-a"), config) == 0
 
@@ -248,7 +248,7 @@ def test_directory_daemon_does_not_publish_configured_peer_address_record(monkey
         seen.update(kwargs)
         return 0
 
-    monkeypatch.setattr("por.daemon.directory.run_directory_server", recording_run_directory_server)
+    monkeypatch.setattr("tenet.edges.cli.directory.run_directory_server", recording_run_directory_server)
 
     assert run_directory_from_daemon(config.daemon("directory-a"), config) == 0
 

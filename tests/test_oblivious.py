@@ -2,7 +2,7 @@
 
 import pytest
 
-from por.oblivious import DUMMY_INDEX, oblivious_top_k
+from tenet.experts.oblivious import DUMMY_INDEX, oblivious_top_k
 
 
 def _reference_top_k(scores, k):

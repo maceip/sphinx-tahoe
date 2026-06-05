@@ -1,7 +1,7 @@
 import pytest
 
-from por.config import ProviderConfig
-from por.provider import ProviderError, provider_mode, stream_expert_reply, stream_frontier_reply
+from tenet.config import ProviderConfig
+from tenet.llm.provider import ProviderError, provider_mode, stream_expert_reply, stream_frontier_reply
 
 
 def test_provider_mode_requires_real_provider(monkeypatch):
@@ -27,7 +27,7 @@ def test_provider_mode_uses_daemon_provider_config():
 
 
 def test_configured_real_provider_does_not_synthesize_reply(monkeypatch):
-    from por.envelope import PromptRequestEnvelope
+    from tenet.envelope import PromptRequestEnvelope
 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     config = ProviderConfig(provider="openai", model="gpt-test", api_key_env="OPENAI_API_KEY")

@@ -6,12 +6,12 @@ to the oblivious operator but carry a marker the asker uses to drop them before
 routing.
 """
 
-from por.cover import COVER_MARKER, cover_handle, is_cover
-from por.directory import DiscoveryRequest
-from por.expert_route import PeerCandidate, RouteIntent, plan_expert_route
-from por.handles import OPAQUE_HANDLE_SIZE, OpaqueHandle
-from por.matcher import PLAIN_MATCHER_V1, MatcherEntry, PlainMatcher
-from por.memory_index import MemoryManifest
+from tenet.experts.cover import COVER_MARKER, cover_handle, is_cover
+from tenet.experts.directory import DiscoveryRequest
+from tenet.experts.expert_route import PeerCandidate, RouteIntent, plan_expert_route
+from tenet.handles import OPAQUE_HANDLE_SIZE, OpaqueHandle
+from tenet.experts.matcher import PLAIN_MATCHER_V1, MatcherEntry, PlainMatcher
+from tenet.experts.memory_index import MemoryManifest
 
 
 def _manifest(peer_id: str, terms: dict[str, int]) -> MemoryManifest:

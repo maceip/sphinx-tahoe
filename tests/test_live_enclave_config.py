@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from por.live_enclave import DEFAULT_CONFIG_PATH, LiveEnclaveConfig, build_attested_client
+from tenet.experts.live_enclave import DEFAULT_CONFIG_PATH, LiveEnclaveConfig, build_attested_client
 
 
 def test_default_live_enclave_config_loads():

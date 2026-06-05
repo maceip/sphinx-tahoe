@@ -7,7 +7,7 @@ verifier and a fake inner client. The cryptographic verification itself
 
 import pytest
 
-from por.enclave_attest import (
+from tenet.enclave.enclave_attest import (
     AttestedEnclavePlaneClient,
     EnclaveAttestationError,
     EnclaveTrustPolicy,

@@ -1,6 +1,6 @@
 """The AES-CTR payload cipher must be byte-identical across backends.
 
-`sphinxmix.OutfoxParams` uses `cryptography` (Rust+OpenSSL) when available and
+`tenet.packet.OutfoxParams` uses `cryptography` (Rust+OpenSSL) when available and
 falls back to `pycryptodome` (plain C) — e.g. on Android. The wire format must
 not depend on which backend is active, so the two must agree exactly.
 """
@@ -11,7 +11,7 @@ import os
 
 import pytest
 
-from sphinxmix.OutfoxParams import AES_CTR_BACKEND, OutfoxParams
+from tenet.packet.OutfoxParams import AES_CTR_BACKEND, OutfoxParams
 
 
 def test_active_backend_aes_ctr_roundtrips_via_lioness():

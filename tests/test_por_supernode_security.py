@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from por.daemon.supernode import SupernodeDaemon
-from por.peer_address import UdpEndpoint
-from por.node_runtime import WireNodeRuntime
+from tenet.edges.cli.supernode import SupernodeDaemon
+from tenet.mixnet.peer_address import UdpEndpoint
+from tenet.mixnet.node_runtime import WireNodeRuntime
 from tests.harness import static_wire_cluster
 from tests.test_por_supernode import _RecordingSocket
 
@@ -68,9 +68,9 @@ def test_opaque_return_routes_by_circuit_session_not_latest_peer_client():
 
 
 def test_supernode_cluster_uses_configured_relay_secret(monkeypatch):
-    from por.config import DaemonConfig, PorConfig
-    from por.daemon.supernode import run_supernode_cluster
-    from por.node_runtime import WireNodeRuntime
+    from tenet.config import DaemonConfig, PorConfig
+    from tenet.edges.cli.supernode import run_supernode_cluster
+    from tenet.mixnet.node_runtime import WireNodeRuntime
 
     secret_hex = "ab" * 32
     por_cfg = PorConfig.from_dict(

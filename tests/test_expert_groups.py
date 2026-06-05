@@ -2,15 +2,15 @@ import inspect
 
 import pytest
 
-from por.directory import PeerRecord
-from por.expert_groups import (
+from tenet.experts.directory import PeerRecord
+from tenet.experts.expert_groups import (
     GROUP_DEGRADED,
     GROUP_READY,
     ROOT_GROUP_ID,
     assign_expert_group,
     build_expert_population_index,
 )
-from por.memory_index import IndexConfig, build_memory_index
+from tenet.experts.memory_index import IndexConfig, build_memory_index
 
 
 def _record(tmp_path, peer_id, text, *, descriptor=None, publish_terms=True):

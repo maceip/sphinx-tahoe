@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import os
 
-from por.enclave_plane_server import serve_enclave_plane
-from por.expert_route import PeerCandidate
-from por.handles import OPAQUE_HANDLE_SIZE, OpaqueHandle
-from por.matcher import MatcherEntry, PlainEnclavePlaneDiscoveryProvider, PlainMailbox, PlainMatcher
-from por.memory_index import MemoryManifest
-from por.oblivious import rust_backend_available
+from tenet.experts.enclave_plane_server import serve_enclave_plane
+from tenet.experts.expert_route import PeerCandidate
+from tenet.handles import OPAQUE_HANDLE_SIZE, OpaqueHandle
+from tenet.experts.matcher import MatcherEntry, PlainEnclavePlaneDiscoveryProvider, PlainMailbox, PlainMatcher
+from tenet.experts.memory_index import MemoryManifest
+from tenet.experts.oblivious import rust_backend_available
 
 
 def _manifest(peer_id: str, terms: dict[str, int]) -> MemoryManifest:

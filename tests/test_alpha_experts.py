@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from por.alpha_experts import (
+from tenet.experts.alpha_experts import (
     build_corpus_from_transcript,
     materialize_alpha_population,
     write_alpha_population,

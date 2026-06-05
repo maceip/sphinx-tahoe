@@ -10,8 +10,8 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-from por.client import ClientRunResult
-from por.cli_display import (
+from tenet.experts.client import ClientRunResult
+from tenet.edges.cli.cli_display import (
     AskDisplay,
     AskNetworkDisplay,
     DashboardDisplay,
@@ -22,14 +22,14 @@ from por.cli_display import (
     should_show_interactive_display,
     terminal_rendering_options,
 )
-from por.config import ClusterConfig, DaemonConfig
-from por.daemon.client import PersistentClientSession, make_client_http_handler
-from por.daemon.expert import run_expert_cluster
-from por.daemon.main import build_parser, dispatch, legacy_client_main, legacy_expert_main, legacy_relay_main
-from por.daemon.relay import run_relay_cluster
-from por.directory import PublicManifestDirectory
-from por.log_events import PorLogEvent, emit_log_event, format_log_event
-from por.node_runtime import WireNodeRuntime
+from tenet.config import ClusterConfig, DaemonConfig
+from tenet.edges.cli.client import PersistentClientSession, make_client_http_handler
+from tenet.edges.cli.expert import run_expert_cluster
+from tenet.edges.cli.main import build_parser, dispatch, legacy_client_main, legacy_expert_main, legacy_relay_main
+from tenet.edges.cli.relay import run_relay_cluster
+from tenet.experts.directory import PublicManifestDirectory
+from tenet.log_events import PorLogEvent, emit_log_event, format_log_event
+from tenet.mixnet.node_runtime import WireNodeRuntime
 from tests.harness import mixnet_harness
 
 
@@ -157,8 +157,8 @@ def test_terminal_rendering_options_assess_3d_without_new_dependency():
 @pytest.mark.parametrize(
     "argv,attr,expected_node",
     [
-        (["run", "--config", "{config}", "--node-id", "relay1"], "por.daemon.relay.run_relay_cluster", "relay1"),
-        (["run", "--config", "{config}"], "por.daemon.client.run_client_from_daemon", "client1"),
+        (["run", "--config", "{config}", "--node-id", "relay1"], "tenet.edges.cli.relay.run_relay_cluster", "relay1"),
+        (["run", "--config", "{config}"], "tenet.edges.cli.client.run_client_from_daemon", "client1"),
     ],
 )
 def test_por_run_dispatches_roles(monkeypatch, tmp_path, argv, attr, expected_node):
@@ -265,7 +265,7 @@ def test_relay_and_expert_cluster_entrypoints_emit_start_log(monkeypatch, tmp_pa
         ),
         encoding="utf-8",
     )
-    from por.config import load_config
+    from tenet.config import load_config
 
     por_config = load_config(path)
     seen = []
