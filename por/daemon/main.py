@@ -144,6 +144,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ask.add_argument("--json", action="store_true", help="Print JSON result")
 
+    status = sub.add_parser(
+        "status",
+        help="Show a dashboard for the configured live network stack.",
+    )
+    status.add_argument(
+        "--join-pack",
+        default=str(resolve_join_pack_path()),
+        help=(
+            "por.join_pack.v1 JSON. Defaults to config/join-pack.json, "
+            "or ./join-pack.json inside an asker bundle."
+        ),
+    )
+    status.add_argument(
+        "--live-check",
+        action="store_true",
+        help="Run live enclave attestation check before rendering.",
+    )
+    status.add_argument(
+        "--watch",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help="Refresh the dashboard until interrupted.",
+    )
+    status.add_argument(
+        "--plain",
+        action="store_true",
+        help="Disable color and alternate-screen dashboard rendering.",
+    )
+    status.add_argument("--json", action="store_true", help="Print JSON snapshot")
+    status.add_argument(
+        "--render-options",
+        action="store_true",
+        help="Print terminal layout/3D rendering assessment and exit.",
+    )
+
     return parser
 
 
@@ -188,6 +224,9 @@ def dispatch(args: argparse.Namespace) -> int:
 
     if args.command == "ask":
         return _run_ask_command(args)
+
+    if args.command == "status":
+        return _run_status_command(args)
 
     raise ValueError(f"unknown command: {args.command}")
 
@@ -306,6 +345,137 @@ def _run_ask_command(args: argparse.Namespace) -> int:
     else:
         print(result["response_text"])
     return 0 if result["ok"] else 1
+
+
+def _run_status_command(args: argparse.Namespace) -> int:
+    import json
+    import time
+
+    from por.cli_display import (
+        DashboardDisplay,
+        DashboardWatch,
+        terminal_rendering_options,
+        should_show_interactive_display,
+    )
+
+    if args.render_options:
+        options = terminal_rendering_options()
+        if args.json:
+            print(json.dumps([option.__dict__ for option in options], indent=2, sort_keys=True))
+        else:
+            for option in options:
+                print(f"{option.name}: {option.verdict} ({option.fit})")
+                print(f"  {option.note}")
+        return 0
+
+    if args.watch and args.json:
+        raise SystemExit("por status: --watch and --json cannot be combined")
+
+    enabled = should_show_interactive_display(sys.stdout, plain=args.plain or args.json)
+
+    if args.watch:
+        try:
+            with DashboardWatch(enabled=enabled) as watch:
+                while True:
+                    watch.update(_build_status_snapshot(args.join_pack, live_check=args.live_check))
+                    time.sleep(max(0.25, float(args.watch)))
+        except KeyboardInterrupt:
+            print("", file=sys.stderr)
+            return 130
+        return 0
+
+    snapshot = _build_status_snapshot(args.join_pack, live_check=args.live_check)
+    if args.json:
+        print(json.dumps(snapshot.to_dict(), indent=2, sort_keys=True))
+    else:
+        DashboardDisplay(enabled=enabled).print(snapshot)
+    return 0
+
+
+def _build_status_snapshot(join_pack_path: str, *, live_check: bool):
+    from por.cli_display import AskNetworkDisplay, DashboardSnapshot, ServiceCard
+    from por.join_pack import JoinPack
+    from por.live_client import LiveMailboxClientConfig
+    from por.live_enclave import LiveEnclaveConfig
+
+    pack = JoinPack.load(join_pack_path)
+    enclave = LiveEnclaveConfig.from_dict(pack.matcher)
+    mailbox = LiveMailboxClientConfig.load(pack.asker_mailbox_config)
+    relay = pack.reachability_relay
+    params = mailbox.cluster.params
+    network = AskNetworkDisplay.from_join_pack(
+        pack.matcher,
+        relay,
+        relay_count=len(mailbox.trusted_reachability_relays),
+        route_mode="reachability-relay",
+    )
+
+    matcher_state = "configured"
+    matcher_detail = (
+        f"{network.matcher_host}, value_x={network.value_x_prefix}..., "
+        f"spki={enclave.tls_spki_hash[:12]}..."
+    )
+    if live_check:
+        from por.live_enclave import check_live_enclave
+
+        try:
+            summary = check_live_enclave(enclave)
+        except Exception as exc:
+            matcher_state = "failed"
+            matcher_detail = f"attestation failed: {type(exc).__name__}: {exc}"
+        else:
+            matcher_state = "trusted"
+            matcher_detail = (
+                f"platform={summary['platform']} "
+                f"value_x={str(summary['value_x'])[:12]}... "
+                f"pinned={summary['pinned']}"
+            )
+
+    services = (
+        ServiceCard("attested matcher", matcher_state, matcher_detail, "TEE"),
+        ServiceCard(
+            "reachability relay",
+            "configured",
+            f"{network.relay_id} at {network.relay_endpoint}",
+            "REACH",
+        ),
+        ServiceCard(
+            "mailbox client",
+            "configured",
+            f"{len(mailbox.trusted_reachability_relays)} trusted relay pin(s)",
+            "ASKER",
+        ),
+        ServiceCard(
+            "expert routing",
+            "configured",
+            (
+                f"mode={mailbox.expert_mode.discovery_mode} "
+                f"min_pool={mailbox.expert_mode.min_pool_size} "
+                f"degraded={mailbox.expert_mode.allow_degraded_pool}"
+            ),
+            "MATCH",
+        ),
+        ServiceCard(
+            "packet contract",
+            "configured",
+            (
+                f"payload={params.payload_size} routing={params.routing_size} "
+                f"hops={params.max_hops}"
+            ),
+            "WIRE",
+        ),
+        ServiceCard(
+            "return path",
+            "not checked",
+            "live ask/send validates selected expert and response path",
+            "HYBRID",
+        ),
+    )
+    notes = (
+        "payments/payouts are intentionally omitted until a real ledger/API contract exists",
+        "real 3D belongs in an optional UI path; terminal dashboard uses a portable ANSI scene",
+    )
+    return DashboardSnapshot("P-OR service dashboard", network, services, notes)
 
 
 def _run_from_daemon_config(config_path: str, *, node_id: str | None) -> int:

@@ -7,10 +7,11 @@ replaced by a richer renderer later while keeping stdout/json behavior stable.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import threading
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import IO, Mapping, Sequence
 from urllib.parse import urlparse
 
@@ -24,6 +25,10 @@ MAGENTA = "\033[35m"
 RED = "\033[31m"
 YELLOW = "\033[33m"
 CLEAR_LINE = "\033[2K"
+HOME = "\033[H"
+CLEAR_SCREEN = "\033[2J"
+HIDE_CURSOR = "\033[?25l"
+SHOW_CURSOR = "\033[?25h"
 CLI_UI_TODO_MARKER = "CLI_UI_TODO"
 
 
@@ -165,6 +170,145 @@ class AskDisplay:
 
 
 @dataclass(frozen=True)
+class ServiceCard:
+    name: str
+    state: str
+    detail: str
+    badge: str = ""
+
+    def to_dict(self) -> dict[str, str]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class DashboardSnapshot:
+    title: str
+    network: AskNetworkDisplay
+    services: tuple[ServiceCard, ...]
+    notes: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "title": self.title,
+            "network": asdict(self.network),
+            "services": [service.to_dict() for service in self.services],
+            "notes": list(self.notes),
+        }
+
+
+class DashboardDisplay:
+    """One-screen operator dashboard for the current network stack."""
+
+    def __init__(
+        self,
+        *,
+        stream: IO[str] = sys.stdout,
+        enabled: bool = True,
+        width: int | None = None,
+    ) -> None:
+        self.stream = stream
+        self.enabled = enabled
+        self.width = width
+
+    def render(self, snapshot: DashboardSnapshot) -> str:
+        width = max(72, min(self.width or shutil.get_terminal_size((96, 30)).columns, 118))
+        if not self.enabled:
+            return self._render_plain(snapshot)
+
+        scene = TerminalSceneRenderer().render_network_scene(snapshot.network, width=width)
+        lines = [
+            f"{BOLD}{CYAN}{snapshot.title}{RESET}",
+            f"{DIM}{'=' * min(width, len(snapshot.title))}{RESET}",
+            scene,
+            self._service_grid(snapshot.services, width=width),
+        ]
+        if snapshot.notes:
+            lines.append(f"{DIM}notes{RESET}")
+            lines.extend(f"  - {note}" for note in snapshot.notes)
+        return "\n".join(lines).rstrip() + "\n"
+
+    def print(self, snapshot: DashboardSnapshot) -> None:
+        self.stream.write(self.render(snapshot))
+        self.stream.flush()
+
+    def _render_plain(self, snapshot: DashboardSnapshot) -> str:
+        lines = [snapshot.title, "-" * len(snapshot.title)]
+        lines.append(
+            "route: you -> matcher "
+            f"{snapshot.network.matcher_host} -> relay {snapshot.network.relay_id} "
+            f"({snapshot.network.relay_endpoint}) -> expert"
+        )
+        for service in snapshot.services:
+            suffix = f" [{service.badge}]" if service.badge else ""
+            lines.append(f"{service.name}: {service.state}{suffix} - {service.detail}")
+        for note in snapshot.notes:
+            lines.append(f"note: {note}")
+        return "\n".join(lines) + "\n"
+
+    def _service_grid(self, services: Sequence[ServiceCard], *, width: int) -> str:
+        columns = 2 if width >= 96 else 1
+        card_width = (width - 3) // columns if columns == 2 else width
+        rendered = [self._card(service, width=card_width).splitlines() for service in services]
+        if columns == 1:
+            return "\n".join(line for card in rendered for line in card)
+
+        rows: list[str] = []
+        for index in range(0, len(rendered), 2):
+            left = rendered[index]
+            right = rendered[index + 1] if index + 1 < len(rendered) else [" " * card_width] * len(left)
+            height = max(len(left), len(right))
+            left += [" " * card_width] * (height - len(left))
+            right += [" " * card_width] * (height - len(right))
+            rows.extend(f"{left[i]}   {right[i]}" for i in range(height))
+        return "\n".join(rows)
+
+    def _card(self, service: ServiceCard, *, width: int) -> str:
+        inner = max(12, width - 4)
+        color = _state_color(service.state)
+        title = _fit(f"{service.name} {service.badge}".strip(), inner)
+        state = _fit(f"{service.state}: {service.detail}", inner)
+        return "\n".join(
+            (
+                f"+{'-' * (inner + 2)}+",
+                f"| {BOLD}{title:<{inner}}{RESET} |",
+                f"| {color}{state:<{inner}}{RESET} |",
+                f"+{'-' * (inner + 2)}+",
+            )
+        )
+
+
+class DashboardWatch(AbstractContextManager["DashboardWatch"]):
+    """Alternate-screen dashboard updater for status/watch flows."""
+
+    def __init__(
+        self,
+        *,
+        stream: IO[str] = sys.stdout,
+        enabled: bool = True,
+    ) -> None:
+        self.stream = stream
+        self.enabled = enabled
+        self._display = DashboardDisplay(stream=stream, enabled=enabled)
+
+    def __enter__(self) -> "DashboardWatch":
+        if self.enabled:
+            self.stream.write(HIDE_CURSOR + CLEAR_SCREEN + HOME)
+            self.stream.flush()
+        return self
+
+    def update(self, snapshot: DashboardSnapshot) -> None:
+        if self.enabled:
+            self.stream.write(HOME)
+        self._display.print(snapshot)
+
+    def __exit__(self, exc_type, exc, traceback) -> bool:
+        if self.enabled:
+            self.stream.write(SHOW_CURSOR)
+            self.stream.flush()
+        return False
+
+
+@dataclass(frozen=True)
 class PayoutRow:
     peer_id: str
     amount: str
@@ -185,18 +329,79 @@ class PayoutsDisplay:
         )
 
 
-class ExperimentalSceneRenderer:
-    """Future richer terminal graphics placeholder.
+@dataclass(frozen=True)
+class RenderingOption:
+    name: str
+    fit: str
+    verdict: str
+    note: str
 
-    CLI_UI_TODO: evaluate terminal-safe 3D/scene rendering after the architecture
-    reorg settles. The current CLI uses ASCII + ANSI only for predictable
-    macOS/Linux/Windows behavior.
+
+def terminal_rendering_options() -> tuple[RenderingOption, ...]:
+    """Current 3D/layout assessment captured as code, not a vague TODO."""
+    return (
+        RenderingOption(
+            name="ANSI scene renderer",
+            fit="now",
+            verdict="ship",
+            note="Dependency-free, stable in tmux/screen/logs, good for a 2.5D network map.",
+        ),
+        RenderingOption(
+            name="Rich/Textual",
+            fit="next",
+            verdict="prototype behind optional dependency",
+            note="Best Python path for true widget/layout TUI once dependencies are acceptable.",
+        ),
+        RenderingOption(
+            name="Yoga flex layout",
+            fit="later",
+            verdict="do not add directly yet",
+            note="Useful as a layout algorithm, but it is not a terminal UI framework by itself.",
+        ),
+        RenderingOption(
+            name="Ratatui",
+            fit="release binary",
+            verdict="consider for a Rust frontend",
+            note="Strong full-screen TUI option if the release binary grows a Rust UI shell.",
+        ),
+        RenderingOption(
+            name="WebGL/Three.js",
+            fit="companion app",
+            verdict="not for the terminal CLI",
+            note="Right home for real 3D; keep terminal CLI readable and scriptable.",
+        ),
+    )
+
+
+class TerminalSceneRenderer:
+    """Terminal-safe pseudo-3D network renderer.
+
+    This is intentionally a projection, not a graphics engine. CLI_UI_TODO:
+    revisit real 3D only in a companion UI or optional TUI dependency path.
     """
 
-    def render_network_scene(self, network: AskNetworkDisplay) -> str:
-        raise NotImplementedError(
-            "CLI_UI_TODO: 3D network scene renderer is not implemented"
+    def render_network_scene(self, network: AskNetworkDisplay, *, width: int = 96) -> str:
+        matcher = _fit(network.matcher_host, 28)
+        relay = _fit(network.relay_id, 18)
+        expert = "selected expert"
+        prefix = " " * max(0, min(12, width // 10))
+        return "\n".join(
+            (
+                f"{DIM}network map{RESET}",
+                f"{prefix}        +------------------------------+",
+                f"{prefix}       /| matcher {matcher:<20}|",
+                f"{prefix}      / | value_x {network.value_x_prefix:<20}|",
+                f"{prefix}     /  +------------------------------+",
+                f"{prefix}+--------+        +--------------------+        +----------------+",
+                f"{prefix}| you    |------->| relay {relay:<12}|------->| {expert:<14}|",
+                f"{prefix}+--------+        | {network.relay_endpoint:<18}|        +----------------+",
+                f"{prefix}                  +--------------------+",
+                f"{prefix}mode={network.route_mode} peers={network.relay_count}",
+            )
         )
+
+
+ExperimentalSceneRenderer = TerminalSceneRenderer
 
 
 class StatusRail(AbstractContextManager["StatusRail"]):
@@ -272,3 +477,22 @@ def _first_string(value: object) -> str:
     if isinstance(value, (list, tuple)) and value:
         return str(value[0])
     return ""
+
+
+def _fit(value: str, width: int) -> str:
+    if len(value) <= width:
+        return value
+    if width <= 1:
+        return value[:width]
+    return value[: width - 1] + "~"
+
+
+def _state_color(state: str) -> str:
+    normalized = state.lower()
+    if normalized in {"ok", "ready", "trusted", "configured"}:
+        return GREEN
+    if normalized in {"unknown", "not checked", "pending"}:
+        return YELLOW
+    if normalized in {"failed", "error", "blocked"}:
+        return RED
+    return CYAN

@@ -14,9 +14,13 @@ from por.client import ClientRunResult
 from por.cli_display import (
     AskDisplay,
     AskNetworkDisplay,
+    DashboardDisplay,
+    DashboardSnapshot,
     ExperimentalSceneRenderer,
     PayoutsDisplay,
+    ServiceCard,
     should_show_interactive_display,
+    terminal_rendering_options,
 )
 from por.config import ClusterConfig, DaemonConfig
 from por.daemon.client import PersistentClientSession, make_client_http_handler
@@ -39,6 +43,9 @@ def test_cli_parser_and_legacy_entrypoints():
     assert args.join_pack == "config/join-pack.json"
     plain_args = parser.parse_args(["ask", "--prompt", "hello", "--plain"])
     assert plain_args.plain is True
+    status_args = parser.parse_args(["status", "--render-options"])
+    assert status_args.command == "status"
+    assert status_args.render_options is True
 
 
 class _TtyStringIO(StringIO):
@@ -95,20 +102,56 @@ def test_ask_display_renders_status_map_without_protocol_state():
     assert "selected=expert-art" in rendered
 
 
-def test_unfinished_cli_display_surfaces_are_explicit_stubs():
+def test_cli_display_punts_payments_but_renders_terminal_scene():
     with pytest.raises(NotImplementedError, match="CLI_UI_TODO"):
         PayoutsDisplay().render(())
-    with pytest.raises(NotImplementedError, match="CLI_UI_TODO"):
-        ExperimentalSceneRenderer().render_network_scene(
-            AskNetworkDisplay(
-                matcher_host="matcher",
-                value_x_prefix="abc123",
-                relay_id="relay",
-                relay_endpoint="127.0.0.1:4433",
-                relay_count=1,
-                route_mode="reachability-relay",
-            )
+
+    scene = ExperimentalSceneRenderer().render_network_scene(
+        AskNetworkDisplay(
+            matcher_host="matcher",
+            value_x_prefix="abc123",
+            relay_id="relay",
+            relay_endpoint="127.0.0.1:4433",
+            relay_count=1,
+            route_mode="reachability-relay",
         )
+    )
+    assert "network map" in scene
+    assert "matcher" in scene
+    assert "relay" in scene
+
+
+def test_dashboard_display_renders_broad_service_stack():
+    network = AskNetworkDisplay(
+        matcher_host="matcher.example",
+        value_x_prefix="abc123",
+        relay_id="reach-beta-1",
+        relay_endpoint="203.0.113.10:4433",
+        relay_count=1,
+        route_mode="reachability-relay",
+    )
+    snapshot = DashboardSnapshot(
+        "P-OR service dashboard",
+        network,
+        (
+            ServiceCard("attested matcher", "configured", "value_x=abc123", "TEE"),
+            ServiceCard("reachability relay", "configured", "203.0.113.10:4433", "REACH"),
+        ),
+        ("payments/payouts omitted",),
+    )
+    rendered = DashboardDisplay(enabled=False).render(snapshot)
+    assert "P-OR service dashboard" in rendered
+    assert "attested matcher: configured" in rendered
+    assert "payments/payouts omitted" in rendered
+
+
+def test_terminal_rendering_options_assess_3d_without_new_dependency():
+    options = terminal_rendering_options()
+    names = {option.name for option in options}
+    assert "ANSI scene renderer" in names
+    assert "Yoga flex layout" in names
+    assert any(option.verdict == "ship" for option in options)
+    assert any("not a terminal UI framework" in option.note for option in options)
 
 
 @pytest.mark.parametrize(
