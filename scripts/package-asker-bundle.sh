@@ -39,7 +39,7 @@ fi
 if [[ -x "$DIR/bin/por" ]]; then
   exec "$DIR/bin/por" ask --join-pack "$DIR/join-pack.json" "$@"
 fi
-exec python3 -m por ask --join-pack "$DIR/join-pack.json" "$@"
+exec python3 -m tenet ask --join-pack "$DIR/join-pack.json" "$@"
 SH
 chmod +x "$OUT/ask"
 (

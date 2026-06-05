@@ -7,8 +7,8 @@ TOPOLOGY="${TENET_GATE_B_TOPOLOGY:-$ROOT/config/gate-b-topology.json}"
 
 cd "$ROOT"
 PYTHONPATH=. python3 -c "
-from por.gate_b_topology import GateBTopology
-from por.gate_b_nodes import verify_network
+from tenet.experts.gate_b_topology import GateBTopology
+from tenet.experts.gate_b_nodes import verify_network
 topo = GateBTopology.load('$TOPOLOGY')
 for line in verify_network(topo):
     print('[verify-network]', line)

@@ -57,7 +57,7 @@ Full topology, queue (**items 1–15**), live URLs, and ops: [`STATUS.md`](STATU
 ```bash
 pip install -r requirements.txt
 make smoke
-python3 -m por --help
+python3 -m tenet --help
 ```
 
 ### Join the live network (asker)
@@ -66,26 +66,26 @@ There is **no separate public directory snapshot URL** for beta joiners. Peer ma
 
 ```bash
 ./scripts/render-join-pack.sh          # writes config/join-pack.json (public pins)
-python3 -m por ask --prompt "In one sentence, name one Monet painting technique."
+python3 -m tenet ask --prompt "In one sentence, name one Monet painting technique."
 # or: ./dist/tenet-macos-arm64 ask --join-pack config/join-pack.json --prompt "..."
 ```
 
 Hand a second human: `./scripts/package-asker-bundle.sh` → `dist/asker-bundle.zip` (join pack + mailbox client pins).
 
-Ops-only attestation tools: `por enclave check|match|send` — see [`STATUS.md`](STATUS.md).
+Ops-only attestation tools: `tenet enclave check|match|send` — see [`STATUS.md`](STATUS.md).
 
 ### Expert
 
 ```bash
 ./scripts/expert-onboard.sh /path/to/your/corpus
-# then start the printed por run command; export peer_address; rebuild TEE data
+# then start the printed tenet run command; export peer_address; rebuild TEE data
 ```
 
 ### Verify matcher (items 4, 5, 9)
 
 ```bash
 ./scripts/verify-live.sh
-python3 -m por enclave match --prompt "Tell me about Monet"
+python3 -m tenet enclave match --prompt "Tell me about Monet"
 ```
 
 Full ops (relay, EIF redeploy, item 15): [`STATUS.md`](STATUS.md) **Operations**.

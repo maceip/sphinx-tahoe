@@ -17,4 +17,4 @@ fi
 
 PROMPT="${1:-Tell me about Monet and impressionist painting.}"
 echo "[expert-plan] prompt: $PROMPT"
-python3 -m por enclave plan --prompt "$PROMPT" --json
+python3 -m tenet enclave plan --prompt "$PROMPT" --json

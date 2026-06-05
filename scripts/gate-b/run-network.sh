@@ -33,11 +33,11 @@ if [[ -n "$PROMPTS_FILE" && -f "$PROMPTS_FILE" ]]; then
   while IFS= read -r prompt || [[ -n "$prompt" ]]; do
     [[ -z "${prompt// }" ]] && continue
     echo "[run-network] prompt: $prompt"
-    python3 -m por enclave send --prompt "$prompt" --timeout 120 --json || true
+    python3 -m tenet enclave send --prompt "$prompt" --timeout 120 --json || true
   done < "$PROMPTS_FILE"
 else
   echo "[run-network] asker client (single prompt)"
-  python3 -m por enclave send \
+  python3 -m tenet enclave send \
     --prompt "${PROMPT:-What is impressionism in painting?}" \
     --timeout 120 \
     --json

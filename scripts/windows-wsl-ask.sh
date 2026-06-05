@@ -11,12 +11,12 @@ else
   cp -a "$BASE"/. "$SRC/"
 fi
 cd "$SRC"
-if [[ ! -f por/daemon/main.py ]]; then
+if [[ ! -f tenet/edges/cli/main.py ]]; then
   tar xzf "$BASE/sphinx-tahoe.tgz" -C "$SRC"
 fi
 
 PY=python3
-if ! "$PY" -c 'import por' 2>/dev/null; then
+if ! "$PY" -c 'import tenet' 2>/dev/null; then
   pip3 install --break-system-packages -q -e . || pip3 install --user -q -e .
 fi
 
@@ -31,7 +31,7 @@ if ! command -v aw >/dev/null 2>&1; then
 fi
 
 PROMPT="${PROMPT:-In one sentence, name one Monet painting technique.}"
-"$PY" -m por ask \
+"$PY" -m tenet ask \
   --join-pack config/join-pack.json \
   --prompt "$PROMPT" \
   --timeout "${TIMEOUT:-120}" \

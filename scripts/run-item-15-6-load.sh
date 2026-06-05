@@ -2,7 +2,7 @@
 # Item 15.6: repeat/load sanity - 10x same prompt + 10x varied prompts.
 #
 # Usage:
-#   ./scripts/run-item-15-6-load.sh              # local por ask
+#   ./scripts/run-item-15-6-load.sh              # local tenet ask
 #   RUN_ON=remote ./scripts/run-item-15-6-load.sh # first EC2 in network-clients.json
 #   RUN_ON=both ./scripts/run-item-15-6-load.sh   # alternate client-1 / client-2
 set -euo pipefail
@@ -39,7 +39,7 @@ VARIED_PROMPTS=(
 )
 
 _run_local() {
-  python3 -m por ask --join-pack "$JOIN_PACK" --prompt "$1" --timeout "$TIMEOUT" --json
+  python3 -m tenet ask --join-pack "$JOIN_PACK" --prompt "$1" --timeout "$TIMEOUT" --json
 }
 
 _run_remote() {
@@ -47,7 +47,7 @@ _run_remote() {
   local prompt=$2
   local key="${SSH_KEY:-$HOME/.ssh/tenet-nitro.pem}"
   ssh -i "$key" -o StrictHostKeyChecking=accept-new "ubuntu@${host}" \
-    "export PATH=\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH; cd ~/asker-bundle && python3 -m por ask --join-pack join-pack.json --prompt $(printf '%q' "$prompt") --timeout $TIMEOUT --json" 2>&1
+    "export PATH=\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH; cd ~/asker-bundle && python3 -m tenet ask --join-pack join-pack.json --prompt $(printf '%q' "$prompt") --timeout $TIMEOUT --json" 2>&1
 }
 
 pick_host() {

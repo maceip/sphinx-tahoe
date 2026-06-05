@@ -7,8 +7,8 @@ export REACH_RELAY_HOST="${REACH_RELAY_HOST:?set REACH_RELAY_HOST}"
 bash "$ROOT/scripts/render-beta-config.sh"
 HANDLE="$(
   cd "$ROOT" && PYTHONPATH=. python3 -c "
-from por.handles import OpaqueHandleIssuer
-from por.memory_index import IndexConfig, build_memory_index
+from tenet.handles import OpaqueHandleIssuer
+from tenet.experts.memory_index import IndexConfig, build_memory_index
 import os
 corpus = os.environ.get('EXPERT_CORPUS', 'tests/fixtures/corpus/monet')
 built = build_memory_index(IndexConfig(peer_id='expert', roots=(corpus,), created_at_iso='2026-06-04T00:00:00+00:00'))

@@ -6,7 +6,7 @@ cd /app
 SNAPSHOT="${SNAPSHOT:-/app/data/beta/snapshot.json}"
 MAILBOX="${MAILBOX:-/app/data/beta/mailbox.json}"
 PORT="${ENCLAVE_PLANE_PORT:-8080}"
-PYTHONPATH=/app python3.11 -m por.enclave_plane_server \
+PYTHONPATH=/app python3.11 -m tenet.enclave_plane_server \
   --snapshot "${SNAPSHOT}" \
   --mailbox "${MAILBOX}" \
   --host 127.0.0.1 \

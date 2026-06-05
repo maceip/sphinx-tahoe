@@ -171,7 +171,7 @@ class SubprocessRuncardVerifier:
         )
         if pathish:
             return configured
-        embedded_root = Path(getattr(sys, "_MEIPASS", "")) / "por_embedded"
+        embedded_root = Path(getattr(sys, "_MEIPASS", "")) / "tenet_embedded"
         names = [configured]
         if os.name == "nt" and not configured.lower().endswith(".exe"):
             names.append(f"{configured}.exe")

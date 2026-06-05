@@ -16,7 +16,7 @@ import sys
 import os
 from pathlib import Path
 
-from sphinxmix.OutfoxParams import KEM_X25519
+from tenet.packet.OutfoxParams import KEM_X25519
 
 out = Path(sys.argv[1])
 

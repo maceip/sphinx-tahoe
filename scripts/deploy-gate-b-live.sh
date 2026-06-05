@@ -43,7 +43,7 @@ echo "[network-beta] start reach relay on Nitro (background)"
 ssh -i "$NITRO_KEY" "${NITRO_USER}@${NITRO_HOST}" bash -s <<REMOTE
 set -euo pipefail
 cd ~/sphinx-tahoe
-pkill -f 'por run --config.*live-reach-relay' 2>/dev/null || true
+pkill -f 'tenet run --config.*live-reach-relay' 2>/dev/null || true
 for i in \$(seq 1 20); do
   if ! ss -lun | grep -q ':${RELAY_PORT} '; then
     break
@@ -53,7 +53,7 @@ done
 rm -rf "$REACH_EXPORT_DIR"
 mkdir -p "$REACH_EXPORT_DIR"
 nohup env POR_REACH_EXPORT_DIR="$REACH_EXPORT_DIR" \
-  python3 -m por run --config config/live-reach-relay.json --node-id reach-beta-1 \
+  python3 -m tenet run --config config/live-reach-relay.json --node-id reach-beta-1 \
   > ~/reach-relay.log 2>&1 &
 sleep 2
 head -5 ~/reach-relay.log || true
@@ -69,8 +69,8 @@ fi
 
 HANDLE_TOKEN="$(
   python3 -c "
-from por.memory_index import IndexConfig, build_memory_index
-from por.handles import OpaqueHandleIssuer
+from tenet.experts.memory_index import IndexConfig, build_memory_index
+from tenet.handles import OpaqueHandleIssuer
 manifest = build_memory_index(IndexConfig(peer_id='expert', roots=('${CORPUS}',))).manifest
 print(OpaqueHandleIssuer(bytes.fromhex('${HANDLE_SECRET_HEX}')).issue(peer_id='expert', manifest_digest=manifest.index_digest).token)
 "
@@ -95,15 +95,15 @@ PY
 echo "[network-beta] opaque handle: ${HANDLE_TOKEN}"
 
 echo "[network-beta] start expert on laptop (background)"
-pkill -f 'por run --config.*expert-laptop' 2>/dev/null || true
+pkill -f 'tenet run --config.*expert-laptop' 2>/dev/null || true
 if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
   echo "[network-beta] WARN: ANTHROPIC_API_KEY unset — expert will not call real LLM" >&2
 fi
 nohup env POR_PROVIDER=anthropic ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
-  python3 -m por run --config config/expert-laptop.json --node-id "$HANDLE_TOKEN" \
-  > /tmp/por-expert.log 2>&1 &
+  python3 -m tenet run --config config/expert-laptop.json --node-id "$HANDLE_TOKEN" \
+  > /tmp/tenet-expert.log 2>&1 &
 sleep 5
-tail -20 /tmp/por-expert.log || true
+tail -20 /tmp/tenet-expert.log || true
 
 echo "[network-beta] export peer_address from relay"
 ssh -i "$NITRO_KEY" "${NITRO_USER}@${NITRO_HOST}" bash -s <<REMOTE

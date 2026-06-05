@@ -9,10 +9,10 @@ import re
 from dataclasses import asdict
 from pathlib import Path
 
-from por.directory import DIRECTORY_SNAPSHOT_VERSION
-from por.enclave_plane_server import MAILBOX_FILE_VERSION
-from por.handles import OpaqueHandleIssuer
-from por.memory_index import IndexConfig, build_memory_index
+from tenet.experts.directory import DIRECTORY_SNAPSHOT_VERSION
+from tenet.experts.enclave_plane_server import MAILBOX_FILE_VERSION
+from tenet.handles import OpaqueHandleIssuer
+from tenet.experts.memory_index import IndexConfig, build_memory_index
 
 
 def main() -> int:

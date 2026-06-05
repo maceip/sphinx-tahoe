@@ -24,8 +24,8 @@ RUN dnf install -y python3 && dnf clean all
 COPY bountynet-bin /usr/local/bin/bountynet
 
 # The matcher/mailbox application code + its loopback launcher.
-COPY sphinxmix/ /app/sphinxmix/
-COPY por/ /app/por/
+
+COPY tenet/ /app/tenet/
 COPY deploy/enclave-workload.sh /usr/local/bin/enclave-workload.sh
 COPY deploy/enclave-entry.sh /usr/local/bin/enclave-entry.sh
 RUN chmod +x /usr/local/bin/enclave-workload.sh /usr/local/bin/enclave-entry.sh
