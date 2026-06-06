@@ -6,7 +6,7 @@
 #
 # Usage on the relay VM:
 #   scp config/live-reach-relay.json user@relay:~/live-reach-relay.json
-#   scp -r por tenet.packet user@relay:~/sphinx-tahoe/
+#   scp -r tenet user@relay:~/sphinx-tahoe/
 #   ssh user@relay 'cd sphinx-tahoe && python3 -m tenet run --config ~/live-reach-relay.json --node-id reach-beta-1'
 set -euo pipefail
 

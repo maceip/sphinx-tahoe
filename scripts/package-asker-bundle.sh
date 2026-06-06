@@ -14,7 +14,7 @@ if [[ -n "${TENET_BINARY:-}" && -x "${TENET_BINARY}" ]]; then
 elif [[ -n "${POR_BINARY:-}" && -x "${POR_BINARY}" ]]; then
   cp "${POR_BINARY}" "$OUT/bin/$(basename "${POR_BINARY}")"
 fi
-for candidate in "$ROOT"/dist/tenet "$ROOT"/dist/tenet-* "$ROOT"/dist/por "$ROOT"/dist/por-*; do
+for candidate in "$ROOT"/dist/tenet "$ROOT"/dist/tenet-*; do
   if [[ -x "$candidate" && ! -d "$candidate" ]]; then
     cp "$candidate" "$OUT/bin/$(basename "$candidate")"
   fi
