@@ -21,7 +21,7 @@ fi
 
 python3 - <<PY
 import socket
-from por.reach_client import ReachRelayEndpoint, register_with_relay
+from tenet.mixnet.reach_client import ReachRelayEndpoint, register_with_relay
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.settimeout(3.0)

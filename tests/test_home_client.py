@@ -17,20 +17,21 @@ import socket
 import time
 
 import pytest
-from sphinxmix.OutfoxParams import OutfoxParams
+from tenet.packet.OutfoxParams import OutfoxParams
 
-from por.client import run_client_once
-from por.config import ClusterConfig, PorConfig
-from por.daemon.directory import make_directory_handler
-from por.daemon.supernode import SupernodeDaemon
-from por.directory import DirectorySnapshot, PeerRecord, PublicManifestDirectory, load_public_snapshot_directory
-from por.expert_mode import ExpertModeConfig
-from por.handles import OpaqueHandleIssuer, opaque_handle_record_from_dict
-from por.matcher import PLAIN_MATCHER_V1, PlainEnclavePlaneDiscoveryProvider, PlainMailbox, PlainMatcher
-from por.reach_wire import REACH_CHALLENGE, decode_reach_datagram
-from por.memory_index import IndexConfig, build_memory_index
-from por.node_runtime import WireNodeRuntime
-from por.reach_wire import encode_confirm, encode_register
+from tenet.experts.client import run_client_once
+from tenet.config import ClusterConfig, PorConfig
+from tenet.edges.cli.directory import make_directory_handler
+from tenet.edges.cli.supernode import SupernodeDaemon
+from tenet.experts.directory import DirectorySnapshot, PeerRecord, PublicManifestDirectory, load_public_snapshot_directory
+from tenet.experts.expert_mode import ExpertModeConfig
+from tenet.handles import OpaqueHandleIssuer, opaque_handle_record_from_dict
+from tenet.experts.matcher import PLAIN_MATCHER_V1, PlainEnclavePlaneDiscoveryProvider, PlainMailbox, PlainMatcher
+from tenet.mixnet.reach_wire import REACH_CHALLENGE, decode_reach_datagram
+from tenet.experts.memory_index import IndexConfig, build_memory_index
+from tenet.mixnet.node_runtime import WireNodeRuntime
+from tenet.llm.provider import make_reply_handler
+from tenet.mixnet.reach_wire import encode_confirm, encode_register
 from tests.harness import mixnet_harness
 
 
@@ -110,7 +111,11 @@ def test_home_client_completes_with_directory_trusted_relay_and_no_static_expert
         expert_cluster_path = tmp_path / "expert-cluster.json"
         expert_cluster_path.write_text(json.dumps(expert_cluster_dict), encoding="utf-8")
         expert_cluster = ClusterConfig.load(str(expert_cluster_path))
-        expert_runtime = WireNodeRuntime(expert_cluster, "peer-art", role="expert")
+        # No provider configured: the handler still runs and surfaces the same
+        # provider-error the test asserts below (faithful to the pre-Seam-A path).
+        expert_runtime = WireNodeRuntime(
+            expert_cluster, "peer-art", role="expert", reply_handler=make_reply_handler()
+        )
 
         # Relay serves first so it can answer the expert's REACH registration.
         net.serve(relay_runtime, relay_sock)

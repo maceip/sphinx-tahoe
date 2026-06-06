@@ -12,15 +12,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from por.directory import DIRECTORY_SNAPSHOT_VERSION, PeerRecord
-from por.enclave_plane_server import MAILBOX_FILE_VERSION
-from por.handles import (
+from tenet.experts.directory import DIRECTORY_SNAPSHOT_VERSION, PeerRecord
+from tenet.experts.enclave_plane_server import MAILBOX_FILE_VERSION
+from tenet.handles import (
     OPAQUE_HANDLE_RECORD_VERSION,
     OpaqueHandle,
     OpaqueHandleIssuer,
     OpaqueHandleRecord,
 )
-from por.memory_index import MemoryManifest
+from tenet.experts.memory_index import MemoryManifest
 
 
 def main() -> int:
@@ -34,7 +34,7 @@ def main() -> int:
     parser.add_argument("--out-dir", default="deploy/data/beta")
     args = parser.parse_args()
 
-    from por.memory_index import IndexConfig, build_memory_index
+    from tenet.experts.memory_index import IndexConfig, build_memory_index
 
     peer_id = args.peer_id or Path(args.corpus).name
     built = build_memory_index(IndexConfig(peer_id=peer_id, roots=(args.corpus,)))

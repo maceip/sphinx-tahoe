@@ -33,7 +33,7 @@ scp_cmd "$ROOT/scripts/wslconfig-mirrored" "${USER}@${HOST}:C:/Users/mac/.wslcon
 scp_cmd "$ROOT/scripts/windows-wsl-ask.sh" "${USER}@${HOST}:${REMOTE_WIN}/windows-wsl-ask.sh"
 scp_cmd "$ROOT/setup.py" "$ROOT/setup.cfg" "$ROOT/requirements.txt" \
   "${USER}@${HOST}:${REMOTE_WIN}/"
-scp_cmd -r "$ROOT/por" "$ROOT/sphinxmix" "$ROOT/config" "${USER}@${HOST}:${REMOTE_WIN}/"
+scp_cmd -r "$ROOT/por" "$ROOT/tenet.packet" "$ROOT/config" "${USER}@${HOST}:${REMOTE_WIN}/"
 
 ssh_cmd "wsl --shutdown" || true
 sleep 8

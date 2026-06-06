@@ -13,8 +13,8 @@ fi
 echo "[smoke] pytest (unit, excludes live)"
 python3 -m pytest -q -m "not live"
 
-echo "[smoke] import por + sphinxmix"
-python3 -c "import por; import sphinxmix.OutfoxParams"
-python3 -m por --help >/dev/null
+echo "[smoke] import tenet"
+python3 -c "import tenet; import tenet.packet.OutfoxParams"
+python3 -m tenet --help >/dev/null
 
 echo "[smoke] ok"

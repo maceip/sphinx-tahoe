@@ -56,6 +56,6 @@ PY
 fi
 
 echo "[verify-live] client policy check (config + AttestedEnclavePlaneClient)"
-python3 -m por enclave check --config "$ROOT/$LIVE_ENCLAVE_CONFIG"
+python3 -m tenet enclave check --config "$ROOT/$LIVE_ENCLAVE_CONFIG"
 
 echo "[verify-live] ok"

@@ -38,13 +38,13 @@ chmod 600 "$KEY_ENV"
 printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY" > "$KEY_ENV"
 
 cd "$ROOT"
-[[ -x dist/por-linux-x86_64 ]] || {
-  echo "missing dist/por-linux-x86_64; build the Linux binary first" >&2
+[[ -x dist/tenet-linux-x86_64 ]] || {
+  echo "missing dist/tenet-linux-x86_64; build the Linux binary first" >&2
   exit 2
 }
 
 mkdir -p "$CTX/dist" "$CTX/config" "$CTX/deploy/client-sim" "$CTX/scripts"
-cp dist/por-linux-x86_64 "$CTX/dist/"
+cp dist/tenet-linux-x86_64 "$CTX/dist/"
 cp config/live-enclave.json config/join-pack.json config/live-mailbox-client.json "$CTX/config/"
 cp deploy/client-sim/Dockerfile deploy/client-sim/entrypoint.sh "$CTX/deploy/client-sim/"
 cp scripts/build-client-sim-image.sh scripts/run-client-sim.sh "$CTX/scripts/"
@@ -54,7 +54,7 @@ cat >"$CTX/run-wsl.sh" <<EOF
 set -euo pipefail
 trap 'rm -f "$REMOTE_ROOT/anthropic.env"' EXIT
 cd "$REMOTE_ROOT"
-chmod +x dist/por-linux-x86_64 deploy/client-sim/entrypoint.sh scripts/*.sh
+chmod +x dist/tenet-linux-x86_64 deploy/client-sim/entrypoint.sh scripts/*.sh
 chmod 600 anthropic.env
 if [[ "$REBUILD" == "1" ]]; then
   IMAGE="$IMAGE" ./scripts/build-client-sim-image.sh

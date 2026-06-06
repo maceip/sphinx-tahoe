@@ -33,8 +33,8 @@ bash "$ROOT/scripts/render-beta-config.sh" >/dev/null
 
 HANDLE="$(
   cd "$ROOT" && PYTHONPATH=. python3 -c "
-from por.handles import OpaqueHandleIssuer
-from por.memory_index import IndexConfig, build_memory_index
+from tenet.handles import OpaqueHandleIssuer
+from tenet.experts.memory_index import IndexConfig, build_memory_index
 built = build_memory_index(IndexConfig(peer_id='expert', roots=('$CORPUS',), created_at_iso='2026-06-04T00:00:00+00:00'))
 issuer = OpaqueHandleIssuer(bytes.fromhex('${HANDLE_SECRET_HEX}'))
 rec = issuer.record(peer_id='expert', manifest_digest=built.manifest.index_digest, mailbox_id='mailbox-beta')
@@ -59,7 +59,7 @@ set -euo pipefail
 cd ~/sphinx-tahoe
 python3 -m pip install --user -q dilithium-py pynacl cryptography 2>/dev/null || true
 pgrep -f live-reach-relay.json >/dev/null || {
-  setsid python3 -m por run --config config/live-reach-relay.json --node-id reach-beta-1 \
+  setsid python3 -m tenet run --config config/live-reach-relay.json --node-id reach-beta-1 \
     >> ~/reach-relay.log 2>&1 < /dev/null &
   disown
   sleep 2
@@ -92,7 +92,7 @@ for a,b in [
 Path("config/expert-ec2.json").write_text(t)
 PY
 setsid env ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
-  python3 -m por run --config config/expert-ec2.json --node-id "${HANDLE}" \
+  python3 -m tenet run --config config/expert-ec2.json --node-id "${HANDLE}" \
   >> ~/expert-gateb.log 2>&1 < /dev/null &
 disown
 sleep 5
@@ -150,4 +150,4 @@ print("[network-beta] enclave url", d["url"])
 PY
 
 echo "[network-beta] asker send (this machine)"
-python3 -m por enclave send --prompt "What is impressionism in painting?" --timeout 120 --json
+python3 -m tenet enclave send --prompt "What is impressionism in painting?" --timeout 120 --json

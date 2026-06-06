@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Legacy path name. Deploy real P-OR clients to each node in gate-b-topology.json.
+# Legacy path name. Deploy real tenet clients to each node in gate-b-topology.json.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -15,7 +15,7 @@ RELAY_HOST=$(python3 -c "import json; print(json.load(open('$TOPOLOGY'))['roles'
 export REACH_RELAY_HOST="$RELAY_HOST"
 bash "$ROOT/scripts/render-beta-config.sh" >/dev/null
 
-python3 -c "from por.gate_b_topology import GateBTopology; GateBTopology.load('$TOPOLOGY')"
+python3 -c "from tenet.experts.gate_b_topology import GateBTopology; GateBTopology.load('$TOPOLOGY')"
 
 RELAY_KEY=~/.ssh/tenet-nitro.pem
 
@@ -27,7 +27,7 @@ set -euo pipefail
 cd ~/sphinx-tahoe
 python3 -m pip install --user -q dilithium-py pynacl cryptography 2>/dev/null || true
 pkill -f live-reach-relay.json 2>/dev/null || true
-setsid python3 -m por run --config config/live-reach-relay.json --node-id reach-beta-1 \
+setsid python3 -m tenet run --config config/live-reach-relay.json --node-id reach-beta-1 \
   >> ~/reach-relay.log 2>&1 < /dev/null &
 disown
 sleep 2
@@ -60,14 +60,14 @@ if not alpha_path.is_file():
         f"[deploy] missing Alpha population (item 15): {alpha_path}\n"
         "  run: ./scripts/alpha/materialize-experts.py"
     )
-from por.alpha_experts import load_alpha_population
+from tenet.experts.alpha_experts import load_alpha_population
 
 pop = load_alpha_population(alpha_path)
 alpha_by_index = list(pop.experts)
 print(f"[deploy] alpha population: {len(alpha_by_index)} experts from {alpha_path}")
 
-from por.handles import OpaqueHandleIssuer
-from por.memory_index import IndexConfig, build_memory_index
+from tenet.handles import OpaqueHandleIssuer
+from tenet.experts.memory_index import IndexConfig, build_memory_index
 
 issuer = OpaqueHandleIssuer(bytes.fromhex(env["HANDLE_SECRET_HEX"]))
 created_at = "2026-06-04T00:00:00+00:00"
@@ -135,7 +135,7 @@ for a, b in [
 Path('config/expert-ec2.json').write_text(t)
 "
 setsid env ANTHROPIC_API_KEY="{env.get("ANTHROPIC_API_KEY", "")}" \\
-  python3 -m por run --config config/expert-ec2.json --node-id "{handle}" \\
+  python3 -m tenet run --config config/expert-ec2.json --node-id "{handle}" \\
   >> ~/expert-node.log 2>&1 < /dev/null &
 disown
 sleep 4

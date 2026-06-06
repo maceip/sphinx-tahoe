@@ -64,8 +64,8 @@ apply_nat_profile() {
 }
 
 run_ask() {
-  /usr/local/bin/por ask \
-    --join-pack "${JOIN_PACK:-/etc/por/join-pack.json}" \
+  /usr/local/bin/tenet ask \
+    --join-pack "${JOIN_PACK:-/etc/tenet/join-pack.json}" \
     --prompt "${PROMPT:-Monet}" \
     --timeout "${POR_TIMEOUT:-120}" \
     --json

@@ -42,10 +42,10 @@ if [[ -n "$PROMPTS_FILE" && -f "$PROMPTS_FILE" ]]; then
   while IFS= read -r prompt || [[ -n "$prompt" ]]; do
     [[ -z "${prompt// }" ]] && continue
     echo "[alpha] asker: $prompt"
-    python3 -m por enclave send --prompt "$prompt" --timeout 120 --json || true
+    python3 -m tenet enclave send --prompt "$prompt" --timeout 120 --json || true
   done < "$PROMPTS_FILE"
 else
-  python3 -m por enclave send \
+  python3 -m tenet enclave send \
     --prompt "${PROMPT:-How does REACH relay registration work for home experts?}" \
     --timeout 120 \
     --json

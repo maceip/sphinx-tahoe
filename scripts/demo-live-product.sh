@@ -19,15 +19,15 @@ echo "=== Step 1: verify live attestation + policy ==="
 
 echo
 echo "=== Step 2: attested expert match (Monet domain) ==="
-python3 -m por enclave match --prompt "Tell me about Monet and impressionist painting techniques."
+python3 -m tenet enclave match --prompt "Tell me about Monet and impressionist painting techniques."
 
 echo
 echo "=== Step 3: attested expert match (Rust domain) ==="
-python3 -m por enclave match --prompt "Explain Rust ownership and the borrow checker."
+python3 -m tenet enclave match --prompt "Explain Rust ownership and the borrow checker."
 
 echo
 echo "=== Step 4: expert-mode route plan (pre-mixnet) ==="
-python3 -m por enclave plan --prompt "Tell me about Monet and impressionist painting."
+python3 -m tenet enclave plan --prompt "Tell me about Monet and impressionist painting."
 
 echo
 echo "=== Step 5: TEE mailbox send (stub expert — not item 13) ==="

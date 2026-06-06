@@ -39,18 +39,16 @@ def native_selftest() -> None:
 
 
 def full_client_roundtrip() -> str:
-    # Stub the server-side LLM call (runs on the expert's server, not the device).
-    import por.node_runtime as node_runtime
+    from tenet.experts.client import send_prepared_envelope
+    from tenet.config import ClusterConfig
+    from tenet.envelope import PromptRequestEnvelope
+    from tenet.mixnet.node_runtime import WireNodeRuntime
+    from tenet.packet.OutfoxParams import AES_CTR_BACKEND, ML_DSA_BACKEND, OutfoxParams
 
-    node_runtime.expert_reply_chunks = lambda *a, **k: [
-        "on-device expert reply: hello from tenet"
-    ]
-
-    from por.client import send_prepared_envelope
-    from por.config import ClusterConfig
-    from por.envelope import PromptRequestEnvelope
-    from por.node_runtime import WireNodeRuntime
-    from sphinxmix.OutfoxParams import AES_CTR_BACKEND, ML_DSA_BACKEND, OutfoxParams
+    # Stub the server-side LLM reply (runs on the expert, not the device).
+    # Injected via reply_handler (Seam A) — the mixnet no longer calls the LLM.
+    def _stub_reply(envelope, peer_id):
+        return ["on-device expert reply: hello from tenet"]
 
     def bind() -> socket.socket:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -78,7 +76,7 @@ def full_client_roundtrip() -> str:
         }
     )
     relay_rt = WireNodeRuntime(cluster, "relay1", role="relay")
-    expert_rt = WireNodeRuntime(cluster, "expert1", role="expert")
+    expert_rt = WireNodeRuntime(cluster, "expert1", role="expert", reply_handler=_stub_reply)
     stop = threading.Event()
     for rt, sock in ((relay_rt, relay_s), (expert_rt, expert_s)):
         threading.Thread(

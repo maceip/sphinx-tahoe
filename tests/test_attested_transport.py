@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from cryptography.x509.oid import NameOID
 
-from por.attested_transport import (
+from tenet.enclave.attested_transport import (
     SpkiPinError,
     assert_peer_spki,
     build_pinned_opener,

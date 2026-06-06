@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sphinxmix.ta_claims import (
+from tenet.packet.ta_claims import (
     TA_CLAIM_SCAN_PATHS,
     missing_scan_paths,
     scan_files_for_forbidden_claims,

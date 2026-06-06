@@ -4,11 +4,11 @@ import json
 import threading
 from urllib.request import urlopen
 
-from por.directory import DiscoveryRequest
-from por.enclave_plane import PlainEnclavePlaneHttpClient
-from por.enclave_plane_server import build_provider_from_files, serve_enclave_plane
-from por.expert_route import RouteIntent
-from por.matcher import (
+from tenet.experts.directory import DiscoveryRequest
+from tenet.experts.match_workload import PlainEnclavePlaneHttpClient
+from tenet.experts.enclave_plane_server import build_provider_from_files, serve_enclave_plane
+from tenet.experts.expert_route import RouteIntent
+from tenet.experts.matcher import (
     PLAIN_MATCHER_V1,
     PlainEnclavePlaneDiscoveryProvider,
     PlainMailbox,

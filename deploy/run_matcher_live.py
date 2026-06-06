@@ -19,21 +19,22 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from por.config import ClusterConfig, PeerAddressConfig, ProviderConfig, TrustedReachabilityRelayConfig
-from por.daemon.supernode import SupernodeDaemon
-from por.directory import PeerRecord
-from por.enclave_plane_server import serve_enclave_plane
-from por.handles import opaque_handle_record_from_dict
-from por.matcher import (
+from tenet.config import ClusterConfig, PeerAddressConfig, ProviderConfig, TrustedReachabilityRelayConfig
+from tenet.edges.cli.supernode import SupernodeDaemon
+from tenet.experts.directory import PeerRecord
+from tenet.experts.enclave_plane_server import serve_enclave_plane
+from tenet.handles import opaque_handle_record_from_dict
+from tenet.experts.matcher import (
     PlainEnclavePlaneDiscoveryProvider,
     PlainMailbox,
     PlainMailboxDelivery,
     PlainMatcher,
 )
-from por.memory_index import MemoryManifest
-from por.node_runtime import WireNodeRuntime
-from por.oblivious import rust_backend_available
-from por.reach_wire import REACH_CHALLENGE, decode_reach_datagram, encode_confirm, encode_register
+from tenet.experts.memory_index import MemoryManifest
+from tenet.mixnet.node_runtime import WireNodeRuntime
+from tenet.experts.oblivious import rust_backend_available
+from tenet.llm.provider import make_reply_handler
+from tenet.mixnet.reach_wire import REACH_CHALLENGE, decode_reach_datagram, encode_confirm, encode_register
 
 
 DEFAULT_FLEET = Path(__file__).resolve().parent / "data" / "live-fleet.json"
@@ -188,10 +189,12 @@ def build_provider(fleet_path: Path) -> PlainEnclavePlaneDiscoveryProvider:
         expert_cluster,
         expert_id,
         role="expert",
-        provider=ProviderConfig(
-            provider="anthropic",
-            base_url=f"http://127.0.0.1:{stub.server_address[1]}",
-            api_key_env="LIVE_EXPERT_PROVIDER_KEY",
+        reply_handler=make_reply_handler(
+            ProviderConfig(
+                provider="anthropic",
+                base_url=f"http://127.0.0.1:{stub.server_address[1]}",
+                api_key_env="LIVE_EXPERT_PROVIDER_KEY",
+            )
         ),
     )
     _serve_runtime(expert_runtime, expert_sock)

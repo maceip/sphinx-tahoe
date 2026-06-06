@@ -30,7 +30,7 @@ if ! command -v aw >/dev/null 2>&1; then
 fi
 
 echo "[network-beta] 1/3 enclave check"
-python3 -m por enclave check --config "$ENCLAVE_CFG" --json
+python3 -m tenet enclave check --config "$ENCLAVE_CFG" --json
 
 echo "[network-beta] 2/3 reach relay (optional if REACH_RELAY_HOST set)"
 if [[ -f "$ROOT/config/beta-secrets.env" ]]; then
@@ -42,7 +42,7 @@ if [[ -n "${REACH_RELAY_HOST:-}" && "${REACH_RELAY_HOST}" != "REPLACE_WITH_PUBLI
 fi
 
 echo "[network-beta] 3/3 enclave send (real expert — not in-TEE stub)"
-python3 -m por enclave send \
+python3 -m tenet enclave send \
   --config "$ENCLAVE_CFG" \
   --mailbox-config "$MAILBOX_CFG" \
   --prompt "$PROMPT" \

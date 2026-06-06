@@ -9,13 +9,13 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/tenet-client-image.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 cd "$ROOT"
-[[ -x dist/por-linux-x86_64 ]] || {
-  echo "missing dist/por-linux-x86_64; build the Linux binary first" >&2
+[[ -x dist/tenet-linux-x86_64 ]] || {
+  echo "missing dist/tenet-linux-x86_64; build the Linux binary first" >&2
   exit 2
 }
 
 mkdir -p "$TMP/dist" "$TMP/config" "$TMP/deploy/client-sim"
-cp dist/por-linux-x86_64 "$TMP/dist/"
+cp dist/tenet-linux-x86_64 "$TMP/dist/"
 cp config/live-enclave.json config/join-pack.json config/live-mailbox-client.json "$TMP/config/"
 cp deploy/client-sim/Dockerfile deploy/client-sim/entrypoint.sh "$TMP/deploy/client-sim/"
 

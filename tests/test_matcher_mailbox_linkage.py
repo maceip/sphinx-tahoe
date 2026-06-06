@@ -6,21 +6,21 @@ from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler
 
 import pytest
-from sphinxmix.OutfoxParams import OutfoxParams
+from tenet.packet.OutfoxParams import OutfoxParams
 
-from por.client import run_client_once
-from por.config import (
+from tenet.experts.client import run_client_once
+from tenet.config import (
     ClusterConfig,
     PeerAddressConfig,
     ProviderConfig,
     TrustedReachabilityRelayConfig,
 )
-from por.daemon.supernode import SupernodeDaemon
-from por.directory import DiscoveryRequest, PeerRecord
-from por.enclave_plane import PlainEnclavePlaneHttpClient, make_plain_enclave_plane_handler
-from por.expert_mode import ExpertModeConfig
-from por.expert_route import RouteIntent
-from por.matcher import (
+from tenet.edges.cli.supernode import SupernodeDaemon
+from tenet.experts.directory import DiscoveryRequest, PeerRecord
+from tenet.experts.match_workload import PlainEnclavePlaneHttpClient, make_plain_enclave_plane_handler
+from tenet.experts.expert_mode import ExpertModeConfig
+from tenet.experts.expert_route import RouteIntent
+from tenet.experts.matcher import (
     PLAIN_MATCHER_V1,
     OpaqueHandleIssuer,
     PlainEnclavePlaneDiscoveryProvider,
@@ -28,10 +28,11 @@ from por.matcher import (
     PlainMailboxDelivery,
     PlainMatcher,
 )
-from por.memory_index import IndexConfig, build_memory_index
-from por.node_runtime import WireNodeRuntime
-from por.reach_wire import REACH_CHALLENGE, decode_reach_datagram, encode_confirm, encode_register
-from por.transport_dial import DialTarget
+from tenet.experts.memory_index import IndexConfig, build_memory_index
+from tenet.mixnet.node_runtime import WireNodeRuntime
+from tenet.llm.provider import make_reply_handler
+from tenet.mixnet.reach_wire import REACH_CHALLENGE, decode_reach_datagram, encode_confirm, encode_register
+from tenet.mixnet.transport_dial import DialTarget
 from tests.harness import mixnet_harness
 
 
@@ -124,10 +125,12 @@ def test_plain_matcher_handle_to_mailbox_to_expert_round_trip(tmp_path, monkeypa
             expert_cluster,
             "peer-art",
             role="expert",
-            provider=ProviderConfig(
-                provider="anthropic",
-                base_url=f"http://127.0.0.1:{provider_server.server_address[1]}",
-                api_key_env="TEST_ANTHROPIC_KEY",
+            reply_handler=make_reply_handler(
+                ProviderConfig(
+                    provider="anthropic",
+                    base_url=f"http://127.0.0.1:{provider_server.server_address[1]}",
+                    api_key_env="TEST_ANTHROPIC_KEY",
+                )
             ),
         )
 

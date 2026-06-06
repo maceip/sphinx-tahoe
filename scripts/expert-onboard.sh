@@ -47,8 +47,8 @@ ONBOARD_OUTPUT="$(PYTHONPATH="$ROOT" python3 - <<PY
 import os, sys
 sys.path.insert(0, "${ROOT}")
 from pathlib import Path
-from por.handles import OpaqueHandleIssuer
-from por.memory_index import IndexConfig, build_memory_index
+from tenet.handles import OpaqueHandleIssuer
+from tenet.experts.memory_index import IndexConfig, build_memory_index
 
 corpus = Path("${CORPUS}")
 peer_id = "${PEER_ID}" or corpus.name
@@ -86,7 +86,7 @@ fi
 
 echo ""
 echo "Start expert (requires ANTHROPIC_API_KEY in environment):"
-echo "  cd $ROOT && python3 -m por run --config config/expert-laptop.json --node-id $HANDLE_TOKEN"
+echo "  cd $ROOT && python3 -m tenet run --config config/expert-laptop.json --node-id $HANDLE_TOKEN"
 echo ""
 echo "After REACH heartbeats, export peer_address from relay host:"
 echo "  python3 scripts/export-relay-peer-address.py --peer-id $HANDLE_TOKEN > peer-address.json"

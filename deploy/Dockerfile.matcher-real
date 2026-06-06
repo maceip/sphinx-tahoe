@@ -1,10 +1,10 @@
-# Real-matcher Nitro EIF: por.PlainMatcher on loopback :8080, fronted by
+# Real-matcher Nitro EIF: tenet matcher on loopback :8080, fronted by
 # attested-workload app-proxy over attested TLS.
 #
 # Build context: run ./assemble-matcher-eif.sh (or copy artifacts manually):
 #   bountynet-bin      <- attested-workload (deploy/build-bountynet-bin.sh)
 #   oblivious-core/    <- Rust PyO3 selector (built in stage 1)
-#   app/por/           <- sphinx-tahoe/por
+#   app/tenet/           <- sphinx-tahoe/tenet
 #   app/run_matcher.py
 #   entry-matcher.sh
 #

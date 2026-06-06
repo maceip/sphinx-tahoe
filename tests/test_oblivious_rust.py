@@ -2,7 +2,7 @@
 
 import pytest
 
-from por.oblivious import _python_oblivious_top_k, rust_backend_available
+from tenet.experts.oblivious import _python_oblivious_top_k, rust_backend_available
 
 
 @pytest.mark.parametrize(
@@ -16,6 +16,6 @@ from por.oblivious import _python_oblivious_top_k, rust_backend_available
 def test_rust_matches_python_when_installed(scores, k):
     if not rust_backend_available():
         pytest.skip("oblivious_core extension not built — run ./scripts/build-oblivious-core.sh")
-    from por.oblivious import oblivious_top_k
+    from tenet.experts.oblivious import oblivious_top_k
 
     assert oblivious_top_k(scores, k) == _python_oblivious_top_k(scores, k)

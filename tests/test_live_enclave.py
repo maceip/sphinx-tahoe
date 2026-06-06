@@ -9,7 +9,7 @@ import shutil
 
 import pytest
 
-from por.live_enclave import DEFAULT_CONFIG_PATH, LiveEnclaveConfig, check_live_enclave, match_live_enclave
+from tenet.experts.live_enclave import DEFAULT_CONFIG_PATH, LiveEnclaveConfig, check_live_enclave, match_live_enclave
 
 pytestmark = pytest.mark.live
 
@@ -59,7 +59,7 @@ def test_live_enclave_match(live_config, require_aw):
 
 
 def test_live_enclave_expert_plan(live_config, require_aw):
-    from por.live_expert import plan_live_expert
+    from tenet.experts.live_expert import plan_live_expert
 
     result = plan_live_expert(
         live_config,
@@ -71,7 +71,7 @@ def test_live_enclave_expert_plan(live_config, require_aw):
 
 @pytest.mark.network_beta
 def test_live_enclave_mailbox_send(live_config, require_aw):
-    from por.live_client import LiveMailboxClientConfig, send_live_enclave_summary
+    from tenet.experts.live_client import LiveMailboxClientConfig, send_live_enclave_summary
 
     mailbox = LiveMailboxClientConfig.load()
     result = send_live_enclave_summary(

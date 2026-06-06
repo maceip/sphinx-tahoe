@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the unified ``por`` CLI as a one-file platform binary.
+"""Build the unified ``tenet`` CLI as a one-file platform binary.
 
 The build is intentionally local-platform only: run this script once on macOS,
 once on Linux, and once on Windows to produce the release artifacts for each
@@ -25,7 +25,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--name",
-        default=f"por-{_platform_tag()}",
+        default=f"tenet-{_platform_tag()}",
         help="Output executable name under dist/.",
     )
     parser.add_argument(
@@ -115,18 +115,16 @@ def main(argv: list[str] | None = None) -> int:
         "--paths",
         str(root),
         "--collect-submodules",
-        "por",
-        "--collect-submodules",
-        "sphinxmix",
+        "tenet",
     ]
     aw_binary = None if args.no_embed_aw else _resolve_aw_binary(args.aw_binary)
     if aw_binary is not None:
         pyinstaller_cmd.extend(
-            ["--add-binary", f"{aw_binary}{_pyinstaller_pathsep()}por_embedded"]
+            ["--add-binary", f"{aw_binary}{_pyinstaller_pathsep()}tenet_embedded"]
         )
     else:
         print("warning: aw was not embedded; binary will require aw on PATH", file=sys.stderr)
-    pyinstaller_cmd.append(str(root / "por" / "__main__.py"))
+    pyinstaller_cmd.append(str(root / "tenet" / "__main__.py"))
     _run(pyinstaller_cmd, root)
 
     artifact = dist_dir / _binary_filename(args.name)

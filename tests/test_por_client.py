@@ -5,18 +5,18 @@ from pathlib import Path
 
 import pytest
 
-from por.client import run_client_once
-from por.config import (
+from tenet.experts.client import run_client_once
+from tenet.config import (
     ClusterConfig,
     PeerAddressConfig,
     TrustedReachabilityRelayConfig,
 )
-from por.directory import PublicManifestDirectory
-from por.expert_mode import ExpertModeConfig
-from por.handles import OpaqueHandleIssuer
-from por.matcher import PLAIN_MATCHER_V1, PlainEnclavePlaneDiscoveryProvider, PlainMailbox, PlainMatcher
-from por.peer_address import PeerAddressRelay, UdpEndpoint
-from por.provider import ProviderError
+from tenet.experts.directory import PublicManifestDirectory
+from tenet.experts.expert_mode import ExpertModeConfig
+from tenet.handles import OpaqueHandleIssuer
+from tenet.experts.matcher import PLAIN_MATCHER_V1, PlainEnclavePlaneDiscoveryProvider, PlainMailbox, PlainMatcher
+from tenet.mixnet.peer_address import PeerAddressRelay, UdpEndpoint
+from tenet.llm.provider import ProviderError
 from tests.helpers import (
     collect_process_logs,
     demo_directory,
@@ -83,7 +83,7 @@ def test_client_uses_handle_resolver_to_plan_relay_path(monkeypatch, tmp_path):
         seen["dial_target"] = kwargs["dial_target"]
         return "[test expert response]", ["client event=test_stream"]
 
-    monkeypatch.setattr("por.client.send_prepared_envelope", recording_send_prepared_envelope)
+    monkeypatch.setattr("tenet.experts.client.send_prepared_envelope", recording_send_prepared_envelope)
 
     result = run_client_once(
         cluster=cluster,
@@ -155,7 +155,7 @@ def test_client_rejects_untrusted_peer_address_relay_before_send(monkeypatch, tm
     def forbidden_send_prepared_envelope(**_kwargs):
         raise AssertionError("untrusted peer-address record must not touch socket send")
 
-    monkeypatch.setattr("por.client.send_prepared_envelope", forbidden_send_prepared_envelope)
+    monkeypatch.setattr("tenet.experts.client.send_prepared_envelope", forbidden_send_prepared_envelope)
 
     with pytest.raises(ProviderError, match="POR_PROVIDER or daemon.provider is required"):
         run_client_once(
@@ -211,7 +211,7 @@ def test_client_rejects_tampered_peer_address_signature_before_send(monkeypatch,
     def forbidden_send_prepared_envelope(**_kwargs):
         raise AssertionError("bad peer-address signature must not touch socket send")
 
-    monkeypatch.setattr("por.client.send_prepared_envelope", forbidden_send_prepared_envelope)
+    monkeypatch.setattr("tenet.experts.client.send_prepared_envelope", forbidden_send_prepared_envelope)
 
     with pytest.raises(ProviderError, match="POR_PROVIDER or daemon.provider is required"):
         run_client_once(
@@ -250,7 +250,7 @@ def test_por_client_daemon_streams_over_process_nodes(tmp_path):
             [
                 sys.executable,
                 "-m",
-                "por",
+                "tenet",
                 "send",
                 "--config",
                 str(config_path),

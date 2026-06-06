@@ -1,7 +1,7 @@
 # oblivious-core
 
 Constant-time oblivious top-K selection in Rust — in-TEE hardening of
-`por/oblivious.py` (**STATUS.md** items **6** / **7**).
+`tenet/experts/oblivious.py` (**STATUS.md** items **6** / **7**).
 
 Project status and queue: **`../STATUS.md`** only.
 
@@ -13,7 +13,7 @@ From repo root:
 ./scripts/build-oblivious-core.sh
 ```
 
-When installed, `por.oblivious.oblivious_top_k` uses the Rust CMOV path automatically.
+When installed, `tenet.experts.oblivious.oblivious_top_k` uses the Rust CMOV path automatically.
 
 ## Why
 

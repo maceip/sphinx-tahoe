@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
-from por.alpha_experts import materialize_alpha_population, write_alpha_population
+from tenet.experts.alpha_experts import materialize_alpha_population, write_alpha_population
 
 
 def main() -> int:

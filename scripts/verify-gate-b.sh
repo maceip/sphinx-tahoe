@@ -41,7 +41,7 @@ if [[ -f "$ENV_FILE" ]]; then
     fi
     if command -v aw >/dev/null 2>&1 && [[ -f "$ROOT/config/live-mailbox-client.json" ]]; then
       echo "[verify-gate-b] item 13 — attested enclave send (requires expert + TEE beta data)"
-      python3 -m por enclave send \
+      python3 -m tenet enclave send \
         --mailbox-config "$ROOT/config/live-mailbox-client.json" \
         --prompt "Network beta verification ping." \
         --timeout 60 \

@@ -1,6 +1,6 @@
 """ML-DSA-65 signatures must interoperate across the two backends.
 
-`sphinxmix.OutfoxParams` uses `pqcrypto` (PQClean) when available and falls back
+`tenet.packet.OutfoxParams` uses `pqcrypto` (PQClean) when available and falls back
 to pure-Python `dilithium-py` (e.g. on Android, where pqcrypto's cffi build
 won't cross-compile cleanly). Both implement FIPS 204 ML-DSA-65 with identical
 key/signature encodings, so a signature made by one must verify under the other
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from sphinxmix.OutfoxParams import (
+from tenet.packet.OutfoxParams import (
     ML_DSA_BACKEND,
     dilithium_generate_keypair,
     dilithium_sign,

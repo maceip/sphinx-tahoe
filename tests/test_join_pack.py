@@ -7,9 +7,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from por.join_pack import JOIN_PACK_SCHEMA, JoinPack
-from por.live_enclave import LiveEnclaveConfig
-from por.live_client import LiveMailboxClientConfig
+from tenet.edges.cli.join_pack import JOIN_PACK_SCHEMA, JoinPack
+from tenet.experts.live_enclave import LiveEnclaveConfig
+from tenet.experts.live_client import LiveMailboxClientConfig
 
 
 def test_render_join_pack_from_live_configs(tmp_path):

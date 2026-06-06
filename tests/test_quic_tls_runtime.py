@@ -7,7 +7,7 @@ work for localhost dev. verify_tls=False requires explicit opt-in.
 import asyncio
 import pytest
 
-from por.quic_transport import (
+from tenet.mixnet.quic_transport import (
     AIOQUIC_AVAILABLE,
     QuicDatagramClient,
     QuicDatagramServer,
@@ -18,7 +18,7 @@ from por.quic_transport import (
     write_localhost_self_signed_cert,
     POR_QUIC_ALPN,
 )
-from por.wire_frame import encode_shutdown
+from tenet.mixnet.wire_frame import encode_shutdown
 
 pytestmark = pytest.mark.skipif(not AIOQUIC_AVAILABLE, reason="aioquic not installed")
 
@@ -77,7 +77,7 @@ def test_tls_required_no_insecure_by_default():
 
 def test_production_quic_runtime_requires_cert():
     """QUIC runtime without cert and dev_localhost=False raises."""
-    import por.quic_runtime
+    import tenet.mixnet.quic_runtime
 
     class RuntimeDouble:
         identity = type("I", (), {"host": "127.0.0.1", "port": 0})()
@@ -88,7 +88,7 @@ def test_production_quic_runtime_requires_cert():
 
     async def run():
         with pytest.raises(ValueError, match="certfile"):
-            await por.quic_runtime._serve_quic_async(
+            await tenet.mixnet.quic_runtime._serve_quic_async(
                 RuntimeDouble(), certfile=None, keyfile=None, dev_localhost=False)
 
     asyncio.run(run())

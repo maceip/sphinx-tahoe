@@ -14,7 +14,7 @@ SNAPSHOT="${SNAPSHOT:-/app/data/snapshot.json}"
 MAILBOX="${MAILBOX:-/app/data/mailbox.json}"
 PORT="${ENCLAVE_PLANE_PORT:-9384}"
 
-exec python3 -m por.enclave_plane_server \
+exec python3 -m tenet.enclave_plane_server \
     --snapshot "${SNAPSHOT}" \
     --mailbox "${MAILBOX}" \
     --host 127.0.0.1 \

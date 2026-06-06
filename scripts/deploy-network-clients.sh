@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy asker bundle to network clients and run por ask (item 15 proof).
+# Deploy asker bundle to network clients and run tenet ask (item 15 proof).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -82,10 +82,10 @@ def _remote_powershell(script):
 
 
 def _deploy_windows_native(client, cid):
-    binary = root / client.get("binary", "dist/por-windows-x86_64.exe")
+    binary = root / client.get("binary", "dist/tenet-windows-x86_64.exe")
     if not binary.is_file():
         raise FileNotFoundError(f"missing Windows binary: {binary}")
-    remote_dir = f"C:/Users/{client.get('ssh_user', 'mac')}/tenet/por-client/{cid}"
+    remote_dir = f"C:/Users/{client.get('ssh_user', 'mac')}/tenet/tenet-client/{cid}"
     remote_win_dir = remote_dir.replace("/", "\\")
     ssh_base, remote = _ssh_cmd(client)
     scp_base = _scp_cmd(client)
@@ -124,10 +124,10 @@ def _deploy_windows_native(client, cid):
 
 
 def _deploy_windows_wsl(client, cid):
-    binary = root / client.get("binary", "dist/por-linux-x86_64")
+    binary = root / client.get("binary", "dist/tenet-linux-x86_64")
     if not binary.is_file():
         raise FileNotFoundError(f"missing Linux binary: {binary}")
-    remote_dir = f"C:/Users/{client.get('ssh_user', 'mac')}/tenet/por-client/{cid}"
+    remote_dir = f"C:/Users/{client.get('ssh_user', 'mac')}/tenet/tenet-client/{cid}"
     remote_win_dir = remote_dir.replace("/", "\\")
     remote_wsl_dir = remote_dir.replace("C:/", "/mnt/c/")
     ssh_base, remote = _ssh_cmd(client)
@@ -203,7 +203,7 @@ cd ~
 rm -rf asker-bundle && unzip -o -q asker-bundle.zip
 export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
 cd ~/asker-bundle
-python3 -m por ask --join-pack join-pack.json --prompt {json.dumps(prompt)} --timeout {timeout} --json
+python3 -m tenet ask --join-pack join-pack.json --prompt {json.dumps(prompt)} --timeout {timeout} --json
 """
     return subprocess.run(
         ["ssh", "-i", str(key), "-o", "StrictHostKeyChecking=accept-new",

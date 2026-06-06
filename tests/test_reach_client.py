@@ -4,10 +4,10 @@ import socket
 import threading
 import time
 
-from por.daemon.supernode import SupernodeDaemon
-from por.reach_client import ReachRelayEndpoint, register_with_relay
-from por.reach_wire import REACH_TAGS
-from por.node_runtime import WireNodeRuntime
+from tenet.edges.cli.supernode import SupernodeDaemon
+from tenet.mixnet.reach_client import ReachRelayEndpoint, register_with_relay
+from tenet.mixnet.reach_wire import REACH_TAGS
+from tenet.mixnet.node_runtime import WireNodeRuntime
 from tests.harness import static_wire_cluster
 
 

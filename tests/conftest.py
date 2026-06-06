@@ -1,4 +1,4 @@
-"""Shared fixtures for P-OR integration tests."""
+"""Shared fixtures for tenet integration tests."""
 
 from __future__ import annotations
 
