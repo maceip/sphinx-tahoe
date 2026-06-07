@@ -737,7 +737,7 @@ class LoggingConfig:
         ).validate()
 
     def validate(self) -> "LoggingConfig":
-        if self.level not in {"debug", "info", "warning", "error"}:
+        if self.level not in {"debug", "info", "warning", "error", "silent"}:
             raise ValueError(f"unsupported log level: {self.level}")
         if self.fmt not in {"json", "plain"}:
             raise ValueError(f"unsupported log format: {self.fmt}")

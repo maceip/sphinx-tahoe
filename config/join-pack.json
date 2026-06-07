@@ -1,6 +1,6 @@
 {
   "schema": "tenet.join_pack.2026-06",
-  "generated_at": "2026-06-06T14:34:40Z",
+  "generated_at": "2026-06-07T09:30:44Z",
   "matcher": {
     "schema": "tenet.live_enclave.2026-06",
     "url": "https://5faf834eac20.aeon.site/",
@@ -29,7 +29,7 @@
     "schema": "tenet.bootstrap.2026-06",
     "network_id": "default",
     "update_roots": {
-      "join-pack-root": "fcd89ad52892d33770610c6555d299de8d6a19e41dba033b2f63cd2ecfe567ea"
+      "join-pack-root": "c571bdaee3e94a809a935f7ff41f5ff07a4a993b154fe9b3aab9ea20b7531650"
     },
     "threshold": 1,
     "bootstrap_relays": [
@@ -42,9 +42,9 @@
           "network_id": "default",
           "key": "trust/update/latest",
           "record_type": "trust_pointer",
-          "seq": 1780756480,
-          "issued_at": 1780756480.121333,
-          "expires_at": 1796308480.121333,
+          "seq": 1780824644,
+          "issued_at": 1780824644.2253928,
+          "expires_at": 1796376644.2253928,
           "value": {
             "issuer": "join-pack-root",
             "policy": "signed_control_records",
@@ -54,13 +54,17 @@
               "reach-beta-1"
             ]
           },
+          "subject_id": "",
+          "issuer_id": "",
+          "supersedes": null,
+          "revokes": null,
           "schema": "tenet.mixnet.control.record.2026-06"
         },
         "signatures": [
           {
             "key_id": "join-pack-root",
             "alg": "ed25519",
-            "signature": "531f7740977f78af85ac86e8de74ed650840d7751aa14c019758ee850daa7612bec4cad6962996d3cb57a46245e550b4d1053aacdcbd662cc9ff16c125e6c607"
+            "signature": "68338623e9cc7cd3b40b4d0437e1a96feb880dba56aacd5fbdbddae6a552212c958c99e46f95326205a16c4f2890bcfeda699de13208c2dfdb956aba1d89880d"
           }
         ]
       }

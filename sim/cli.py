@@ -249,12 +249,29 @@ def main(argv: list[str] | None = None) -> int:
 
         algod = algod_client()
 
+        # Fail closed with a clear message if the custodial account isn't funded
+        # (otherwise algod rejects the txn with an opaque HTTP 400 traceback).
+        try:
+            balance = int(algod.account_info(addr).get("amount", 0) or 0)
+        except Exception as e:
+            print(f"[custodial] could not reach testnet algod: {e}")
+            return 2
+        print(f"[custodial] balance: {balance/1e6:.6f} ALGO")
+        if balance < args.algo_amount + 2000:  # leave headroom for fees
+            print(f"\nInsufficient balance. Fund {addr} at")
+            print("https://bank.testnet.algorand.network/ then re-run.")
+            return 2
+
         # 1. Real testnet ALGO payment from the managed custodial account
         # (this is the "visible on-chain pre-pay" for the voucher / x402 flow)
         treasury_sk, treasury = account.generate_account()  # payTo for the pool (receives; no funding needed)
         print(f"[pay-to] {treasury}")
         print(f"[custodial] sending {args.algo_amount/1e6} ALGO ...")
-        algo_txid = pay_algo(algod, sk, addr, treasury, args.algo_amount, note=b"tenet-hackathon-demo:algo")
+        try:
+            algo_txid = pay_algo(algod, sk, addr, treasury, args.algo_amount, note=b"tenet-hackathon-demo:algo")
+        except Exception as e:
+            print(f"[ALGO] payment failed: {e}")
+            return 2
         print(f"[ALGO] confirmed txid={algo_txid}")
         print(f"       https://lora.algokit.io/testnet/tx/{algo_txid}")
 

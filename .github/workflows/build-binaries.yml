@@ -45,6 +45,8 @@ jobs:
         include:
           - os: ubuntu-latest
             target: linux-x86_64
+          - os: macos-13   # Intel (x86_64) for broader Mac demo compatibility
+            target: macos-x86_64
           - os: macos-latest
             target: macos-arm64
           - os: windows-latest

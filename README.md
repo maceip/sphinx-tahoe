@@ -1,5 +1,21 @@
 # tenet
 
+> ## 🏆 Hackathon demo — self-driving commerce (x402 · Algorand · EURD)
+>
+> **Before your agent spends your money, it pays a reputation-staked expert — in
+> EURD over x402 on Algorand — to tell it which option to actually trust.**
+>
+> A Claude-Code agent told *"get me an Airbnb in Berlin"* hits `402 Payment
+> Required`, pays €0.05 EURD on Algorand, routes its question over the real tenet
+> mixnet to a live Berlin expert, and **switches its pick** when the expert flags
+> a scam listing.
+>
+> - **Run the live demo:** [`demo.md`](demo.md) — one command:
+>   `python scripts/demo/present.py` (set `ANTHROPIC_API_KEY`).
+> - **Site:** <https://public.computer/tenet>
+> - **x402 / EURD building blocks:** `tenet/x402.py`, `tenet/quantoz.py`,
+>   `tenet/expert_pick.py`, `tenet/pick_server.py`.
+
 tenet is an expert network: ask a question once, route it to the person or
 agent whose knowledge best matches it, and return an answer over sealed
 transport. The product direction is a human-scale mixture of experts where
@@ -129,15 +145,60 @@ Some on-disk schemas still use `por.*.v1` names for compatibility with deployed
 configs, live pins, and persisted manifests. Treat those as wire/schema
 identifiers, not the product or package name.
 
-## Quick Start
+## Install the Client (Linux / macOS / Windows)
 
+Pre-built single-file binaries for the `tenet` CLI (ask, sponsor with real
+Algorand testnet payments + USDC, status, etc.) are produced automatically by
+the `build-binaries` workflow and attached to GitHub Releases (and as CI
+artifacts on every push).
+
+### Fastest for tomorrow's demo
+
+**macOS (Apple Silicon or Intel) / Linux**
 ```bash
-pip install -r requirements.txt
-make smoke
-python3 -m tenet --help
+# One-liner (downloads the right binary for your machine from the latest build)
+curl -L -o /usr/local/bin/tenet "https://github.com/mac/sphinx-tahoe/releases/latest/download/tenet-$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/macos/')-$(uname -m | sed 's/x86_64/x86_64/;s/arm64/arm64/;s/aarch64/arm64/')" \
+  && chmod +x /usr/local/bin/tenet
+tenet --help
 ```
 
+**Windows**
+Download `tenet-windows-x86_64.exe` from the latest Release, rename to `tenet.exe`, put it on PATH.
+
+**All platforms (zero global pollution)**
+```bash
+# pipx (recommended) or uv tool
+pipx install git+https://github.com/mac/sphinx-tahoe.git
+# or
+uv tool install git+https://github.com/mac/sphinx-tahoe.git
+tenet --help
+```
+
+### Via Homebrew (non-cask / pure CLI)
+
+```bash
+# Quick one-off (no tap)
+brew install --formula https://raw.githubusercontent.com/mac/sphinx-tahoe/master/homebrew/Formula/tenet.rb
+
+# Or set up a tap for normal `brew install tenet`
+brew tap mac/tenet https://github.com/mac/sphinx-tahoe
+brew install tenet
+```
+
+The formula downloads the matching prebuilt binary (macOS arm64/x86_64, Linux x86_64). Windows users use the direct .exe above.
+
+### Build locally right now (for custom demo machines)
+
+```bash
+python3 scripts/build_binary.py --name tenet   # produces dist/tenet-<your-platform>
+./dist/tenet --help
+```
+
+The same script + matrix is used in CI to produce the official artifacts.
+
 ### Ask The Live Network
+
+(After installing the client above...)
 
 There is no separate public directory URL for beta joiners. The current live
 network uses an attested matcher at `POST /v1/match`; public pins live in
@@ -146,22 +207,22 @@ network uses an attested matcher at `POST /v1/match`; public pins live in
 
 ```bash
 ./scripts/render-join-pack.sh
-python3 -m tenet ask --prompt "In one sentence, name one Monet painting technique."
+tenet ask --prompt "In one sentence, name one Monet painting technique."
 ```
 
 For the current operator dashboard:
 
 ```bash
-python3 -m tenet status --plain
-python3 -m tenet status --render-options
+tenet status --plain
+tenet status --render-options
 ```
 
 Ops-only attestation tools:
 
 ```bash
-python3 -m tenet enclave check
-python3 -m tenet enclave match --prompt "Tell me about Monet"
-python3 -m tenet enclave send --prompt "What is impressionism in painting?"
+tenet enclave check
+tenet enclave match --prompt "Tell me about Monet"
+tenet enclave send --prompt "What is impressionism in painting?"
 ```
 
 ## Run An Expert
@@ -193,15 +254,23 @@ notes/             Design notes that still matter during the transition
 oblivious-core/    Rust oblivious top-k extension
 ```
 
-## Build A Release Binary
+## Build A Release Binary (or for your own demo machines today)
 
 ```bash
-python3 scripts/build_binary.py
-# dist/tenet-<platform>
+python3 scripts/build_binary.py --name tenet
+# → dist/tenet-macos-arm64   (or -x86_64 / -linux-x86_64 / .exe on Windows)
 ```
+
+The CI matrix (`.github/workflows/build-binaries.yml`) does exactly this for
+Linux x86_64, macOS arm64 + x86_64 (Intel), and Windows on every push and on
+`v*` tags (which also publish to GitHub Releases with checksums).
 
 If an `aw` binary is available, the build embeds it for one-file attestation
 checks; otherwise the built binary requires `aw` on `PATH`.
+
+See the new "Install the Client" section above for the fastest ways to get a
+working `tenet` binary on Linux/mac/Windows for tomorrow's demo (including the
+Homebrew non-cask path).
 
 ## Testing
 

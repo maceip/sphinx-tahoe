@@ -1,0 +1,17 @@
+[setup] cluster + control bootstrap in /tmp/tenet-berlin-demo
+[net] relay relay1 @ 127.0.0.1:56977
+[net] expert expert_berlin @ 127.0.0.1:61474  (LLM=claude:claude-haiku-4-5-20251001)
+[ask] "Get me an Airbnb in Berlin — which neighbourhood should I stay in?"  (expertise=berlin-neighbourhoods)
+
+[route] matched handle = h20faaedbbdaecf7
+[route] fallback_used  = False
+
+=== BERLIN EXPERT (over tenet) ===
+**Go to Neukölln**, specifically around Weserstraße or the Reuterkiez area. You'll get the real Berlin vibe — young, creative, genuinely alive with bars and cafes that don't exist to milk tourists. It's still relatively affordable, the U7 gets you anywhere in 20 minutes, and you'll actually want to leave your apartment because the neighbourhood *is* the experience.
+
+Skip Kreuzberg unless you love noise and Instagram crowds. Prenzlauer Berg is pretty but boring and overpriced. Mitte is convenient but sterile.
+
+**When you search:** Pin the exact street on Google Maps before booking. If the listing looks cheap but is vague ("convenient location," no specific address), it's probably deep in Marzahn or Hellersdorf with recycled photos. Check the closest U/S-Bahn station yourself — don't trust the listing's distance claims. Read the reviews for mentions of noise *at night* specifically, not just "great area."
+
+What's your budget and how long are you staying?
+==================================
