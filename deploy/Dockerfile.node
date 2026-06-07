@@ -26,7 +26,23 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
       iproute2 iputils-ping net-tools procps ca-certificates curl \
       build-essential git \
+      curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Add Rust toolchain for tlsn 2PC test harness (prover/verifier roles in expert + client-sim).
+# We only need the minimal toolchain to build a small tlsn example binary for the pure test.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN rustup component add rustfmt clippy 2>/dev/null || true
+
+# Clone tlsn and build the basic example as a test binary (verifier and prover modes).
+# This binary will be used by the simulation for the tlsn 2PC test over real min_mix_hops=3 paths.
+RUN git clone --depth 1 https://github.com/tlsnotary/tlsn.git /tmp/tlsn-src && \
+    cd /tmp/tlsn-src && \
+    cargo build --release --example basic 2>&1 | tail -5 && \
+    cp target/release/examples/basic /usr/local/bin/tlsn-basic-2pc-test && \
+    chmod +x /usr/local/bin/tlsn-basic-2pc-test && \
+    rm -rf /tmp/tlsn-src /root/.cargo/registry /root/.cargo/git 2>/dev/null || true
 
 # Install uv (fast resolver/installer, matches project workflow).
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh

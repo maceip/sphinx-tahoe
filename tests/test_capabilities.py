@@ -25,7 +25,7 @@ from tenet.mixnet.control import (
     ReviewDescriptor,
     TopicDescriptor,
     TRUST_UPDATE_KEY,
-    query_commitment,
+    derive_query_commitment,
 )
 from tenet.mixnet.control.records import RECORD_TYPE_TRUST_POINTER, sign_control_record
 from tenet.mixnet.peer_address import PeerAddressRelay, UdpEndpoint
@@ -113,11 +113,13 @@ def test_signed_match_result_gossip_propagates_and_is_consumed(monkeypatch, tmp_
     expertise = "impressionism"
     salt = "query-epoch"
     result = MatchResultDescriptor(
-        query_commitment=query_commitment(
+        query_commitment=derive_query_commitment(
+            network_id="net",
+            pool=pool_name,
             prompt=prompt,
-            pool_name=pool_name,
-            requested_expertise=expertise,
-            salt=salt,
+            expertise=expertise,
+            dataset_commitment=None,
+            epoch_salt=salt,
         ),
         pool_name=pool_name,
         matcher_id="nitro-matcher-a",
@@ -165,6 +167,9 @@ def test_signed_match_result_gossip_propagates_and_is_consumed(monkeypatch, tmp_
     assert routed.fallback_used is False
     assert routed.selected_peer_id == handle
     assert seen["forward_path"] == ("relay1", handle)
+    # Item 8 acceptance: the cached signed TEE match result drove the route.
+    assert routed.matcher_source == "cached_tee_result"
+    assert routed.cached_match_used is True
 
 
 def test_expert_topic_review_records_are_real_control_records():

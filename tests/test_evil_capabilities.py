@@ -14,7 +14,7 @@ from tenet.experts.matcher import PLAIN_MATCHER_V1, PlainEnclavePlaneDiscoveryPr
 from tenet.experts.expert_mode import ExpertModeConfig
 from tenet.handles import OpaqueHandleIssuer
 from tenet.llm.provider import ProviderError
-from tenet.mixnet.control import MatchCandidateDescriptor, MatchResultDescriptor, MixnetControlService, PoolDescriptor, query_commitment
+from tenet.mixnet.control import MatchCandidateDescriptor, MatchResultDescriptor, MixnetControlService, PoolDescriptor, derive_query_commitment
 from tenet.mixnet.control.records import ControlRecordError, sign_control_record
 from tenet.mixnet.peer_address import PeerAddressRelay, UdpEndpoint
 from tenet.config import ClusterConfig, PeerAddressConfig, TrustedReachabilityRelayConfig
@@ -61,11 +61,13 @@ def test_evil_forged_match_result_is_not_gossip_usable(tmp_path):
         verify_keys={"tee": trusted.verify_key.encode().hex()},
     )
     result = MatchResultDescriptor(
-        query_commitment=query_commitment(
+        query_commitment=derive_query_commitment(
+            network_id="net",
+            pool="monet.expert~tenet",
             prompt="p",
-            pool_name="monet.expert~tenet",
-            requested_expertise="e",
-            salt="s",
+            expertise="e",
+            dataset_commitment=None,
+            epoch_salt="s",
         ),
         pool_name="monet.expert~tenet",
         matcher_id="evil",
@@ -88,11 +90,13 @@ def test_evil_match_gossip_wrong_query_commitment_does_not_route(monkeypatch, tm
     control = MixnetControlService(network_id="net", verify_keys={"tee": sk.verify_key.encode().hex()})
     pool_name = "monet.expert~tenet"
     result = MatchResultDescriptor(
-        query_commitment=query_commitment(
+        query_commitment=derive_query_commitment(
+            network_id="net",
+            pool=pool_name,
             prompt="different prompt",
-            pool_name=pool_name,
-            requested_expertise="impressionism",
-            salt="query-epoch",
+            expertise="impressionism",
+            dataset_commitment=None,
+            epoch_salt="query-epoch",
         ),
         pool_name=pool_name,
         matcher_id="nitro-matcher-a",

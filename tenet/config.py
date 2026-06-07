@@ -555,6 +555,17 @@ class ClientConfig:
     trusted_reachability_relays: tuple[TrustedReachabilityRelayConfig, ...] = ()
     dev_allow_untrusted_reachability_relays: bool = False
     local_http: LocalHttpConfig = field(default_factory=LocalHttpConfig)
+    # Matcher selection policy (Item 6). Non-TEE matcher fallback is OFF by
+    # default: the client fails closed rather than route through an unattested
+    # matcher unless an operator explicitly opts in.
+    allow_non_tee_signed_fallback: bool = False
+    matcher_timeout_seconds: float = 8.0
+    matcher_fallback_order: tuple[str, ...] = (
+        "cached_tee_result",
+        "tee_capability",
+        "authority_pinned",
+        "non_tee_signed",
+    )
 
     def __post_init__(self) -> None:
         self.validate()
@@ -578,6 +589,19 @@ class ClientConfig:
                 raw.get("dev_allow_untrusted_reachability_relays", False)
             ),
             local_http=LocalHttpConfig.from_dict(_mapping_or_none(raw.get("local_http"))),
+            allow_non_tee_signed_fallback=_bool(
+                raw.get("allow_non_tee_signed_fallback", False)
+            ),
+            matcher_timeout_seconds=float(
+                raw.get("matcher_timeout_seconds", raw.get("timeout_seconds", raw.get("timeout", 8.0)))
+            ),
+            matcher_fallback_order=_string_tuple(raw.get("matcher_fallback_order"))
+            or (
+                "cached_tee_result",
+                "tee_capability",
+                "authority_pinned",
+                "non_tee_signed",
+            ),
         ).validate()
 
     def validate(self) -> "ClientConfig":
@@ -588,6 +612,17 @@ class ClientConfig:
         relay_ids = [relay.relay_id for relay in self.trusted_reachability_relays]
         if len(set(relay_ids)) != len(relay_ids):
             raise ValueError("trusted reachability relay_id values must be unique")
+        if self.matcher_timeout_seconds <= 0:
+            raise ValueError("matcher_timeout_seconds must be positive")
+        _known_steps = {
+            "cached_tee_result",
+            "tee_capability",
+            "authority_pinned",
+            "non_tee_signed",
+        }
+        unknown = [s for s in self.matcher_fallback_order if s not in _known_steps]
+        if unknown:
+            raise ValueError(f"unknown matcher_fallback_order steps: {unknown}")
         return self
 
 

@@ -50,6 +50,8 @@ from tenet.mixnet.control.match_result import (
     MATCH_RESULT_SCHEMA,
     MatchCandidateDescriptor,
     MatchResultDescriptor,
+    QueryCommitmentPolicy,
+    derive_query_commitment,
     query_commitment,
 )
 from tenet.mixnet.control.mixnode import MIXNODE_DESCRIPTOR_SCHEMA, MixnodeDescriptor
@@ -75,7 +77,15 @@ from tenet.mixnet.control.wire import (
     encode_control_message,
     is_control_datagram,
 )
-from tenet.mixnet.control.live_sync import CONTROL_SYNC_PREFIXES, sync_control_from_cluster
+from tenet.mixnet.control.live_sync import (
+    CONTROL_SYNC_PREFIXES,
+    SyncOutcome,
+    dht_discovered_control_contacts,
+    ingest_sync_records,
+    run_anti_entropy_loop,
+    sync_control_from_cluster,
+)
+from tenet.mixnet.control.sync_state import ControlSyncState, PeerSyncHealth
 from tenet.mixnet.control.service import (
     MixnetControlService,
     MixnetRouteBinding,
@@ -134,6 +144,8 @@ __all__ = [
     "MATCH_RESULT_SCHEMA",
     "MatchCandidateDescriptor",
     "MatchResultDescriptor",
+    "QueryCommitmentPolicy",
+    "derive_query_commitment",
     "MixnodeDescriptor",
     "PersistentControlStore",
     "POOL_DESCRIPTOR_SCHEMA",
@@ -168,6 +180,12 @@ __all__ = [
     "responsible_nodes",
     "xor_distance",
     "sync_control_from_cluster",
+    "SyncOutcome",
+    "ingest_sync_records",
+    "dht_discovered_control_contacts",
+    "run_anti_entropy_loop",
+    "ControlSyncState",
+    "PeerSyncHealth",
     "KademliaControlOverlay",
     "AttestationReceiptDescriptor",
     "MixnetRoutingDescriptor",

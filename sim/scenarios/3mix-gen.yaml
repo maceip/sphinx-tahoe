@@ -1,0 +1,18 @@
+network_id: "proof-3hop-1ec2-2laptop"
+mixnet:
+  payload_size: 2048
+  routing_size: 16
+  max_hops: 3
+sites:
+  gen:
+    runner: local-docker
+nodes:
+  - id: mix-laptop-1
+    placement: gen
+    capabilities: [mixnode]
+  - id: mix-laptop-2
+    placement: gen
+    capabilities: [mixnode]
+  - id: mix-ec2-1
+    placement: gen
+    capabilities: [mixnode]

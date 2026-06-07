@@ -151,6 +151,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable interactive color/status display.",
     )
     ask.add_argument("--json", action="store_true", help="Print JSON result")
+    ask.add_argument("--voucher", help="Path to Privacy Pass-style voucher packet (email-able, transferable, N anonymous queries)")
+
+    sponsor = sub.add_parser("sponsor", help="Pre-pay on Algorand then emit unlinkable transferable voucher packet for email (Privacy Pass style).")
+    sponsor.add_argument("--pool", help="Pool name e.g. monet.expert~tenet for scoped payTo")
+    sponsor.add_argument("--queries", type=int, default=10, help="Number of anonymous tickets in packet")
+    sponsor.add_argument("--pay-tx", help="Existing Algorand pre-pay txid (or do pay first then pass)")
+    sponsor.add_argument("--out", default="voucher.json", help="Output path for email-able voucher packet")
+    sponsor.add_argument("--secret", help="Issuer secret (hex; demo only)")
 
     status = sub.add_parser(
         "status",
@@ -235,6 +243,15 @@ def dispatch(args: argparse.Namespace) -> int:
 
     if args.command == "status":
         return _run_status_command(args)
+
+    if args.command == "sponsor":
+        from tenet.vouchers import issue_voucher_batch, save_voucher
+        import os
+        sec = bytes.fromhex(args.secret) if args.secret else os.urandom(32)
+        v = issue_voucher_batch(queries=args.queries, issuer_secret=sec, pool=args.pool, pay_tx=args.pay_tx)
+        save_voucher(v, args.out)
+        print("voucher packet written:", args.out, "queries=", v.queries, "transferable unlinkable to email")
+        return 0
 
     raise ValueError(f"unknown command: {args.command}")
 

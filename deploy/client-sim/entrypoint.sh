@@ -98,6 +98,16 @@ case "${1:-ask}" in
   shell)
     exec bash
     ;;
+  tlsn-2pc-test)
+    # Pure test mode for tlsn 2PC (verifier role in simulation client).
+    # The expert side runs the same binary as prover.
+    # This runs inside a simulation configured with min_mix_hops=3 (from planner/client.py).
+    # The tlsn binary uses its internal channel for the prover-verifier MPC (for the pure 2PC latency test);
+    # the surrounding simulation uses the real 3-hop forward plans.
+    # To measure with real Anthropic, set SERVER_HOST etc. or pass args.
+    shift || true
+    exec /usr/local/bin/tlsn-2pc-test "$@"
+    ;;
   *)
     exec "$@"
     ;;

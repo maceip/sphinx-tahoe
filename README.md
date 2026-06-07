@@ -52,6 +52,68 @@ market where useful answers can be rewarded.
 - **Compensation later.** Payout UI and ledger integration are deliberately
   excluded until there is a real payment contract.
 
+## Payments & Execution Honesty (Phase 1 design)
+
+> Design, not yet implemented. Captures the locked Phase-1 plan for paid,
+> privacy-preserving access plus proof that experts did real work. Heavier
+> mechanisms are explicitly deferred to Phase 2.
+
+The network is funded/subsidized and experts already pay their own frontier
+provider (Anthropic/OpenAI) as normal spend, so no one is out-of-pocket per
+query. That removes the need for escrow / fair-exchange and keeps Phase 1 small.
+
+**Locked Phase 1**
+
+- **Token:** a lightweight *unlinkable rate-limit* credential — one-time
+  nullifier + per-identity/epoch cap. Its only job is privacy + subsidy-abuse
+  (sybil) control, not payment protection.
+- **Settlement:** network-subsidized reimbursement. No escrow, no fair-exchange.
+- **Issuer:** single, permissionless, **blind**-token issuer (not a MAC — keep
+  issuance unlinkable from spend). Issuer key committed in the signed
+  pool/matcher descriptor.
+- **Execution honesty: tiered (no hard proof for laptops).** A laptop expert
+  *cannot* hardware-attest its frontier call — consumer machines have no enclave
+  surface for arbitrary data (SGX is gone from consumer CPUs; SEV-SNP/TDX/Nitro
+  are cloud-only; Apple Secure Enclave / TPM attest device/platform identity, not
+  application behavior). So the **default tier is soft: reputation + random
+  spot-audit**, marked unverified to the asker — distributed, permissionless, no
+  special hardware, no single point of failure. An expert that *opts in* to a
+  **cloud TEE** (Nitro/SEV-SNP/TDX) gets an **attested tier** with a hard
+  provenance proof. Same two-tier shape as the matcher (`tee` / `non_tee_signed`
+  + `degraded_trust`).
+- **Deferred to Phase 2:** threshold issuer, on-chain e-cash inflation proofs,
+  and *hard* execution proof for laptop experts — either provider-signed receipts
+  (if a provider ever offers them) or an interactive reliable-notary / threshold
+  MPC tier with its own collusion mitigation.
+
+**Why execution honesty is tiered, not one crypto proof**
+
+The trust-optimal verifier is the **asker** — it is the party harmed by a fake
+answer (so it never colludes), and the anonymous match is *unforceable* (the
+expert can't choose its asker to pre-arrange collusion). But the asker cannot be
+a *live* verifier: it is anonymous (interactive MPC would have to cross the
+mixnet), it is a flaky client, and MPC-TLS needs the second party online for the
+whole session. A *non-interactive* hard proof would need a trust anchor on the
+expert — a TEE — which **laptops do not have**. Non-interactive + permissionless +
+laptop + no-SPOF + no-trust-anchor + *hard* proof does not exist with today's
+hardware. So Phase 1 is tiered:
+
+- **Default (soft) tier — any laptop expert.** The asker sends a fresh **nonce**
+  bound to its `query_commitment`; the expert returns the answer; honesty is
+  enforced by **reputation + random spot-audit + answer quality**, not a hard
+  proof. The nonce + the asker's offline check still bind the answer to the query
+  and block trivial replay. Distributed, permissionless, no SPOF.
+- **Attested (hard) tier — opt-in cloud-TEE expert.** The expert's cloud TEE
+  signs `{ provider endpoint, asker nonce + query_commitment, response_hash }`;
+  the asker verifies it offline under the descriptor-committed TEE key.
+  Per-expert (no shared bottleneck), multi-vendor (`nitro`/`sev-snp`/`tdx`) — not
+  a single point of failure.
+- **No gateway** (it would be a single point of failure) and **no per-query
+  interactive MPC-TLS** (the second-party-online-for-the-whole-session
+  requirement makes it operationally unreal for anonymous, laptop-based experts).
+
+The asker is always the verifier and always sees which tier produced the answer.
+
 ## Architecture
 
 | Layer | Current Package | Role |
