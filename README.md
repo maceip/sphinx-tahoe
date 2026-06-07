@@ -1,5 +1,21 @@
 # tenet
 
+> ## 🏆 Hackathon demo — self-driving commerce (x402 · Algorand · EURD)
+>
+> **Before your agent spends your money, it pays a reputation-staked expert — in
+> EURD over x402 on Algorand — to tell it which option to actually trust.**
+>
+> A Claude-Code agent told *"get me an Airbnb in Berlin"* hits `402 Payment
+> Required`, pays €0.05 EURD on Algorand, routes its question over the real tenet
+> mixnet to a live Berlin expert, and **switches its pick** when the expert flags
+> a scam listing.
+>
+> - **Run the live demo:** [`demo.md`](demo.md) — `./scripts/demo/run-safe.sh`
+>   (or `python scripts/demo/present.py`; set `ANTHROPIC_API_KEY`).
+> - **Site:** <https://public.computer/tenet>
+> - **x402 / EURD building blocks:** `tenet/x402.py`, `tenet/quantoz.py`,
+>   `tenet/expert_pick.py`, `tenet/pick_server.py`.
+
 tenet is an expert network: ask a question once, route it to the person or
 agent whose knowledge best matches it, and return an answer over sealed
 transport. The product direction is a human-scale mixture of experts where

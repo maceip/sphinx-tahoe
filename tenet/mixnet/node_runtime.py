@@ -70,6 +70,9 @@ ReplyHandler = Callable[[PromptRequestEnvelope, str], Sequence[str]]
 CIRCUIT_ID_SIZE = 16
 KEY_SIZE = 16
 
+# Severity ranks for the _log level gate; "silent" suppresses all emission.
+_LEVEL_RANK = {"debug": 10, "info": 20, "warning": 30, "error": 40, "silent": 100}
+
 NodeRole = Literal["mixnode", "relay", "expert", "any"]
 
 
@@ -400,6 +403,10 @@ class WireNodeRuntime:
         link_cid: str | None = None,
         fields: dict[str, object] | None = None,
     ) -> None:
+        # Level gate: drop events below the configured threshold (level="silent"
+        # suppresses everything). Keeps the runtime quietable for demos/embedding.
+        if _LEVEL_RANK.get(level, 20) < _LEVEL_RANK.get(self.logging.level, 20):
+            return
         component = "tenet-node"
         emit_log_event(
             PorLogEvent(
