@@ -117,6 +117,30 @@ ROUTE_LOG = [
 ]
 
 
+def real_payment():
+    """REAL Algorand testnet payment when TENET_REAL_PAY is set and a funded payer
+    key (TENET_ALGO_MNEMONIC or /tmp/tenet_payer.mn) + TENET_PAY_TO exist.
+    Returns the txid, or None to fall back to the staged line. NEVER raises —
+    any failure (no wifi, no key, etc.) silently falls back, so the demo can't break."""
+    if not os.environ.get("TENET_REAL_PAY"):
+        return None
+    try:
+        mn = (os.environ.get("TENET_ALGO_MNEMONIC") or "").strip()
+        if not mn:
+            p = Path("/tmp/tenet_payer.mn")
+            mn = p.read_text(encoding="utf-8").strip() if p.exists() else ""
+        pay_to = os.environ.get("TENET_PAY_TO", "").strip()
+        if not mn or not pay_to:
+            return None
+        from algosdk import account, mnemonic
+        from tenet.algorand import algod_client, pay_algo
+        sk = mnemonic.to_private_key(mn)
+        addr = account.address_from_private_key(sk)
+        return pay_algo(algod_client(), sk, addr, pay_to, 100_000, note=b"tenet-x402-berlin")
+    except Exception:
+        return None
+
+
 def spinner(stop: threading.Event, label: str) -> None:
     for f in itertools.cycle("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"):
         if stop.is_set():
@@ -275,15 +299,22 @@ def main() -> int:
     pause(0.7)
     step()
 
-    # 4. pay
+    # 4. pay — REAL on-chain tx if TENET_REAL_PAY + funded payer; else staged line
     line()
     line(f"  {GREY}paying the expert pool…{R}")
     stop = threading.Event()
-    sp = threading.Thread(target=spinner, args=(stop, "settling EURD on algorand testnet"), daemon=True)
+    sp = threading.Thread(target=spinner, args=(stop, "settling on algorand testnet"), daemon=True)
     sp.start()
-    pause(1.6)
+    txid = real_payment()       # blocks ~4s for a real tx; instant None when staged
+    if txid is None:
+        pause(1.6)
     stop.set(); sp.join()
-    line(f"  {GREEN}✓ paid{R}  {GREY}tx{R} {BLUE}4F9A…21BC{R} {GREY}↗ lora.algokit.io{R}")
+    if txid:
+        short = f"{txid[:6]}…{txid[-4:]}"
+        line(f"  {GREEN}✓ paid{R}  {GREY}tx{R} {BLUE}{short}{R}  {GREEN}● real on-chain{R}")
+        line(f"  {GREY}   https://lora.algokit.io/testnet/tx/{txid}{R}")
+    else:
+        line(f"  {GREEN}✓ paid{R}  {GREY}tx{R} {BLUE}4F9A…21BC{R} {GREY}↗ lora.algokit.io{R}")
     pause(0.8)
     step()
 

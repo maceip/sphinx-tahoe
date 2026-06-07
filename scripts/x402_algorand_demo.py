@@ -49,8 +49,9 @@ def main() -> int:
         print("https://bank.testnet.algorand.network/ then re-run.")
         return 2
 
-    # the pool treasury (receives payment); a fresh address — receiving needs no funding
-    _treasury_sk, treasury_addr = account.generate_account()
+    # the pool treasury (receives payment). Set TENET_PAY_TO to land it in a wallet
+    # you can watch (e.g. your Pera/NVL6 address); else a throwaway receiver.
+    treasury_addr = os.environ.get("TENET_PAY_TO", "").strip() or account.generate_account()[1]
     print(f"pay-to:  {treasury_addr}")
 
     issuer = IssuerKey.generate(bits=2048)

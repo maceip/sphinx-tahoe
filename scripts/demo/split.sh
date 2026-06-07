@@ -35,7 +35,7 @@ tmux set-option -t "$SESSION" pane-border-format " #{pane_title} "
 # the whole session (both panes) — no orphaned tail -f.
 tmux select-pane -t "$SESSION":0.0 -T "ASKER  ·  your agent"
 tmux send-keys -t "$SESSION":0.0 \
-  "clear; TENET_VERBOSE=1 TENET_EXPERT_LOG='$LOG' '$PY' '$ROOT/scripts/demo/present.py' $*; printf '\n  \033[2mpress any key to exit\033[0m'; read -rsn1; tmux kill-session -t '$SESSION'" C-m
+  "clear; TENET_VERBOSE=1 TENET_REAL_PAY='${TENET_REAL_PAY:-}' TENET_PAY_TO='${TENET_PAY_TO:-}' TENET_EXPERT_LOG='$LOG' '$PY' '$ROOT/scripts/demo/present.py' $*; printf '\n  \033[2mpress any key to exit\033[0m'; read -rsn1; tmux kill-session -t '$SESSION'" C-m
 
 # RIGHT pane (1) = EXPERT
 tmux split-window -h -t "$SESSION":0
