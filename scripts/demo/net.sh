@@ -36,12 +36,13 @@ case "$CMD" in
     mkdir -p "$DIR"; rm -f "$DIR/askpack.json"
     tmux new-session -d -s "$S" -x "$(tput cols 2>/dev/null || echo 212)" -y "$(tput lines 2>/dev/null || echo 50)"
     tmux set-option -t "$S" status off
+    tmux set-option -t "$S" remain-on-exit on
     tmux set-option -t "$S" pane-border-status top
     tmux set-option -t "$S" pane-border-format " #{pane_title} "
     # LEFT (0) = ASKER — your agent (waits for the node, routes, one key exits both)
     tmux select-pane -t "$S":0.0 -T "ASKER  ·  berlin_ask.py (process 1)"
     tmux send-keys -t "$S":0.0 \
-      "clear; printf '  \033[2mconnecting to the expert node…\033[0m\n'; while [ ! -f '$DIR/askpack.json' ]; do sleep 0.3; done; sleep 1; TENET_NET_DIR='$DIR' '$PY' '$ROOT/scripts/demo/berlin_ask.py' $*; printf '\n  \033[2mpress any key to exit\033[0m'; read -rsn1; tmux kill-session -t '$S'" C-m
+      "clear; printf '  \033[2mconnecting to the expert node…\033[0m\n'; while [ ! -f '$DIR/askpack.json' ]; do sleep 0.3; done; sleep 1; TENET_NET_DIR='$DIR' '$PY' '$ROOT/scripts/demo/berlin_ask.py' $*; printf '\n  \033[2m── demo complete · Ctrl-b then & to exit ──\033[0m\n'" C-m
     # RIGHT (1) = EXPERT NODE — the persistent server
     tmux split-window -h -t "$S":0
     tmux select-pane -t "$S":0.1 -T "EXPERT NODE  ·  berlin_serve.py (process 2)"
