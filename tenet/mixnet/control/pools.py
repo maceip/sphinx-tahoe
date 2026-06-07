@@ -26,6 +26,14 @@ class PoolDescriptor:
     ranking_policy: str = "manifest_fit_then_reputation"
     member_capability_refs: tuple[str, ...] = ()
     claim_refs: tuple[str, ...] = ()
+    # ARC / payment commitment (Phase 1). The pool commits its blind-token issuer
+    # public key, its Algorand pay-to address, the issuance epoch, and how many
+    # queries each token grants. Clients verify rate-limit tokens ONLY under this
+    # committed key, which is itself carried in a *signed* pool control record.
+    arc_issuer_key_pem: str | None = None
+    pay_to: str | None = None
+    token_epoch: str | None = None
+    queries_per_token: int = 1
     schema: str = POOL_DESCRIPTOR_SCHEMA
 
     @classmethod
@@ -55,12 +63,24 @@ class PoolDescriptor:
                 str(item) for item in raw.get("member_capability_refs", ()) or ()
             ),
             claim_refs=tuple(str(item) for item in raw.get("claim_refs", ()) or ()),
+            arc_issuer_key_pem=_optional_str(raw.get("arc_issuer_key_pem")),
+            pay_to=_optional_str(raw.get("pay_to")),
+            token_epoch=_optional_str(raw.get("token_epoch")),
+            queries_per_token=int(raw.get("queries_per_token", 1)),
             schema=str(raw.get("schema", POOL_DESCRIPTOR_SCHEMA)),
         )
 
     @property
     def key(self) -> str:
         return f"pool/{self.name}/descriptor"
+
+    def issuer_public_key(self):
+        """Parsed blind-token issuer public key, or None if the pool has no ARC."""
+        if not self.arc_issuer_key_pem:
+            return None
+        from tenet.blind_rsa import IssuerPublicKey
+
+        return IssuerPublicKey.from_pem(self.arc_issuer_key_pem.encode("utf-8"))
 
     def validate(self) -> None:
         if self.schema != POOL_DESCRIPTOR_SCHEMA:
@@ -81,6 +101,14 @@ class PoolDescriptor:
             reject_routeable_string(ref, field="pool member_capability_ref")
         for tag in self.topic_tags:
             reject_routeable_string(tag, field="pool topic_tag")
+        if self.queries_per_token < 1:
+            raise ValueError("queries_per_token must be positive")
+        if self.arc_issuer_key_pem is not None:
+            # must be a real, parseable RSA public key
+            try:
+                self.issuer_public_key()
+            except Exception as exc:  # noqa: BLE001 - any parse failure is invalid
+                raise ValueError(f"invalid arc_issuer_key_pem: {exc}") from exc
 
     def to_dict(self) -> dict[str, object]:
         self.validate()
@@ -103,3 +131,10 @@ class PoolDescriptor:
             expires_at=expires_at,
             value=self.to_dict(),
         )
+
+
+def _optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text or None

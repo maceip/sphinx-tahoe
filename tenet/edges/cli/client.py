@@ -18,6 +18,7 @@ from tenet.experts.directory import load_public_snapshot_directory
 from tenet.experts.expert_mode import ExpertModeConfig
 from tenet.log_events import PorLogEvent, emit_log_event
 from tenet.mixnet.control import ControlBootstrap, PersistentControlStore, sync_control_from_cluster
+from tenet.vouchers import Voucher  # Privacy Pass-style email-able anonymous tickets for N queries
 
 
 ClientRunner = Callable[..., ClientRunResult]
@@ -51,12 +52,15 @@ class PersistentClientSession:
         discovery_provider,
         control_service=None,
         runner: ClientRunner = run_client_once,
+        voucher: Voucher | None = None,
     ) -> None:
         self.daemon = daemon
         self.cluster = cluster
         self.discovery_provider = discovery_provider
         self.control_service = control_service
         self.runner = runner
+        self.voucher = voucher  # email-able Privacy Pass packet: transferable, unlinkable, N queries
+        self._spent: set[str] = set()
         self.session_id = uuid4().hex
         self.started_at = datetime.now(timezone.utc).isoformat()
         self._request_count = 0
@@ -88,6 +92,7 @@ class PersistentClientSession:
     @property
     def stats(self) -> ClientSessionStats:
         with self._lock:
+            rem = len(self.voucher.tickets) if self.voucher else None
             return ClientSessionStats(
                 session_id=self.session_id,
                 request_count=self._request_count,
@@ -97,7 +102,7 @@ class PersistentClientSession:
                 last_duration_ms=self._last_duration_ms,
                 last_error=self._last_error,
                 started_at=self.started_at,
-            )
+            )  # note: voucher remaining tracked separately via self.voucher
 
     def request(
         self,

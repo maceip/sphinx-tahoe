@@ -1,0 +1,60 @@
+# 1 EC2 + 2 laptop nodes scenario for tlsn 2PC 3-hop test.
+# Sites: laptop (2 nodes local), ec2 (1 node remote).
+# Uses real planner min_mix_hops=3.
+# To run (after fixing SSH to your EC2):
+#   uv run python -m sim up sim/scenarios/1ec2-2laptop.yaml --netem --wait --rebuild
+# Then run workloads or exec the tlsn-2pc-test on the containers.
+# For tlsn: the containers have /usr/local/bin/tlsn-2pc-test from the node image.
+# To prove traffic: after up, on each node container run tcpdump on the mix port, then run a workload or the tlsn test that uses a path through all 3.
+
+network_id: "sim-core-2026-06"
+
+mixnet:
+  payload_size: 2048
+  routing_size: 16
+  max_hops: 5
+
+sites:
+  laptop:
+    runner: local-docker
+  ec2:
+    runner: ssh-docker
+    # Update with your actual SSH target for the EC2 (user@ip or with key).
+    # Example: ssh: "ec2-user@3.75.185.13"
+    # external_host: "3.75.185.13"
+    ssh: "ec2-user@3.75.185.13"
+    external_host: "3.75.185.13"
+
+links:
+  - from: laptop
+    to: ec2
+    latency_ms: 80
+    loss_percent: 0.0
+    jitter_ms: 5
+
+nodes:
+  - id: mix-laptop-1
+    placement: laptop
+    capabilities: [mixnode]
+  - id: mix-laptop-2
+    placement: laptop
+    capabilities: [mixnode]
+  - id: mix-ec2-1
+    placement: ec2
+    capabilities: [mixnode]
+
+# For the tlsn 2PC test, we can add a workload, but the test is run manually inside the containers
+# using the tlsn-2pc-test binary (verifier on one, prover on another).
+# To force paths through the EC2, the route resolution must select it (via control records or manual path).
+# For pure test, after 'sim up', exec into containers and run the tlsn binary in split mode,
+# using a local forward if needed, but capture tcpdump on all 3 to show any control/mix traffic.
+# For full "the 2PC bytes through the hops", a tunnel bridge is needed (future).
+
+workloads:
+  - name: tlsn-3hop-test
+    type: mixnet_client
+    placement: laptop
+    target: "pool~demo~tenet"  # adjust to a real pool if control has it
+    count: 1
+    expect_success: false  # placeholder; the real test is the tlsn binary run
+    timeout_s: 30.0

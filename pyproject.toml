@@ -26,6 +26,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+algorand = [
+  "algosdk >= 2.0.0",
+]
+demo = [
+  "algosdk >= 2.0.0",
+]
 dev = [
   "pytest >= 3.0.0",
   "pytest-cov >= 4.0.0",

@@ -146,6 +146,10 @@ class MixnetControlService:
         self.threshold = effective_threshold
         self.store = store
         self._revoked: set[str] = set()
+        # Provenance of each stored record key: "local" (wire/bootstrap/store),
+        # "dht" (iterative Kademlia fetch), or "sync" (anti-entropy pull). Used by
+        # the resolvers for source attribution and by Item 4's sync accounting.
+        self._record_sources: dict[str, str] = {}
         self._records: dict[str, SignedControlRecord] = {}
         self._advertisements: dict[str, ClientAdvertisement] = {}
         self._pools: dict[str, PoolDescriptor] = {}
@@ -167,7 +171,13 @@ class MixnetControlService:
             for signed in self.store.load():
                 self.put_signed(signed)
 
-    def put_signed(self, signed: SignedControlRecord, *, now: float | None = None) -> None:
+    def put_signed(
+        self,
+        signed: SignedControlRecord,
+        *,
+        now: float | None = None,
+        source: str = "local",
+    ) -> None:
         signed.validate(verify_keys=self.verify_keys, threshold=self.threshold, now=now)
         record = signed.record
         if record.network_id != self.network_id:
@@ -196,6 +206,7 @@ class MixnetControlService:
                 pass  # defensive; overlay will also enforce at publish time
 
         self._records[record.key] = signed
+        self._record_sources[record.key] = source
         if record.record_type == RECORD_TYPE_CLIENT_ADVERTISEMENT:
             advertisement = ClientAdvertisement.from_dict(record.value)
             advertisement.validate()
@@ -295,7 +306,7 @@ class MixnetControlService:
             candidate = self._kademlia_overlay.fetch(key)
             if candidate is not None:
                 try:
-                    self.put_signed(candidate, now=now)
+                    self.put_signed(candidate, now=now, source="dht")
                 except ControlRecordError:
                     return None
                 if key in self._revoked:
@@ -305,6 +316,11 @@ class MixnetControlService:
 
     def is_revoked(self, key: str) -> bool:
         return key in self._revoked
+
+    def record_source(self, key: str) -> str | None:
+        """Provenance of a stored record ("local"/"dht"/"sync"), or None."""
+
+        return self._record_sources.get(key)
 
     def have(self, key: str, *, now: float | None = None) -> dict[str, object] | None:
         signed = self.get(key, now=now)
@@ -409,6 +425,22 @@ class MixnetControlService:
 
     def reachability_assist(self, assist_id: str) -> ReachabilityAssistDescriptor | None:
         return self._reachability_assists.get(assist_id)
+
+    def reachability_assists(self) -> tuple[ReachabilityAssistDescriptor, ...]:
+        out = [
+            ra
+            for ra in self._reachability_assists.values()
+            if self.get(ra.key) is not None
+        ]
+        return tuple(sorted(out, key=lambda r: r.assist_id))
+
+    def mixnet_routings(self) -> tuple[MixnetRoutingDescriptor, ...]:
+        out = [
+            mr
+            for mr in self._mixnet_routings.values()
+            if self.get(mr.key) is not None
+        ]
+        return tuple(sorted(out, key=lambda m: m.node_id))
 
     def matcher_capability(self, matcher_id: str) -> MatcherCapabilityDescriptor | None:
         return self._matcher_capabilities.get(matcher_id)

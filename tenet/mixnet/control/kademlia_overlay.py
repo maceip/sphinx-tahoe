@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from dataclasses import dataclass, field
 from hashlib import sha256
 from typing import Sequence
 
@@ -45,6 +46,57 @@ from tenet.mixnet.control.records import (
     SignedControlRecord,
     signed_record_to_dht_bytes,
 )
+
+# publish() outcomes — publish never silently drops; it always returns one of
+# these so the caller (and metrics) know what happened.
+PUBLISH_SCHEDULED = "scheduled"
+PUBLISH_QUEUED = "queued"
+PUBLISH_REJECTED_OVERSIZED = "rejected_oversized"
+PUBLISH_REJECTED_MAX_RECORDS = "rejected_max_records"
+PUBLISH_REJECTED_MAX_PENDING = "rejected_max_pending"
+PUBLISH_REJECTED_SERIALIZE = "rejected_serialize"
+
+
+@dataclass
+class DhtMetrics:
+    """Counters for the control DHT overlay (best-effort observability)."""
+
+    publishes_scheduled: int = 0
+    publishes_queued: int = 0
+    publishes_rejected: int = 0
+    publish_set_ok: int = 0
+    publish_set_failed: int = 0
+    fetches: int = 0
+    fetch_hits: int = 0
+    fetch_misses: int = 0
+    republish_cycles: int = 0
+    republished_records: int = 0
+    tasks_cancelled_on_stop: int = 0
+
+    def snapshot(self) -> dict[str, int]:
+        return dict(self.__dict__)
+
+
+@dataclass
+class PeerFailureScore:
+    """Tracks per-peer failures so flaky/dead contacts can be deprioritised."""
+
+    _scores: dict[str, int] = field(default_factory=dict)
+
+    def record_failure(self, peer: str) -> None:
+        self._scores[peer] = self._scores.get(peer, 0) + 1
+
+    def record_success(self, peer: str) -> None:
+        self._scores[peer] = 0
+
+    def score(self, peer: str) -> int:
+        return self._scores.get(peer, 0)
+
+    def is_suspect(self, peer: str, *, threshold: int = 3) -> bool:
+        return self._scores.get(peer, 0) >= threshold
+
+    def snapshot(self) -> dict[str, int]:
+        return dict(self._scores)
 
 
 class KademliaControlOverlay:
@@ -74,11 +126,18 @@ class KademliaControlOverlay:
         listen_host: str = "0.0.0.0",
         listen_port: int,
         network_id: str | None = None,
+        max_records: int = 4096,
+        max_pending_publishes: int = 1024,
+        republish_interval: float = 3600.0,
     ) -> None:
         self.local_node_label = str(local_node_label)
         self.listen_host = listen_host
         self.listen_port = int(listen_port)
         self.network_id = network_id  # used to scope DHT keys per network (fix eclipse)
+        self.max_records = int(max_records)
+        self.max_bytes = MAX_SIGNED_CONTROL_RECORD_BYTES
+        self.max_pending_publishes = int(max_pending_publishes)
+        self.republish_interval = float(republish_interval)
         self.server: Server | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -87,6 +146,16 @@ class KademliaControlOverlay:
         self._mesh_ready = threading.Event()  # set after listen + (optional) bootstrap; publishes wait for this to avoid "no neighbors" sets
         self._pending_lock = threading.Lock()
         self._pending_publishes: list[tuple[str, SignedControlRecord]] = []
+        # Owned records: what this node is the publisher-of-record for. The
+        # republish loop re-asserts these to the k-closest nodes so they survive
+        # churn and storage expiry on replica holders.
+        self._owned: dict[str, SignedControlRecord] = {}
+        # In-flight set() futures (concurrent.futures.Future from
+        # run_coroutine_threadsafe). Tracked so stop() can drain them and leave
+        # NO pending asyncio task behind.
+        self._inflight: set = set()
+        self.metrics = DhtMetrics()
+        self.peer_failures = PeerFailureScore()
 
     async def _serve(self, bootstrap: Sequence[tuple[str, int]]) -> None:
         # Each node gets its own storage (in-memory is fine; records are also
@@ -106,11 +175,51 @@ class KademliaControlOverlay:
         # Now we have (or had no need for) initial neighbors. Safe to publish
         # with expectation of replication to k-closest.
         self._mesh_ready.set()
+        # Startup republish: re-assert any persisted/owned records now that the
+        # mesh is ready (callers populate _owned before/just after start(), and
+        # owned records survive a stop()/start() cycle on the same object).
         self._flush_pending()
-        # Idle until asked to stop. The Server's internal refresh loops keep
-        # buckets and replicas alive.
-        while not self._stop.is_set():
-            await asyncio.sleep(0.5)
+        with self._pending_lock:
+            owned = list(self._owned.items())
+        for rec_key, srec in owned:
+            self.publish(rec_key, srec)
+        republisher = asyncio.ensure_future(self._republish_loop())
+        try:
+            # Idle until asked to stop. The Server's internal refresh loops keep
+            # buckets and replicas alive.
+            while not self._stop.is_set():
+                await asyncio.sleep(0.25)
+        finally:
+            # Clean shutdown: cancel the republish loop and DRAIN every in-flight
+            # task so the loop never closes with pending work. This is what makes
+            # stop() leave no pending asyncio tasks.
+            republisher.cancel()
+            pending = [
+                task
+                for task in asyncio.all_tasks(self._loop)
+                if task is not asyncio.current_task()
+            ]
+            for task in pending:
+                task.cancel()
+            self.metrics.tasks_cancelled_on_stop += len(pending)
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+
+    async def _republish_loop(self) -> None:
+        """Periodically re-assert owned records to the k-closest nodes."""
+        try:
+            while not self._stop.is_set():
+                await asyncio.sleep(self.republish_interval)
+                if self._stop.is_set():
+                    break
+                self.metrics.republish_cycles += 1
+                with self._pending_lock:
+                    owned = list(self._owned.items())
+                for rec_key, srec in owned:
+                    self.publish(rec_key, srec)
+                    self.metrics.republished_records += 1
+        except asyncio.CancelledError:
+            return
 
     def start(self, bootstrap: Sequence[tuple[str, int]] = ()) -> None:
         """Launch the Kademlia server in a daemon thread with its own event loop."""
@@ -143,15 +252,33 @@ class KademliaControlOverlay:
         self._thread.start()
 
     def stop(self) -> None:
-        """Signal shutdown and wait briefly for the thread."""
+        """Signal shutdown and wait for the thread, leaving no pending tasks.
+
+        The serving coroutine's ``finally`` cancels the republish loop and drains
+        every in-flight task before the loop closes, so a stopped overlay never
+        emits "Task was destroyed but it is pending" warnings.
+        """
         self._stop.set()
         if self._loop is not None:
             # Wake the sleep loop.
             self._loop.call_soon_threadsafe(lambda: None)
         if self._thread is not None:
-            self._thread.join(timeout=2.0)
+            self._thread.join(timeout=5.0)
+        # Any futures still tracked here are already cancelled by the drain; clear
+        # references so a stopped overlay holds nothing.
+        for fut in list(self._inflight):
+            fut.cancel()
+        self._inflight.clear()
         self._ready.clear()
         self._mesh_ready.clear()
+
+    def owned_record_count(self) -> int:
+        with self._pending_lock:
+            return len(self._owned)
+
+    def pending_publish_count(self) -> int:
+        with self._pending_lock:
+            return len(self._pending_publishes)
 
     def wait_for_mesh(self, timeout: float = 5.0) -> bool:
         """Block (with timeout) until this overlay has completed listen and its
@@ -191,30 +318,47 @@ class KademliaControlOverlay:
             except Exception:
                 pass
 
-    def publish(self, key: str, signed: SignedControlRecord) -> None:
-        """Best-effort publish of a signed record.
+    def publish(self, key: str, signed: SignedControlRecord) -> str:
+        """Publish a signed record. Returns a PUBLISH_* status.
 
         The value stored in Kademlia is the canonical to_dict() form under a
-        network-scoped key. Callers must still validate on retrieval.
+        network-scoped key. publish never silently drops: it either confirms it
+        scheduled the set, confirms it queued (mesh not ready), or returns a
+        rejection status (oversized / over a capacity bound). Callers must still
+        validate on retrieval.
         """
         # Size bound (fix 7): reject oversized before we ever call into Kademlia set.
         try:
             blob = signed_record_to_dht_bytes(signed)
-            if len(blob) > MAX_SIGNED_CONTROL_RECORD_BYTES:
-                return  # drop; do not store in DHT
         except Exception:
-            return
+            self.metrics.publishes_rejected += 1
+            return PUBLISH_REJECTED_SERIALIZE
+        if len(blob) > self.max_bytes:
+            self.metrics.publishes_rejected += 1
+            return PUBLISH_REJECTED_OVERSIZED
+
+        # Capacity bound on owned records (a new key beyond the cap is refused;
+        # updating an existing owned key is always allowed).
+        with self._pending_lock:
+            is_new_key = key not in self._owned
+            if is_new_key and len(self._owned) >= self.max_records:
+                self.metrics.publishes_rejected += 1
+                return PUBLISH_REJECTED_MAX_RECORDS
+            self._owned[key] = signed
 
         if self.server is None or self._loop is None or not self._mesh_ready.is_set():
-            # Queue while the mesh is not ready (post-bootstrap). This prevents
-            # publishing via server.set() when there are no known neighbors yet,
-            # which would cause the value to be stored only locally (or dropped)
-            # instead of replicated. The pending items are flushed once
-            # _serve completes its bootstrap step and sets _mesh_ready.
+            # Queue while the mesh is not ready (post-bootstrap). Bounded so a
+            # stuck bootstrap cannot grow the queue without limit.
             if self._thread and self._thread.is_alive():
                 with self._pending_lock:
+                    if len(self._pending_publishes) >= self.max_pending_publishes:
+                        self.metrics.publishes_rejected += 1
+                        return PUBLISH_REJECTED_MAX_PENDING
                     self._pending_publishes.append((key, signed))
-            return
+                self.metrics.publishes_queued += 1
+                return PUBLISH_QUEUED
+            self.metrics.publishes_rejected += 1
+            return PUBLISH_REJECTED_MAX_PENDING
 
         self._flush_pending()
 
@@ -223,13 +367,42 @@ class KademliaControlOverlay:
         async def _do_set() -> None:
             if self.server is None:
                 return
-            await self.server.set(dht_key, blob.decode("utf-8"))  # lib accepts str or bytes; keep consistent
+            try:
+                await self.server.set(dht_key, blob.decode("utf-8"))
+                self.metrics.publish_set_ok += 1
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.metrics.publish_set_failed += 1
 
         try:
-            asyncio.run_coroutine_threadsafe(_do_set(), self._loop)
+            fut = asyncio.run_coroutine_threadsafe(_do_set(), self._loop)
         except Exception:
-            # Fire-and-forget; a later refresh or explicit re-publish will retry.
-            pass
+            self.metrics.publishes_rejected += 1
+            return PUBLISH_REJECTED_MAX_PENDING
+        # Track the future so stop()/flush() can drain it cleanly.
+        self._inflight.add(fut)
+        fut.add_done_callback(lambda f: self._inflight.discard(f))
+        self.metrics.publishes_scheduled += 1
+        return PUBLISH_SCHEDULED
+
+    def flush(self, timeout: float = 5.0) -> bool:
+        """Flush queued publishes and wait for in-flight sets to settle.
+
+        Returns True if everything in flight completed within the timeout.
+        """
+        self._flush_pending()
+        inflight = list(self._inflight)
+        if not inflight:
+            return True
+        deadline_each = max(0.0, timeout) / max(1, len(inflight))
+        ok = True
+        for fut in inflight:
+            try:
+                fut.result(timeout=deadline_each if deadline_each > 0 else None)
+            except Exception:
+                ok = False
+        return ok
 
     def fetch(self, key: str, timeout: float = 4.0) -> SignedControlRecord | None:
         """Perform an iterative Kademlia GET for the key and return a parsed
@@ -250,19 +423,26 @@ class KademliaControlOverlay:
                 return None
             return await self.server.get(dht_key)
 
+        self.metrics.fetches += 1
         try:
             fut = asyncio.run_coroutine_threadsafe(_do_get(), self._loop)
             raw = fut.result(timeout=timeout)
         except Exception:
+            self.metrics.fetch_misses += 1
             return None
         if not raw:
+            self.metrics.fetch_misses += 1
             return None
         try:
             data = raw if isinstance(raw, (bytes, bytearray)) else raw.encode("utf-8")
             if len(data) > MAX_SIGNED_CONTROL_RECORD_BYTES:
+                self.metrics.fetch_misses += 1
                 return None  # oversized from DHT; reject (fix 7)
-            return SignedControlRecord.from_dict(json.loads(data))
+            record = SignedControlRecord.from_dict(json.loads(data))
+            self.metrics.fetch_hits += 1
+            return record
         except Exception:
+            self.metrics.fetch_misses += 1
             return None
 
     def control_wire_contacts(

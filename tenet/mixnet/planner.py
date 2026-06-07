@@ -35,7 +35,7 @@ class MixnetForwardPlan:
     mix_path: tuple[str, ...] = ()
     dial_target: DialTarget | None = None
     source: str = "local-policy"
-    min_mix_hops: int = 0
+    min_mix_hops: int = 0  # production anonymity floor (>=3) comes from config, not a hardcoded default; small/dev networks degrade rather than hard-fail
     known_mixnodes: frozenset[str] = frozenset()
 
     @property

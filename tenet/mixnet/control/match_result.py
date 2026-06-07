@@ -130,6 +130,66 @@ def query_commitment(
     ).hexdigest()
 
 
+def derive_query_commitment(
+    *,
+    network_id: str,
+    pool: str,
+    prompt: str,
+    expertise: str | None = None,
+    dataset_commitment: str | None = None,
+    epoch_salt: str,
+) -> str:
+    """Stronger query commitment binding network, dataset, and epoch.
+
+    A cached match result is only reusable for the *exact* query it answered, on
+    the *same* network, against the *same* dataset, in the *same* epoch. Binding
+    all of these into the commitment means a result for a different prompt,
+    network, dataset, or epoch produces a different commitment and therefore
+    cannot be mis-served as a fallback.
+    """
+
+    if not network_id:
+        raise ValueError("derive_query_commitment requires network_id")
+    if not epoch_salt:
+        raise ValueError("derive_query_commitment requires epoch_salt")
+    parsed = parse_tenet_name(pool)
+    payload = {
+        "network_id": network_id,
+        "pool_name": parsed.normalized,
+        "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "requested_expertise": expertise,
+        "dataset_commitment": dataset_commitment,
+        "epoch_salt": epoch_salt,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+@dataclass(frozen=True)
+class QueryCommitmentPolicy:
+    """Binds the non-prompt inputs of a query commitment for an epoch.
+
+    Product code holds one of these instead of threading a bare salt around, so
+    the cache lookup before live-matcher fallback is automatic and consistently
+    bound to network + dataset + epoch.
+    """
+
+    network_id: str
+    epoch_salt: str
+    dataset_commitment: str | None = None
+
+    def derive(self, *, pool: str, prompt: str, expertise: str | None = None) -> str:
+        return derive_query_commitment(
+            network_id=self.network_id,
+            pool=pool,
+            prompt=prompt,
+            expertise=expertise,
+            dataset_commitment=self.dataset_commitment,
+            epoch_salt=self.epoch_salt,
+        )
+
+
 def _optional_str(value: object) -> str | None:
     if value is None:
         return None

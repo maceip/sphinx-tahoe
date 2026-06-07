@@ -36,7 +36,9 @@ from tenet.experts.expert_mode import (
 )
 from tenet.experts.expert_route import RouteIntent
 from tenet.handles import HandleResolution
-from tenet.mixnet.control import query_commitment
+from tenet.mixnet.control import derive_query_commitment
+from tenet.mixnet.control.policy import TrustPolicy
+from tenet.mixnet.control.resolvers import resolve_cached_match_results
 from tenet.mixnet.node_runtime import build_native_forward_plan
 from tenet.mixnet.peer_address import ROUTE_RELAY, build_dial_plan, peer_address_record_from_dict, verify_record_signature
 from tenet.mixnet.planner import MixnetPlanningError, build_forward_plan, resolve_name_binding
@@ -53,12 +55,20 @@ class ClientRunResult:
     fallback_used: bool
     response_text: str
     client_logs: str
+    # Matcher selection metadata (Item 6/8): which matcher path produced this
+    # route, and whether it was a degraded-trust (non-TEE) selection.
+    matcher_source: str | None = None
+    degraded_trust: bool = False
 
     @property
     def selected_peer_id(self) -> str | None:
         """Compatibility alias for one schema transition."""
 
         return self.selected_handle
+
+    @property
+    def cached_match_used(self) -> bool:
+        return self.matcher_source == "cached_tee_result"
 
 
 @dataclass(frozen=True)
@@ -100,6 +110,7 @@ def run_client_once(
     stable_binding = None
     control_mix_path: tuple[str, ...] = ()
     pool_name_for_gossip = None
+    matcher_source: str | None = None
     if service_name:
         try:
             binding = resolve_name_binding(service_name, control_service=control_service)
@@ -141,6 +152,7 @@ def run_client_once(
             config=expert_mode_config or ExpertModeConfig(),
             descriptor_hash=stable_binding.descriptor_hash,
         )
+        matcher_source = "stable_name"
         control_logs.append(
             "client event=tenet_name_stable_bound name={name} handle={handle}".format(
                 name=stable_binding.name,
@@ -157,6 +169,7 @@ def run_client_once(
         )
         if gossip is not None:
             prepared, gossip_logs = gossip
+            matcher_source = "cached_tee_result"
             control_logs.extend(gossip_logs)
         else:
             try:
@@ -165,6 +178,7 @@ def run_client_once(
                     discovery_provider,
                     expert_mode_config or ExpertModeConfig(),
                 )
+                matcher_source = "authority_pinned"
             except PrivateDiscoveryUnavailable:
                 gossip = _prepare_from_match_gossip(
                     intent=intent,
@@ -176,6 +190,7 @@ def run_client_once(
                 if gossip is None:
                     raise
                 prepared, gossip_logs = gossip
+                matcher_source = "cached_tee_result"
                 control_logs.extend(gossip_logs)
 
     logs = [
@@ -199,6 +214,7 @@ def run_client_once(
         )
         if gossip is not None:
             prepared, gossip_logs = gossip
+            matcher_source = "cached_tee_result"
             logs.extend(gossip_logs)
         else:
             reason = prepared.trace.fallback_reason or "no expert selected"
@@ -291,7 +307,10 @@ def run_client_once(
         mix_path=route_result.relay_path,
         dial_target=route_result.dial_target,
         source="expert-selection",
-        min_mix_hops=1 if route_result.relay_path else 0,
+        # Anonymity floor adapts to the available path: enforce up to 3 hops when
+        # the network has them, but never hard-fail a small/dev network that
+        # can't supply 3 (production raises this via config + path selection).
+        min_mix_hops=min(3, len(route_result.relay_path)),
         known_mixnodes=_known_mixnode_ids(cluster, control_service),
     )
     logs.append(forward_plan.log_line())
@@ -314,6 +333,7 @@ def run_client_once(
         fallback_used=False,
         response_text=response,
         client_logs="\n".join(logs),
+        matcher_source=matcher_source,
     )
 
 
@@ -428,23 +448,31 @@ def _prepare_from_match_gossip(
     pool_name: str | None,
     salt: str | None,
     config: ExpertModeConfig,
+    dataset_commitment: str | None = None,
 ):
     if control_service is None or pool_name is None or not salt:
         return None
-    commitment = query_commitment(
+    # Item 8 cutover: the query commitment binds network + dataset + epoch, not
+    # just a manual salt, so a cached result can only be served for the exact
+    # query it answered on this network against this dataset in this epoch.
+    commitment = derive_query_commitment(
+        network_id=control_service.network_id,
+        pool=pool_name,
         prompt=intent.prompt,
-        pool_name=pool_name,
-        requested_expertise=intent.requested_expertise,
-        salt=salt,
+        expertise=intent.requested_expertise,
+        dataset_commitment=dataset_commitment,
+        epoch_salt=salt,
     )
-    results = control_service.match_results(
-        pool_name=pool_name,
-        query_commitment=commitment,
-    )
-    for result in results:
-        signed = control_service.get(result.key)
-        if signed is None:
-            continue
+    # Hard cutover: product code consumes the trust-aware resolver, not raw
+    # service.get(). The resolver applies revocation/expiry filtering, attributes
+    # provenance, rejects cover-only results, and reports rejection reasons.
+    policy = getattr(control_service, "trust_policy", None) or TrustPolicy()
+    resolution = resolve_cached_match_results(control_service, pool_name, commitment, policy)
+    rejected_note = ""
+    if resolution.rejected:
+        rejected_note = " rejected=" + ",".join(sorted({r.reason for r in resolution.rejected}))
+    for cand in resolution.candidates:
+        result = cand.result
         for candidate in result.candidates:
             if candidate.cover:
                 continue
@@ -454,19 +482,22 @@ def _prepare_from_match_gossip(
                 matcher_id=result.matcher_id,
                 result_key=result.key,
                 attestation_ref=result.attestation_ref,
-                record_issued_at=signed.record.issued_at,
-                record_expires_at=signed.record.expires_at,
+                record_issued_at=cand.issued_at,
+                record_expires_at=cand.expires_at,
                 config=config,
             )
             return prepared, (
                 "client event=match_result_gossip_used source=cached_tee_signed live_tee_match=false "
                 "selection_policy=prefer_signed_cached_tee_absent_reputation "
-                "pool={pool} matcher={matcher} handle={handle} record_key={key} expires_at={expires}".format(
+                "match_source={src} pool={pool} matcher={matcher} handle={handle} "
+                "record_key={key} expires_at={expires}{rej}".format(
+                    src=cand.source,
                     pool=pool_name,
                     matcher=result.matcher_id,
                     handle=candidate.handle,
                     key=result.key,
-                    expires=signed.record.expires_at,
+                    expires=cand.expires_at,
+                    rej=rejected_note,
                 ),
             )
     return None
