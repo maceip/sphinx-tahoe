@@ -72,6 +72,20 @@ import logging as _logging  # noqa: E402
 _logging.getLogger("asyncio").setLevel(_logging.CRITICAL)
 _logging.getLogger("concurrent.futures").setLevel(_logging.CRITICAL)
 
+# The optional control-DHT (Kademlia) overlay runs in its own daemon thread and
+# may fail to bind a derived port — non-fatal (routing uses matcher+reachability,
+# not the overlay). Swallow that thread's traceback so it never hits the screen.
+import threading as _threading  # noqa: E402
+
+
+def _quiet_excepthook(args):
+    if "kad" in (getattr(args.thread, "name", "") or ""):
+        return
+    _threading.__excepthook__(args)
+
+
+_threading.excepthook = _quiet_excepthook
+
 
 def load_anthropic_key():
     """Bulletproof key: if ANTHROPIC_API_KEY isn't exported, load it from
